@@ -1,4 +1,5 @@
-// SPDX-FileCopyrightText: 2026 Erin Catto
+// SPDX-FileCopyrightText: 2025-2026 Erin Catto -- derived from Box3D (https://github.com/erincatto/box3d)
+// SPDX-FileCopyrightText: 2026 Más Bandwidth LLC -- fixed-point conversion
 // SPDX-License-Identifier: MIT
 // Minimal macro base for the fixed library, extracted from box3d/base.h so box3d
 // can depend on this library without renaming its API.

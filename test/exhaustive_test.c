@@ -101,7 +101,9 @@ int main( void )
 			for ( unsigned j = 0; j < sizeof( bs ) / sizeof( bs[0] ); j++ )
 			{
 				b3Fixed a = as[i], b = bs[j];
-				b3Int128 ref128 = ref_div_128( ( (b3Int128)a << B3_FIXED_FRACTION_BITS ), b ); // trunc-toward-zero
+				// unsigned shift: left-shifting a negative value is UB
+				b3Int128 num = (b3Int128)( (b3UInt128)(b3Int128)a << B3_FIXED_FRACTION_BITS );
+				b3Int128 ref128 = ref_div_128( num, b ); // trunc-toward-zero
 				b3Fixed got = b3FixDiv( a, b );
 				CHECK( got == (b3Fixed)ref128 );
 				mix( got );

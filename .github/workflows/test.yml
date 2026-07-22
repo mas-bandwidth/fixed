@@ -27,3 +27,19 @@ jobs:
         run: cmake --build build --config Release
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
+
+  # Undefined behavior is how "bit-identical" dies quietly: a signed-overflow
+  # or negative-shift that happens to agree today diverges on the next
+  # compiler. UBSan enforces that the library and its tests contain none.
+  ubsan:
+    name: ubsan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run under UBSan
+        run: |
+          for t in determinism_test transcendental_test exhaustive_test wide_time_test; do
+            clang -O2 -fsanitize=undefined -fno-sanitize-recover=all \
+              -I include "test/$t.c" src/fixed_math.c src/fixed_vec.c -lm -o "/tmp/$t"
+            "/tmp/$t"
+          done

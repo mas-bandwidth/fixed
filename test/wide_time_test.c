@@ -25,7 +25,7 @@ static int fails = 0;
 	} while ( 0 )
 
 // Frozen: captured on arm64 clang, must match on every platform forever.
-#define EXPECTED_WIDE_HASH 0x478cc0823625290dULL
+#define EXPECTED_WIDE_HASH 0xeedc16ea642ffb5fULL
 
 int main( void )
 {
@@ -62,7 +62,8 @@ int main( void )
 			s = s * 6364136223846793005ULL + 1442695040888963407ULL;
 			b3Fixed d = (b3Fixed)s >> 8;
 			s = s * 6364136223846793005ULL + 1442695040888963407ULL;
-			b3FixedWide base = (b3FixedWide)(int64_t)s << ( s % 60 );
+			// unsigned shift: left-shifting a negative value is UB
+			b3FixedWide base = (b3FixedWide)( (b3UInt128)(int64_t)s << ( s % 60 ) );
 
 			// widen/narrow roundtrip is exact for every int64
 			CHECK( b3WideToFixed( b3WideFromFixed( x ) ) == x );
@@ -141,8 +142,13 @@ int main( void )
 			(b3FixedWide)INT64_MIN - 1,
 			( (b3FixedWide)1 << 64 ),
 			-( (b3FixedWide)1 << 64 ),
-			( (b3FixedWide)1 << 126 ),
-			-( (b3FixedWide)1 << 126 ),
+			// Kept at 1<<125 so every pairwise sum and difference in the sweep
+			// stays inside int128 -- 1<<126 probes made a+b overflow, which is
+			// UB that gcc and clang compile differently (the ubuntu CI hash
+			// mismatch that caught it). Far beyond the Q112.16 world contract
+			// (~2^111) either way.
+			( (b3FixedWide)1 << 125 ),
+			-( (b3FixedWide)1 << 125 ),
 		};
 		int n = (int)( sizeof( probes ) / sizeof( probes[0] ) );
 		for ( int i = 0; i < n; i++ )

@@ -23,6 +23,10 @@ if (NOT WIN32)
 endif()
 add_test(NAME transcendental COMMAND fixed_transcendental_test)
 
+add_executable(fixed_wide_time_test test/wide_time_test.c)
+target_link_libraries(fixed_wide_time_test PRIVATE fixed)
+add_test(NAME wide_time COMMAND fixed_wide_time_test)
+
 add_executable(fixed_exhaustive_test test/exhaustive_test.c)
 target_link_libraries(fixed_exhaustive_test PRIVATE fixed)
 add_test(NAME exhaustive COMMAND fixed_exhaustive_test)

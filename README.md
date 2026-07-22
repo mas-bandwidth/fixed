@@ -26,9 +26,12 @@ and CI extends that to Linux/libstdc++ and Windows/MSVC.
 
 - [x] Core scalar type + arithmetic (`fixed.h`): mul, div, sqrt, abs, floor,
       ceil, clamp, conversions — extracted and cross-arch determinism-validated.
-- [ ] Integer transcendentals (`b3ComputeCosSin`, `b3Atan2`) — Bhāskara
-      rational approximations, pure fixed-point. Next milestone.
-- [ ] Vector / quaternion / transform types built on `b3Fixed`.
+- [x] Integer transcendentals (`b3ComputeCosSin`, `b3Atan2`, `b3Sin`, `b3Cos`,
+      `b3UnwindAngle`) — pure fixed-point, cross-arch determinism-validated, and
+      correct vs libm (cos/sin < 0.0017, atan2 < 0.00004 rad).
+- [ ] Vector / quaternion / matrix / transform / position types on `b3Fixed`.
+- [ ] Fixed-point scalars and fixed-point time.
+- [ ] box3d depends on `fixed` for its fixed-point core.
 
 ## License
 

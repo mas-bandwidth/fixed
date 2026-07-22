@@ -32,5 +32,13 @@ int main( void )
         mix( b3FixClamp( a, -B3_FIXED_ONE, B3_FIXED_ONE ) );
     }
     printf( "fixed-core determinism hash = 0x%016llx\n", (unsigned long long)fnv );
+    // FROZEN 2026-07-22, verified identical on arm64 and x86_64. Any platform,
+    // compiler, or semantic change that alters a single bit fails here: this is
+    // the cross-platform bit-identity guarantee, enforced locally and in CI.
+    if ( fnv != 0x3e1c7997594d2019ULL )
+    {
+        printf( "DETERMINISM FAILURE: expected 0x3e1c7997594d2019\n" );
+        return 1;
+    }
     return 0;
 }

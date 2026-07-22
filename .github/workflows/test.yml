@@ -1,0 +1,29 @@
+# CI for the fixed-point library. The determinism tests assert FROZEN hashes,
+# so every OS in the matrix must produce bit-identical results — cross-platform
+# determinism is ENFORCED here, not merely hoped for. The negative-control test
+# (WILL_FAIL) proves the suite detects breakage.
+#
+# Windows uses ClangCL: the fixed core requires __int128 (clang/gcc/clang-cl;
+# plain MSVC is unsupported by design — see include/fixed/fixed.h).
+name: test
+on: [push, pull_request]
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure (non-Windows)
+        if: runner.os != 'Windows'
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Configure (Windows, ClangCL for __int128)
+        if: runner.os == 'Windows'
+        run: cmake -S . -B build -T ClangCL
+      - name: Build
+        run: cmake --build build --config Release
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure

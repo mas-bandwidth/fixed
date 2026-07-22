@@ -40,6 +40,27 @@ static b3Fixed MUL( b3Fixed a, b3Fixed b )
 #define EXPECTED_SWEEP_HASH 0x5a4aac80ad1b6c5dULL
 #endif
 
+// Independent truncating 128-bit division reference: shift-subtract on
+// magnitudes, no native / (which needs compiler-rt on Windows ClangCL) and no
+// dependence on the library's own b3Int128Div.
+static b3Int128 ref_div_128( b3Int128 a, b3Int128 b )
+{
+	b3UInt128 un = a < 0 ? -(b3UInt128)a : (b3UInt128)a;
+	b3UInt128 ud = b < 0 ? -(b3UInt128)b : (b3UInt128)b;
+	b3UInt128 q = 0;
+	b3UInt128 r = 0;
+	for ( int i = 127; i >= 0; i-- )
+	{
+		r = ( r << 1 ) | ( ( un >> i ) & 1 );
+		if ( r >= ud )
+		{
+			r -= ud;
+			q |= (b3UInt128)1 << i;
+		}
+	}
+	return ( a < 0 ) != ( b < 0 ) ? -(b3Int128)q : (b3Int128)q;
+}
+
 int main( void )
 {
 	// ---- A. constants -----------------------------------------------------
@@ -80,7 +101,7 @@ int main( void )
 			for ( unsigned j = 0; j < sizeof( bs ) / sizeof( bs[0] ); j++ )
 			{
 				b3Fixed a = as[i], b = bs[j];
-				b3Int128 ref128 = ( (b3Int128)a << B3_FIXED_FRACTION_BITS ) / b; // native trunc-toward-zero
+				b3Int128 ref128 = ref_div_128( ( (b3Int128)a << B3_FIXED_FRACTION_BITS ), b ); // trunc-toward-zero
 				b3Fixed got = b3FixDiv( a, b );
 				CHECK( got == (b3Fixed)ref128 );
 				mix( got );

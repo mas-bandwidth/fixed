@@ -8,6 +8,7 @@
 // injects a deliberate 1-ulp error into one multiply inside the sweep. That
 // build MUST fail (ctest WILL_FAIL) — proving this suite detects breakage.
 #include "fixed/fixed.h"
+#include "fixed/fixed_vec.h"
 #include <stdio.h>
 #include <stdint.h>
 
@@ -203,6 +204,64 @@ int main( void )
 			mix( b3FixCeil( edges[i] ) );
 			mix( b3FixSqrt( edges[i] ) );
 		}
+	}
+
+	// ---- H. vector / quaternion / transform properties (exact + ulp-bounded) ----
+	// These ops are compositions of the hash-frozen scalar core plus exact integer
+	// adds, so properties (not another frozen hash) are the right coverage.
+	{
+		uint64_t s = 0x243F6A8885A308D3ULL;
+		for ( int i = 0; i < 20000; i++ )
+		{
+			b3Vec3 a, b, p;
+			int64_t* comps[9] = { &a.x, &a.y, &a.z, &b.x, &b.y, &b.z, &p.x, &p.y, &p.z };
+			for ( int c = 0; c < 9; c++ )
+			{
+				s = s * 6364136223846793005ULL + 1442695040888963407ULL;
+				*comps[c] = (b3Fixed)( (int64_t)( s >> 20 ) % ( (int64_t)1 << 24 ) ) - ( (int64_t)1 << 23 );
+			}
+			// exact integer laws
+			b3Vec3 sum = b3Add( a, b );
+			b3Vec3 back = b3Sub( sum, b );
+			CHECK( back.x == a.x && back.y == a.y && back.z == a.z );
+			b3Vec3 nn = b3Neg( b3Neg( a ) );
+			CHECK( nn.x == a.x && nn.y == a.y && nn.z == a.z );
+			CHECK( b3Dot( a, b ) == b3Dot( b, a ) );
+			b3Vec3 cab = b3Cross( a, b ), cba = b3Cross( b, a );
+			CHECK( cab.x == -cba.x && cab.y == -cba.y && cab.z == -cba.z );
+			b3Vec3 sv = b3MulSV( B3_FIXED_ONE, a );
+			CHECK( sv.x == a.x && sv.y == a.y && sv.z == a.z );
+			// normalize: unit length within a few ulps (skip near-zero vectors)
+			if ( b3LengthSquared( a ) > B3_FIX( 0.01 ) )
+			{
+				b3Fixed len = b3Length( b3Normalize( a ) );
+				b3Fixed d = len - B3_FIXED_ONE; if ( d < 0 ) d = -d;
+				CHECK( d <= 8 );
+			}
+			// quaternion laws
+			b3Quat q = b3MakeQuatFromAxisAngle( b3Vec3_axisY, b3FixShiftLeft( (b3Fixed)( i % 200 ) - 100, 9 ) );
+			b3Quat qi = b3MulQuat( q, b3Quat_identity );
+			CHECK( qi.v.x == q.v.x && qi.v.y == q.v.y && qi.v.z == q.v.z && qi.s == q.s );
+			b3Vec3 rv = b3RotateVector( b3Quat_identity, p );
+			CHECK( rv.x == p.x && rv.y == p.y && rv.z == p.z );
+			b3Vec3 rt = b3InvRotateVector( q, b3RotateVector( q, p ) );
+			{
+				b3Fixed dx = rt.x - p.x, dy = rt.y - p.y, dz = rt.z - p.z;
+				if ( dx < 0 ) dx = -dx; if ( dy < 0 ) dy = -dy; if ( dz < 0 ) dz = -dz;
+				CHECK( dx <= 96 && dy <= 96 && dz <= 96 ); // rotation roundtrip within sub-milliunit
+			}
+			// transform roundtrip
+			b3Transform t; t.p = a; t.q = q;
+			b3Vec3 tp = b3InvTransformPoint( t, b3TransformPoint( t, p ) );
+			{
+				b3Fixed dx = tp.x - p.x, dy = tp.y - p.y, dz = tp.z - p.z;
+				if ( dx < 0 ) dx = -dx; if ( dy < 0 ) dy = -dy; if ( dz < 0 ) dz = -dz;
+				CHECK( dx <= 96 && dy <= 96 && dz <= 96 );
+			}
+		}
+		// constants sanity
+		CHECK( b3Vec3_zero.x == 0 && b3Vec3_one.y == B3_FIXED_ONE && b3Quat_identity.s == B3_FIXED_ONE );
+		CHECK( B3_PI == B3_FIX( 3.14159265359f ) );
 	}
 
 	printf( "exhaustive sweep hash = 0x%016llx\n", (unsigned long long)fnv );

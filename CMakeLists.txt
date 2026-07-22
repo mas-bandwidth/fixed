@@ -7,7 +7,7 @@ if (NOT MSVC)
     add_compile_options(-ffp-contract=off)
 endif()
 
-add_library(fixed STATIC src/fixed_math.c)
+add_library(fixed STATIC src/fixed_math.c src/fixed_vec.c)
 target_include_directories(fixed PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 enable_testing()

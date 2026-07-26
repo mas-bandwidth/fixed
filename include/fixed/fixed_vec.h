@@ -743,6 +743,61 @@ B3_INLINE b3Int128 b3Cofactor128( b3Fixed a, b3Fixed b, b3Fixed c, b3Fixed d )
 {
 	return (b3Int128)a * b - (b3Int128)c * d; // Q32.32
 }
+
+/// Validity predicates for the fixed-point math types.
+///
+/// Extracted from fixed3d's math_functions.c, unchanged in behaviour. In fixed3d these
+/// are B3_API functions in a translation unit; here they are inline, matching the rest
+/// of this header. The bodies are byte-equivalent.
+///
+/// Deliberately NOT extracted, and the reason matters:
+///   - b3IsValidPosition / b3IsValidWorldTransform have TWO definitions in fixed3d,
+///     selected by BOX3D_LUDICROUS_MODE, because b3Pos changes shape under that flag.
+///     They cannot move until the narrow/wide b3Pos design fork is resolved.
+///   - b3IsValidAABB / b3IsValidPlane / b3IsValidRay take collision types (b3AABB,
+///     b3Plane, b3RayCastInput). Those are physics, not fixed-point math, and stay.
+
+/// True if a is a representable fixed-point quantity.
+///
+/// Fixed point has no NaN, and the saturation values are legal quantities: B3_FIXED_MAX
+/// plays the role FLT_MAX did (joint thresholds and spring force limits default to it,
+/// mirroring isfinite( FLT_MAX ) == true). Only INT64_MIN is unrepresentable -- reserved
+/// so that negation cannot overflow.
+B3_INLINE bool b3IsValidFixed( b3Fixed a )
+{
+	return a != INT64_MIN;
+}
+
+/// True if every component of a is a representable fixed-point quantity.
+B3_INLINE bool b3IsValidVec3( b3Vec3 a )
+{
+	return b3IsValidFixed( a.x ) && b3IsValidFixed( a.y ) && b3IsValidFixed( a.z );
+}
+
+/// True if q is representable AND normalized. A non-normalized quaternion is not a
+/// rotation, so the normalization check is part of validity, not a separate question.
+B3_INLINE bool b3IsValidQuat( b3Quat a )
+{
+	if ( !b3IsValidFixed( a.v.x ) || !b3IsValidFixed( a.v.y ) || !b3IsValidFixed( a.v.z ) || !b3IsValidFixed( a.s ) )
+	{
+		return false;
+	}
+
+	return b3IsNormalizedQuat( a );
+}
+
+/// True if both the translation and the rotation of a are valid.
+B3_INLINE bool b3IsValidTransform( b3Transform a )
+{
+	return b3IsValidVec3( a.p ) && b3IsValidQuat( a.q );
+}
+
+/// True if every column of a is a valid vector.
+B3_INLINE bool b3IsValidMatrix3( b3Matrix3 a )
+{
+	return b3IsValidVec3( a.cx ) && b3IsValidVec3( a.cy ) && b3IsValidVec3( a.cz );
+}
+
 #endif
 
 /// Multiply a matrix times a column vector.

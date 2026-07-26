@@ -58,6 +58,22 @@ B3_FIXED_INLINE b3FixedWide b3WideSub( b3FixedWide a, b3FixedWide b )
 	return a - b;
 }
 
+/// Min/max on the wide (128-bit) fixed-point type.
+///
+/// Extracted from fixed3d, where they live behind BOX3D_LUDICROUS_MODE because that is
+/// the only build with 128-bit AABB bounds. Here they are unconditional: this library
+/// exports the wide type on every build, so a consumer selects narrow or wide by which
+/// type it uses, not by a compile flag that changes an ABI.
+B3_FIXED_INLINE b3FixedWide b3WideMin( b3FixedWide a, b3FixedWide b )
+{
+	return a < b ? a : b;
+}
+
+B3_FIXED_INLINE b3FixedWide b3WideMax( b3FixedWide a, b3FixedWide b )
+{
+	return a > b ? a : b;
+}
+
 /// Offset a wide coordinate by a local delta (the once-per-step delta-fold).
 /// Exact: int128 += widened int64, fraction points aligned.
 B3_FIXED_INLINE b3FixedWide b3WideOffset( b3FixedWide a, b3Fixed d )

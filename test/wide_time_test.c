@@ -52,6 +52,30 @@ int main( void )
 		CHECK( b3WideSubToFixed( base + ( (b3FixedWide)1 << 70 ), base ) == INT64_MAX );
 	}
 
+	// ---- wide: min/max ----
+	// These exist to be CALLED. Their first version compiled fine and shipped green
+	// while being unreachable — they sat inside the `#if !B3_HAS_INT128` block, which
+	// is the block that #errors, so on every real platform they did not exist. Nothing
+	// referenced them, so CI had nothing to say. A header-only helper with no caller is
+	// not covered by a passing build; it is invisible to it.
+	{
+		CHECK( b3WideMin( (b3FixedWide)3, (b3FixedWide)7 ) == 3 );
+		CHECK( b3WideMax( (b3FixedWide)3, (b3FixedWide)7 ) == 7 );
+		CHECK( b3WideMin( (b3FixedWide)-7, (b3FixedWide)-3 ) == -7 );
+		CHECK( b3WideMax( (b3FixedWide)-7, (b3FixedWide)-3 ) == -3 );
+		CHECK( b3WideMin( (b3FixedWide)5, (b3FixedWide)5 ) == 5 );
+		CHECK( b3WideMax( (b3FixedWide)5, (b3FixedWide)5 ) == 5 );
+
+		// the point of the wide type: ordering past Q48.16 range, where a narrow
+		// min/max would have saturated both operands to INT64_MAX and tied
+		b3FixedWide lo = (b3FixedWide)1 << 90;
+		b3FixedWide hi = (b3FixedWide)1 << 100;
+		CHECK( b3WideMin( lo, hi ) == lo );
+		CHECK( b3WideMax( lo, hi ) == hi );
+		CHECK( b3WideMin( -hi, -lo ) == -hi );
+		CHECK( b3WideMax( -hi, -lo ) == -lo );
+	}
+
 	// ---- wide: properties over an LCG sweep ----
 	{
 		uint64_t s = 0x9E3779B97F4A7C15ULL;

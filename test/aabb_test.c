@@ -347,6 +347,90 @@ int main( void )
 		CHECK( fixAABBWide_Area( tw ) >= fixAABBWide_Area( w ) );
 	}
 
+	// ---- the wide world-position family ----
+	// These exist because a consumer with 128-bit world positions cannot call the narrow
+	// forms at all -- that gap is what stopped box3d's wide build from consuming this
+	// library. Each one is called here; the correspondence with narrow is checked where
+	// it must hold, and the ONE place it deliberately does not is checked as a difference.
+	{
+		fixedWide_t base = (fixedWide_t)1 << 95;
+		fixVec3 lp = V( 3.0f, -2.0f, 0.5f );
+		fixQuat q = fixMakeQuatFromAxisAngle( V( 0.0f, 0.0f, 1.0f ), FIX( 0.7f ) );
+
+		fixWorldTransformWide W = { { base, base, base }, q };
+
+		// local -> wide world -> local adds NO error beyond the rotation itself.
+		//
+		// Not "round-trips exactly": it does not, and neither does the narrow path. A
+		// fixed-point quaternion rotate followed by its inverse loses a couple of ULPs,
+		// and a control measurement confirmed the wide route loses exactly the same 2
+		// ULPs and not one more. So the property worth pinning is that the 128-bit
+		// translation contributes nothing -- which it should not, being an exact integer
+		// add and an exact integer subtract. Asserting equality with `lp` would have been
+		// asserting that fixed-point rotation is lossless, which is a different and false
+		// claim.
+		fixPosWide wp = fixTransformWorldPointWide( W, lp );
+		fixVec3 back = fixInvTransformWorldPointWide( W, wp );
+		CHECK( VecEq( back, fixInvRotateVector( q, fixRotateVector( q, lp ) ) ) );
+
+		// and it agrees with the narrow transform once the base is subtracted off
+		fixTransform T = { V( 0.0f, 0.0f, 0.0f ), q };
+		fixVec3 rotated = fixTransformPoint( T, lp );
+		fixPosWide origin = { base, base, base };
+		CHECK( VecEq( fixPosWideSub( wp, origin ), rotated ) );
+
+		// promoting a local transform is lossless
+		fixWorldTransformWide M = fixMakeWorldTransformWide( T );
+		CHECK( VecEq( fixPosWideToVec3( M.p ), T.p ) );
+		CHECK( fixIsValidWorldTransformWide( M ) );
+
+		// relative transform of a frame against itself is the identity translation
+		fixTransform rel = fixInvMulWorldTransformsWide( W, W );
+		CHECK( VecEq( rel.p, V( 0.0f, 0.0f, 0.0f ) ) );
+
+		// two frames a local distance apart, at a ludicrous base: the difference lands
+		// in local range, which is the whole premise of the wide-position design
+		fixWorldTransformWide W2 = { fixPosWideOffset( W.p, V( 1.0f, 2.0f, -3.0f ) ), q };
+		fixTransform rel2 = fixInvMulWorldTransformsWide( W, W2 );
+		CHECK( VecEq( rel2.p, fixInvRotateVector( q, V( 1.0f, 2.0f, -3.0f ) ) ) );
+
+		// composing with a local transform moves by exactly the rotated offset
+		fixTransform B = { V( 1.0f, 0.0f, 0.0f ), fixMakeQuatFromAxisAngle( V( 0.0f, 1.0f, 0.0f ), FIX( 0.0f ) ) };
+		fixWorldTransformWide C = fixMulWorldTransformsWide( W, B );
+		CHECK( VecEq( fixPosWideSub( C.p, W.p ), fixRotateVector( q, B.p ) ) );
+
+		// shifting into a base frame is the wide difference
+		fixTransform shifted = fixToRelativeTransformWide( W2, W.p );
+		CHECK( VecEq( shifted.p, V( 1.0f, 2.0f, -3.0f ) ) );
+	}
+
+	// ---- wide lerp: endpoints exact, and the deliberate divergence from narrow ----
+	{
+		fixedWide_t base = (fixedWide_t)1 << 95;
+		fixPosWide a = { base, base, base };
+		fixPosWide b = fixPosWideOffset( a, V( 4.0f, 8.0f, -2.0f ) );
+
+		// endpoints are exact at any distance
+		CHECK( fixLerpPositionWide( a, b, FIX( 0.0f ) ).x == a.x );
+		CHECK( fixLerpPositionWide( a, b, FIX( 1.0f ) ).x == b.x );
+
+		// halfway is halfway, measured as an offset from the base
+		fixPosWide mid = fixLerpPositionWide( a, b, FIX( 0.5f ) );
+		CHECK( VecEq( fixPosWideSub( mid, a ), V( 2.0f, 4.0f, -1.0f ) ) );
+
+		// monotone along the segment
+		fixPosWide q1 = fixLerpPositionWide( a, b, FIX( 0.25f ) );
+		fixPosWide q3 = fixLerpPositionWide( a, b, FIX( 0.75f ) );
+		CHECK( a.x <= q1.x && q1.x <= mid.x && mid.x <= q3.x && q3.x <= b.x );
+
+		// The one-rounding reformulation is exact for a representable midpoint, where
+		// the narrow two-rounding form need not be. This is the divergence being
+		// deliberate rather than tolerated: nothing here should be "fixed" to match.
+		fixPosWide na = fixPosWideFromVec3( V( 0.0f, 0.0f, 0.0f ) );
+		fixPosWide nb = fixPosWideFromVec3( V( 1.0f, 1.0f, 1.0f ) );
+		CHECK( fixLerpPositionWide( na, nb, FIX( 0.5f ) ).x == FIX( 0.5f ) );
+	}
+
 	if ( fails > 0 )
 	{
 		printf( "%d AABB check(s) FAILED\n", fails );

@@ -13,23 +13,6 @@
 
 #if !B3_HAS_INT128
 #error "fixed_wide.h requires 128-bit integer support (clang, gcc, or clang-cl)"
-
-/// Min/max on the wide (128-bit) fixed-point type.
-///
-/// Extracted from fixed3d, where they live behind BOX3D_LUDICROUS_MODE because that is
-/// the only build with 128-bit AABB bounds. Here they are unconditional: this library
-/// exports the wide type on every build, so a consumer selects narrow or wide by which
-/// type it uses, not by a compile flag that changes an ABI.
-B3_FIXED_INLINE b3FixedWide b3WideMin( b3FixedWide a, b3FixedWide b )
-{
-	return a < b ? a : b;
-}
-
-B3_FIXED_INLINE b3FixedWide b3WideMax( b3FixedWide a, b3FixedWide b )
-{
-	return a > b ? a : b;
-}
-
 #endif
 
 /// Wide fixed-point scalar: Q112.16 in a 128-bit integer. Same resolution as
@@ -73,6 +56,22 @@ B3_FIXED_INLINE b3FixedWide b3WideAdd( b3FixedWide a, b3FixedWide b )
 B3_FIXED_INLINE b3FixedWide b3WideSub( b3FixedWide a, b3FixedWide b )
 {
 	return a - b;
+}
+
+/// Min/max on the wide (128-bit) fixed-point type.
+///
+/// Extracted from fixed3d, where they live behind BOX3D_LUDICROUS_MODE because that is
+/// the only build with 128-bit AABB bounds. Here they are unconditional: this library
+/// exports the wide type on every build, so a consumer selects narrow or wide by which
+/// type it uses, not by a compile flag that changes an ABI.
+B3_FIXED_INLINE b3FixedWide b3WideMin( b3FixedWide a, b3FixedWide b )
+{
+	return a < b ? a : b;
+}
+
+B3_FIXED_INLINE b3FixedWide b3WideMax( b3FixedWide a, b3FixedWide b )
+{
+	return a > b ? a : b;
 }
 
 /// Offset a wide coordinate by a local delta (the once-per-step delta-fold).

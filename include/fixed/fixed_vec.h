@@ -798,6 +798,159 @@ B3_INLINE bool b3IsValidMatrix3( b3Matrix3 a )
 	return b3IsValidVec3( a.cx ) && b3IsValidVec3( a.cy ) && b3IsValidVec3( a.cz );
 }
 
+/// A plane: unit normal and offset along it.
+typedef struct b3Plane
+{
+	b3Vec3 normal;
+	b3Fixed offset;
+} b3Plane;
+
+/// Is this a valid plane? Normal must be finite AND unit length.
+B3_INLINE bool b3IsValidPlane( b3Plane a )
+{
+	if ( b3IsValidVec3( a.normal ) == false )
+	{
+		return false;
+	}
+
+	if ( b3IsNormalized( a.normal ) == false )
+	{
+		return false;
+	}
+
+	return b3IsValidFixed( a.offset );
+}
+
+/// An axis-aligned bounding box in local (Q48.16) space.
+///
+/// The wide (Q112.16) counterpart is b3AABBWide in fixed_wide.h. Both are exported
+/// unconditionally: a consumer picks narrow or wide by which type it names, not by a
+/// compile flag that silently changes an ABI. In box3d these two live in opposite
+/// branches of BOX3D_LUDICROUS_MODE, which means the wide half only compiles when that
+/// flag is set -- and it is off by default, so that code is dark in every ordinary
+/// build. Here both compile and both are tested on every run.
+typedef struct b3AABB
+{
+	b3Vec3 lowerBound;
+	b3Vec3 upperBound;
+} b3AABB;
+
+/// Get the AABB of a point cloud, expanded by a uniform radius.
+B3_INLINE b3AABB b3MakeAABB( const b3Vec3* points, int count, b3Fixed radius )
+{
+	B3_ASSERT( count > 0 );
+	b3AABB a = { points[0], points[0] };
+	for ( int i = 1; i < count; ++i )
+	{
+		a.lowerBound = b3Min( a.lowerBound, points[i] );
+		a.upperBound = b3Max( a.upperBound, points[i] );
+	}
+
+	b3Vec3 r = { radius, radius, radius };
+	a.lowerBound = b3Sub( a.lowerBound, r );
+	a.upperBound = b3Add( a.upperBound, r );
+
+	return a;
+}
+
+/// Does a fully contain b?
+B3_INLINE bool b3AABB_Contains( b3AABB a, b3AABB b )
+{
+	if ( a.lowerBound.x > b.lowerBound.x || b.upperBound.x > a.upperBound.x )
+		return false;
+	if ( a.lowerBound.y > b.lowerBound.y || b.upperBound.y > a.upperBound.y )
+		return false;
+	if ( a.lowerBound.z > b.lowerBound.z || b.upperBound.z > a.upperBound.z )
+		return false;
+
+	return true;
+}
+
+/// Get the surface area of an axis-aligned bounding box.
+B3_INLINE b3Fixed b3AABB_Area( b3AABB a )
+{
+	b3Vec3 delta = b3Sub( a.upperBound, a.lowerBound );
+	return b3FixMul( B3_FIX( 2.0f ) , ( b3FixMul( delta.x , delta.y ) + b3FixMul( delta.y , delta.z ) + b3FixMul( delta.z , delta.x ) ) );
+}
+
+/// Get the center of an axis-aligned bounding box.
+B3_INLINE b3Vec3 b3AABB_Center( b3AABB a )
+{
+	return b3MulSV( B3_FIX( 0.5f ), b3Add( a.upperBound, a.lowerBound ) );
+}
+
+/// Get the extents (half-widths) of an axis-aligned bounding box.
+B3_INLINE b3Vec3 b3AABB_Extents( b3AABB a )
+{
+	return b3MulSV( B3_FIX( 0.5f ), b3Sub( a.upperBound, a.lowerBound ) );
+}
+
+/// Get the union of two axis-aligned bounding boxes.
+B3_INLINE b3AABB b3AABB_Union( b3AABB a, b3AABB b )
+{
+	b3AABB out;
+	out.lowerBound = b3Min( a.lowerBound, b.lowerBound );
+	out.upperBound = b3Max( a.upperBound, b.upperBound );
+	return out;
+}
+
+/// Add uniform padding to an axis-aligned bounding box.
+B3_INLINE b3AABB b3AABB_Inflate( b3AABB a, b3Fixed extension )
+{
+	b3Vec3 radius = { extension, extension, extension };
+
+	b3AABB out;
+	out.lowerBound = b3Sub( a.lowerBound, radius );
+	out.upperBound = b3Add( a.upperBound, radius );
+	return out;
+}
+
+/// Do two axis-aligned boxes overlap?
+B3_INLINE bool b3AABB_Overlaps( b3AABB a, b3AABB b )
+{
+	// No intersection if separated along one axis
+	if ( a.upperBound.x < b.lowerBound.x || a.lowerBound.x > b.upperBound.x )
+		return false;
+	if ( a.upperBound.y < b.lowerBound.y || a.lowerBound.y > b.upperBound.y )
+		return false;
+	if ( a.upperBound.z < b.lowerBound.z || a.lowerBound.z > b.upperBound.z )
+		return false;
+
+	// Overlapping on all axis means bounds are intersecting
+	return true;
+}
+
+/// Is this a valid AABB? Both bounds finite, and lower <= upper on every axis.
+B3_INLINE bool b3IsValidAABB( b3AABB a )
+{
+	if ( b3IsValidVec3( a.lowerBound ) == false )
+	{
+		return false;
+	}
+
+	if ( b3IsValidVec3( a.upperBound ) == false )
+	{
+		return false;
+	}
+
+	if ( a.lowerBound.x > a.upperBound.x )
+	{
+		return false;
+	}
+
+	if ( a.lowerBound.y > a.upperBound.y )
+	{
+		return false;
+	}
+
+	if ( a.lowerBound.z > a.upperBound.z )
+	{
+		return false;
+	}
+
+	return true;
+}
+
 #endif
 
 /// Multiply a matrix times a column vector.
@@ -1022,4 +1175,25 @@ B3_FORCE_INLINE b3Matrix3 b3MakeMatrixFromQuat( b3Quat q )
 		{ b3FixMul( B3_FIX( 2.0f ) , ( xy - zw ) ), B3_FIX( 1.0f ) - b3FixMul( B3_FIX( 2.0f ) , ( xx + zz ) ), b3FixMul( B3_FIX( 2.0f ) , ( yz + xw ) ) },
 		{ b3FixMul( B3_FIX( 2.0f ) , ( xz + yw ) ), b3FixMul( B3_FIX( 2.0f ) , ( yz - xw ) ), B3_FIX( 1.0f ) - b3FixMul( B3_FIX( 2.0f ) , ( xx + yy ) ) },
 	};
+}
+
+/// Transform an axis-aligned bounding box. This can create a larger box than if you
+/// recomputed the AABB of the original shape with the transform applied.
+///
+/// Defined here rather than beside the other AABB operations because it needs
+/// b3TransformPoint, b3MakeMatrixFromQuat, b3AbsMatrix3 and b3MulMV, all of which are
+/// declared further down this header than the AABB block.
+B3_INLINE b3AABB b3AABB_Transform( b3Transform transform, b3AABB a )
+{
+	b3Vec3 center = b3TransformPoint( transform, b3AABB_Center( a ) );
+	b3Matrix3 m = b3MakeMatrixFromQuat( transform.q );
+	b3Vec3 extent = b3MulMV( b3AbsMatrix3( m ), b3AABB_Extents( a ) );
+	b3AABB out = { b3Sub( center, extent ), b3Add( center, extent ) };
+	return out;
+}
+
+/// Get the closest point on an axis-aligned bounding box.
+B3_INLINE b3Vec3 b3ClosestPointToAABB( b3Vec3 point, b3AABB a )
+{
+	return b3Clamp( point, a.lowerBound, a.upperBound );
 }

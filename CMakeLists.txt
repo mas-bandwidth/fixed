@@ -38,6 +38,10 @@ add_executable(fixed_exhaustive_test test/exhaustive_test.c)
 target_link_libraries(fixed_exhaustive_test PRIVATE fixed)
 add_test(NAME exhaustive COMMAND fixed_exhaustive_test)
 
+add_executable(fixed_aabb_test test/aabb_test.c)
+target_link_libraries(fixed_aabb_test PRIVATE fixed)
+add_test(NAME aabb COMMAND fixed_aabb_test)
+
 # Negative control: the SAME exhaustive suite with a deliberate 1-ulp error
 # injected into multiply. This build MUST fail (WILL_FAIL) — a test of the
 # tests, proving the suite actually detects breakage rather than silently

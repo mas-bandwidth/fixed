@@ -167,7 +167,7 @@ FIX_INLINE fixInt128 fixDotRaw( fixVec3 a, fixVec3 b )
 FIX_INLINE fixed_t fixFromDotRaw( fixInt128 raw )
 {
 	fixInt128 r = ( raw + FIX_HALF ) >> FIX_FRACTION_BITS;
-#if defined( BOX3D_FIXED_SATURATE )
+#if defined( FIX_SATURATE )
 	if ( r > (fixInt128)INT64_MAX )
 	{
 		return FIX_MAX;

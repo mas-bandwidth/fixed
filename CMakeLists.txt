@@ -42,6 +42,13 @@ add_executable(fixed_aabb_test test/aabb_test.c)
 target_link_libraries(fixed_aabb_test PRIVATE fixed)
 add_test(NAME aabb COMMAND fixed_aabb_test)
 
+# A consumer that overrides only FIX_API. Guards the per-macro guarding in base.h --
+# nothing else in this build overrides anything, so that whole path is dark code from in
+# here and a regression would only surface in someone else's repo.
+add_executable(fixed_override_api_test test/override_api_test.c)
+target_link_libraries(fixed_override_api_test PRIVATE fixed)
+add_test(NAME override_api COMMAND fixed_override_api_test)
+
 # Negative control: the SAME exhaustive suite with a deliberate 1-ulp error
 # injected into multiply. This build MUST fail (WILL_FAIL) — a test of the
 # tests, proving the suite actually detects breakage rather than silently

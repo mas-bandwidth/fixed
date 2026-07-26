@@ -8,25 +8,25 @@
 #include "fixed/fixed.h"
 
 /// Cosine and sine pair.
-typedef struct b3CosSin
+typedef struct fixCosSin
 {
-	b3Fixed cosine;
-	b3Fixed sine;
-} b3CosSin;
+	fixed_t cosine;
+	fixed_t sine;
+} fixCosSin;
 
 /// atan2 accurate to ~0.0023 degrees. Deterministic (unlike the standard library).
-B3_API b3Fixed b3Atan2( b3Fixed y, b3Fixed x );
+FIX_API fixed_t fixAtan2( fixed_t y, fixed_t x );
 
 /// Cosine and sine of an angle in radians. Deterministic.
-B3_API b3CosSin b3ComputeCosSin( b3Fixed radians );
+FIX_API fixCosSin fixComputeCosSin( fixed_t radians );
 
-B3_INLINE b3Fixed b3Sin( b3Fixed radians ) { b3CosSin cs = b3ComputeCosSin( radians ); return cs.sine; }
-B3_INLINE b3Fixed b3Cos( b3Fixed radians ) { b3CosSin cs = b3ComputeCosSin( radians ); return cs.cosine; }
+FIX_INLINE fixed_t fixSin( fixed_t radians ) { fixCosSin cs = fixComputeCosSin( radians ); return cs.sine; }
+FIX_INLINE fixed_t fixCos( fixed_t radians ) { fixCosSin cs = fixComputeCosSin( radians ); return cs.cosine; }
 
 /// Convert any angle into the range [-pi, pi].
-B3_INLINE b3Fixed b3UnwindAngle( b3Fixed radians )
+FIX_INLINE fixed_t fixUnwindAngle( fixed_t radians )
 {
-	const b3Fixed twoPi = B3_FIX( 6.28318530718 );
-	int64_t n = ( b3FixDiv( radians, twoPi ) + B3_FIXED_HALF ) >> B3_FIXED_FRACTION_BITS;
-	return (b3Fixed)( radians - (b3Int128)n * twoPi );
+	const fixed_t twoPi = FIX( 6.28318530718 );
+	int64_t n = ( fixDiv( radians, twoPi ) + FIX_HALF ) >> FIX_FRACTION_BITS;
+	return (fixed_t)( radians - (fixInt128)n * twoPi );
 }

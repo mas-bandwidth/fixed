@@ -11,7 +11,7 @@ add_library(fixed STATIC src/fixed_math.c src/fixed_vec.c)
 target_include_directories(fixed PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 # gcc keeps a libm sqrt() call as the errno fallback for __builtin_sqrt (used
-# by the b3FixSqrt seed), so consumers need -lm on Linux. PUBLIC propagates it
+# by the fixSqrt seed), so consumers need -lm on Linux. PUBLIC propagates it
 # to every test; harmless on macOS.
 if (NOT WIN32)
     target_link_libraries(fixed PUBLIC m)

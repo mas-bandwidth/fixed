@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Más Bandwidth LLC -- fixed-point conversion
 // SPDX-License-Identifier: MIT
 // Fixed-point vector / quaternion / matrix / transform types. In fixed point, world
-// positions have uniform precision everywhere, so b3Pos is just b3Vec3 -- no separate
+// positions have uniform precision everywhere, so fixPos is just fixVec3 -- no separate
 // wide-world type. Ops on these types are being migrated here incrementally.
 #pragma once
 #include "fixed/base.h"
@@ -10,851 +10,851 @@
 #include "fixed/fixed_math.h"
 
 /// A 2D vector.
-typedef struct b3Vec2
+typedef struct fixVec2
 {
-	b3Fixed x;
-	b3Fixed y;
-} b3Vec2;
+	fixed_t x;
+	fixed_t y;
+} fixVec2;
 
 /// A 3D vector.
-typedef struct b3Vec3
+typedef struct fixVec3
 {
-	b3Fixed x;
-	b3Fixed y;
-	b3Fixed z;
-} b3Vec3;
+	fixed_t x;
+	fixed_t y;
+	fixed_t z;
+} fixVec3;
 
 /// A quaternion.
-typedef struct b3Quat
+typedef struct fixQuat
 {
-	b3Vec3 v;
-	b3Fixed s;
-} b3Quat;
+	fixVec3 v;
+	fixed_t s;
+} fixQuat;
 
 /// A rigid transform.
-typedef struct b3Transform
+typedef struct fixTransform
 {
-	b3Vec3 p;
-	b3Quat q;
-} b3Transform;
+	fixVec3 p;
+	fixQuat q;
+} fixTransform;
 
 /// A world position. Fixed point has uniform precision everywhere, so world
 /// positions use the same representation as local vectors.
-typedef b3Vec3 b3Pos;
+typedef fixVec3 fixPos;
 
 /// A world transform. Same representation as a local transform in fixed point.
-typedef b3Transform b3WorldTransform;
+typedef fixTransform fixWorldTransform;
 
 /// A 3x3 matrix.
-typedef struct b3Matrix3
+typedef struct fixMatrix3
 {
-	b3Vec3 cx, cy, cz;
-} b3Matrix3;
+	fixVec3 cx, cy, cz;
+} fixMatrix3;
 
 /// Pi in Q48.16.
-#define B3_PI B3_FIX( 3.14159265359f )
+#define FIX_PI FIX( 3.14159265359f )
 
-/// Minimum representable scale used by b3SafeScale.
-#define B3_MIN_SCALE B3_FIX( 0.01f )
+/// Minimum representable scale used by fixSafeScale.
+#define FIX_MIN_SCALE FIX( 0.01f )
 
-static const b3Vec3 b3Vec3_zero = { B3_FIX( 0.0f ), B3_FIX( 0.0f ), B3_FIX( 0.0f ) };
-static const b3Vec3 b3Vec3_one = { B3_FIX( 1.0f ), B3_FIX( 1.0f ), B3_FIX( 1.0f ) };
-static const b3Vec3 b3Vec3_axisX = { B3_FIX( 1.0f ), B3_FIX( 0.0f ), B3_FIX( 0.0f ) };
-static const b3Vec3 b3Vec3_axisY = { B3_FIX( 0.0f ), B3_FIX( 1.0f ), B3_FIX( 0.0f ) };
-static const b3Vec3 b3Vec3_axisZ = { B3_FIX( 0.0f ), B3_FIX( 0.0f ), B3_FIX( 1.0f ) };
-static const b3Quat b3Quat_identity = { { B3_FIX( 0.0f ), B3_FIX( 0.0f ), B3_FIX( 0.0f ) }, B3_FIX( 1.0f ) };
-static const b3Transform b3Transform_identity = { { B3_FIX( 0.0f ), B3_FIX( 0.0f ), B3_FIX( 0.0f ) }, { { B3_FIX( 0.0f ), B3_FIX( 0.0f ), B3_FIX( 0.0f ) }, B3_FIX( 1.0f ) } };
-static const b3Matrix3 b3Mat3_zero = {
-	{ B3_FIX( 0.0f ), B3_FIX( 0.0f ), B3_FIX( 0.0f ) },
-	{ B3_FIX( 0.0f ), B3_FIX( 0.0f ), B3_FIX( 0.0f ) },
-	{ B3_FIX( 0.0f ), B3_FIX( 0.0f ), B3_FIX( 0.0f ) },
+static const fixVec3 fixVec3_zero = { FIX( 0.0f ), FIX( 0.0f ), FIX( 0.0f ) };
+static const fixVec3 fixVec3_one = { FIX( 1.0f ), FIX( 1.0f ), FIX( 1.0f ) };
+static const fixVec3 fixVec3_axisX = { FIX( 1.0f ), FIX( 0.0f ), FIX( 0.0f ) };
+static const fixVec3 fixVec3_axisY = { FIX( 0.0f ), FIX( 1.0f ), FIX( 0.0f ) };
+static const fixVec3 fixVec3_axisZ = { FIX( 0.0f ), FIX( 0.0f ), FIX( 1.0f ) };
+static const fixQuat fixQuat_identity = { { FIX( 0.0f ), FIX( 0.0f ), FIX( 0.0f ) }, FIX( 1.0f ) };
+static const fixTransform fixTransform_identity = { { FIX( 0.0f ), FIX( 0.0f ), FIX( 0.0f ) }, { { FIX( 0.0f ), FIX( 0.0f ), FIX( 0.0f ) }, FIX( 1.0f ) } };
+static const fixMatrix3 fixMat3_zero = {
+	{ FIX( 0.0f ), FIX( 0.0f ), FIX( 0.0f ) },
+	{ FIX( 0.0f ), FIX( 0.0f ), FIX( 0.0f ) },
+	{ FIX( 0.0f ), FIX( 0.0f ), FIX( 0.0f ) },
 };
-static const b3Matrix3 b3Mat3_identity = {
-	{ B3_FIX( 1.0f ), B3_FIX( 0.0f ), B3_FIX( 0.0f ) },
-	{ B3_FIX( 0.0f ), B3_FIX( 1.0f ), B3_FIX( 0.0f ) },
-	{ B3_FIX( 0.0f ), B3_FIX( 0.0f ), B3_FIX( 1.0f ) },
+static const fixMatrix3 fixMat3_identity = {
+	{ FIX( 1.0f ), FIX( 0.0f ), FIX( 0.0f ) },
+	{ FIX( 0.0f ), FIX( 1.0f ), FIX( 0.0f ) },
+	{ FIX( 0.0f ), FIX( 0.0f ), FIX( 1.0f ) },
 };
 
-// Valid in both modes: 0.0f promotes to double, the identity rotation stays b3Fixed
-static const b3Pos b3Pos_zero = { B3_FIX( 0.0f ), B3_FIX( 0.0f ), B3_FIX( 0.0f ) };
-static const b3WorldTransform b3WorldTransform_identity = { { B3_FIX( 0.0f ), B3_FIX( 0.0f ), B3_FIX( 0.0f ) }, { { B3_FIX( 0.0f ), B3_FIX( 0.0f ), B3_FIX( 0.0f ) }, B3_FIX( 1.0f ) } };
+// Valid in both modes: 0.0f promotes to double, the identity rotation stays fixed_t
+static const fixPos fixPos_zero = { FIX( 0.0f ), FIX( 0.0f ), FIX( 0.0f ) };
+static const fixWorldTransform fixWorldTransform_identity = { { FIX( 0.0f ), FIX( 0.0f ), FIX( 0.0f ) }, { { FIX( 0.0f ), FIX( 0.0f ), FIX( 0.0f ) }, FIX( 1.0f ) } };
 
 // Float utilities for rendering, UI, and other non-simulation code. The
 // simulation itself never uses these (see the fixed-point conversion notes).
 
 /// @return the minimum of two floats.
-B3_INLINE float b3MinFloat( float a, float b )
+FIX_INLINE float fixMinFloat( float a, float b )
 {
 	return a < b ? a : b;
 }
 
 /// @return the maximum of two floats.
-B3_INLINE float b3MaxFloat( float a, float b )
+FIX_INLINE float fixMaxFloat( float a, float b )
 {
 	return a > b ? a : b;
 }
 
 /// @return a float clamped between a lower and upper bound.
-B3_INLINE float b3ClampFloat( float a, float lower, float upper )
+FIX_INLINE float fixClampFloat( float a, float lower, float upper )
 {
 	return a < lower ? lower : ( upper < a ? upper : a );
 }
 
 /// @return the minimum of two integers.
-B3_INLINE int b3MinInt( int a, int b )
+FIX_INLINE int fixMinInt( int a, int b )
 {
 	return a < b ? a : b;
 }
 
 /// @return the maximum of two integers.
-B3_INLINE int b3MaxInt( int a, int b )
+FIX_INLINE int fixMaxInt( int a, int b )
 {
 	return a > b ? a : b;
 }
 
 /// @return an integer clamped between a lower and upper bound.
-B3_INLINE int b3ClampInt( int a, int lower, int upper )
+FIX_INLINE int fixClampInt( int a, int lower, int upper )
 {
 	return a < lower ? lower : ( upper < a ? upper : a );
 }
 
-// b3FixAbs, b3FixMin, b3FixMax, and b3FixClamp live in fixed.h
+// fixAbs, fixMin, fixMax, and fixClamp live in fixed.h
 
 /// Interpolate a scalar.
-B3_INLINE b3Fixed b3FixLerp( b3Fixed a, b3Fixed b, b3Fixed alpha )
+FIX_INLINE fixed_t fixLerp( fixed_t a, fixed_t b, fixed_t alpha )
 {
-	return b3FixMul( ( B3_FIX( 1.0f ) - alpha ) , a ) + b3FixMul( alpha , b );
+	return fixMul( ( FIX( 1.0f ) - alpha ) , a ) + fixMul( alpha , b );
 }
 
-// b3Atan2, b3ComputeCosSin, b3Sin, b3Cos, and b3UnwindAngle are provided by
+// fixAtan2, fixComputeCosSin, fixSin, fixCos, and fixUnwindAngle are provided by
 // fixed/fixed_math.h (included above). fixed3d's physics calls them; the vendored
 // `fixed` library owns their declarations and definitions.
 
 /// Vector addition.
-B3_INLINE b3Vec3 b3Add( b3Vec3 a, b3Vec3 b )
+FIX_INLINE fixVec3 fixVecAdd( fixVec3 a, fixVec3 b )
 {
-	return B3_LITERAL( b3Vec3 ){ a.x + b.x, a.y + b.y, a.z + b.z };
+	return FIX_LITERAL( fixVec3 ){ a.x + b.x, a.y + b.y, a.z + b.z };
 }
 
 /// Vector subtraction.
-B3_INLINE b3Vec3 b3Sub( b3Vec3 a, b3Vec3 b )
+FIX_INLINE fixVec3 fixVecSub( fixVec3 a, fixVec3 b )
 {
-	return B3_LITERAL( b3Vec3 ){ a.x - b.x, a.y - b.y, a.z - b.z };
+	return FIX_LITERAL( fixVec3 ){ a.x - b.x, a.y - b.y, a.z - b.z };
 }
 
 /// Vector component-wise multiplication.
-B3_INLINE b3Vec3 b3Mul( b3Vec3 a, b3Vec3 b )
+FIX_INLINE fixVec3 fixVecMul( fixVec3 a, fixVec3 b )
 {
-	return B3_LITERAL( b3Vec3 ){ b3FixMul( a.x , b.x ), b3FixMul( a.y , b.y ), b3FixMul( a.z , b.z ) };
+	return FIX_LITERAL( fixVec3 ){ fixMul( a.x , b.x ), fixMul( a.y , b.y ), fixMul( a.z , b.z ) };
 }
 
 /// Vector negation.
-B3_INLINE b3Vec3 b3Neg( b3Vec3 a )
+FIX_INLINE fixVec3 fixVecNeg( fixVec3 a )
 {
-	return B3_LITERAL( b3Vec3 ){ -a.x, -a.y, -a.z };
+	return FIX_LITERAL( fixVec3 ){ -a.x, -a.y, -a.z };
 }
 
-/// Exact dot product accumulated at 128 bits, scaled by 2^(2*B3_FIXED_FRACTION_BITS).
+/// Exact dot product accumulated at 128 bits, scaled by 2^(2*FIX_FRACTION_BITS).
 /// No per-component rounding or saturation, so sign tests and comparisons on the
 /// raw value are exact even for sub-resolution results.
-B3_INLINE b3Int128 b3DotRaw( b3Vec3 a, b3Vec3 b )
+FIX_INLINE fixInt128 fixDotRaw( fixVec3 a, fixVec3 b )
 {
-	return (b3Int128)a.x * b.x + (b3Int128)a.y * b.y + (b3Int128)a.z * b.z;
+	return (fixInt128)a.x * b.x + (fixInt128)a.y * b.y + (fixInt128)a.z * b.z;
 }
 
 /// Round a raw 128-bit dot product to fixed point with a single round-half-up
-/// step (divide last), matching b3FixMul rounding and overflow policy.
-B3_INLINE b3Fixed b3FixFromDotRaw( b3Int128 raw )
+/// step (divide last), matching fixMul rounding and overflow policy.
+FIX_INLINE fixed_t fixFromDotRaw( fixInt128 raw )
 {
-	b3Int128 r = ( raw + B3_FIXED_HALF ) >> B3_FIXED_FRACTION_BITS;
+	fixInt128 r = ( raw + FIX_HALF ) >> FIX_FRACTION_BITS;
 #if defined( BOX3D_FIXED_SATURATE )
-	if ( r > (b3Int128)INT64_MAX )
+	if ( r > (fixInt128)INT64_MAX )
 	{
-		return B3_FIXED_MAX;
+		return FIX_MAX;
 	}
-	if ( r < -(b3Int128)INT64_MAX )
+	if ( r < -(fixInt128)INT64_MAX )
 	{
-		return B3_FIXED_MIN;
+		return FIX_MIN;
 	}
 #endif
-	return (b3Fixed)r;
+	return (fixed_t)r;
 }
 
 /// Vector dot product. Accumulated at 128 bits with a single rounding (divide last).
-B3_INLINE b3Fixed b3Dot( b3Vec3 a, b3Vec3 b )
+FIX_INLINE fixed_t fixDot( fixVec3 a, fixVec3 b )
 {
-	return b3FixFromDotRaw( b3DotRaw( a, b ) );
+	return fixFromDotRaw( fixDotRaw( a, b ) );
 }
 
 /// Vector length. Computed from the exact 128-bit sum of squared components, so
 /// it is accurate even for vectors far below unit length.
-B3_INLINE b3Fixed b3Length( b3Vec3 v )
+FIX_INLINE fixed_t fixLength( fixVec3 v )
 {
-	b3Int128 ls = (b3Int128)v.x * v.x + (b3Int128)v.y * v.y + (b3Int128)v.z * v.z; // Q32.32 in 128 bits
-	return (b3Fixed)b3ISqrt128High( (uint64_t)( (b3UInt128)ls >> 64 ), (uint64_t)ls );
+	fixInt128 ls = (fixInt128)v.x * v.x + (fixInt128)v.y * v.y + (fixInt128)v.z * v.z; // Q32.32 in 128 bits
+	return (fixed_t)fixISqrt128High( (uint64_t)( (fixUInt128)ls >> 64 ), (uint64_t)ls );
 }
 
 /// Vector length squared. One rounding on the exact 128-bit sum of squares.
-B3_INLINE b3Fixed b3LengthSquared( b3Vec3 a )
+FIX_INLINE fixed_t fixLengthSquared( fixVec3 a )
 {
-	return b3FixFromDotRaw( b3DotRaw( a, a ) );
+	return fixFromDotRaw( fixDotRaw( a, a ) );
 }
 
 /// Distance between two points.
-B3_INLINE b3Fixed b3Distance( b3Vec3 a, b3Vec3 b )
+FIX_INLINE fixed_t fixDistance( fixVec3 a, fixVec3 b )
 {
-	b3Vec3 dv = { b.x - a.x, b.y - a.y, b.z - a.z };
-	return b3Length( dv );
+	fixVec3 dv = { b.x - a.x, b.y - a.y, b.z - a.z };
+	return fixLength( dv );
 }
 
 /// Squared distance between two points. One rounding on the exact 128-bit sum.
-B3_INLINE b3Fixed b3DistanceSquared( b3Vec3 a, b3Vec3 b )
+FIX_INLINE fixed_t fixDistanceSquared( fixVec3 a, fixVec3 b )
 {
-	b3Vec3 dv = { b.x - a.x, b.y - a.y, b.z - a.z };
-	return b3FixFromDotRaw( b3DotRaw( dv, dv ) );
+	fixVec3 dv = { b.x - a.x, b.y - a.y, b.z - a.z };
+	return fixFromDotRaw( fixDotRaw( dv, dv ) );
 }
 
 /// Normalize a vector. Returns a zero vector if the input vector is zero.
 /// The squared length and the division run at 128-bit precision, so even
 /// vectors far below unit length normalize to within an ulp of unit length.
-B3_INLINE b3Vec3 b3Normalize( b3Vec3 a )
+FIX_INLINE fixVec3 fixNormalize( fixVec3 a )
 {
-	b3Int128 ls = (b3Int128)a.x * a.x + (b3Int128)a.y * a.y + (b3Int128)a.z * a.z; // Q32.32 in 128 bits
+	fixInt128 ls = (fixInt128)a.x * a.x + (fixInt128)a.y * a.y + (fixInt128)a.z * a.z; // Q32.32 in 128 bits
 	if ( ls > 0 )
 	{
-		b3Fixed length = (b3Fixed)b3ISqrt128High( (uint64_t)( (b3UInt128)ls >> 64 ), (uint64_t)ls );
-		// b3FixDiv computes the same truncating 128-bit quotient, with a single
+		fixed_t length = (fixed_t)fixISqrt128High( (uint64_t)( (fixUInt128)ls >> 64 ), (uint64_t)ls );
+		// fixDiv computes the same truncating 128-bit quotient, with a single
 		// hardware divide when the component fits in 47 bits (the common case)
-		b3Vec3 u = {
-			b3FixDiv( a.x, length ),
-			b3FixDiv( a.y, length ),
-			b3FixDiv( a.z, length ),
+		fixVec3 u = {
+			fixDiv( a.x, length ),
+			fixDiv( a.y, length ),
+			fixDiv( a.z, length ),
 		};
 		return u;
 	}
 
-	return B3_LITERAL( b3Vec3 ){ B3_FIX( 0.0f ), B3_FIX( 0.0f ), B3_FIX( 0.0f ) };
+	return FIX_LITERAL( fixVec3 ){ FIX( 0.0f ), FIX( 0.0f ), FIX( 0.0f ) };
 }
 
 /// Normalize a vector and return the length. Returns a zero vector
 /// if the input is zero.
-B3_INLINE b3Vec3 b3GetLengthAndNormalize( b3Fixed* length, b3Vec3 a )
+FIX_INLINE fixVec3 fixGetLengthAndNormalize( fixed_t* length, fixVec3 a )
 {
-	*length = b3Length( a );
-	if ( *length < B3_FIXED_EPSILON )
+	*length = fixLength( a );
+	if ( *length < FIX_EPSILON )
 	{
-		return b3Vec3_zero;
+		return fixVec3_zero;
 	}
 
-	b3Vec3 n = {
-		b3FixDiv( a.x, *length ),
-		b3FixDiv( a.y, *length ),
-		b3FixDiv( a.z, *length ),
+	fixVec3 n = {
+		fixDiv( a.x, *length ),
+		fixDiv( a.y, *length ),
+		fixDiv( a.z, *length ),
 	};
 	return n;
 }
 
 /// Get a unit vector that is perpendicular to the supplied vector.
-B3_INLINE b3Vec3 b3Perp( b3Vec3 a )
+FIX_INLINE fixVec3 fixPerp( fixVec3 a )
 {
 	// Suppose vector a has all equal components and is a unit vector: a = (s, s, s)
 	// Then 3*s*s = 1, s = sqrt(1/3) = 0.57735. This means that at least one component
 	// of a unit vector must be greater or equal to 0.57735.
-	b3Vec3 p;
-	if ( a.x < -B3_FIX( 0.5f ) || B3_FIX( 0.5f ) < a.x )
+	fixVec3 p;
+	if ( a.x < -FIX( 0.5f ) || FIX( 0.5f ) < a.x )
 	{
-		p = B3_LITERAL( b3Vec3 ){ a.y, -a.x, B3_FIX( 0.0f ) };
+		p = FIX_LITERAL( fixVec3 ){ a.y, -a.x, FIX( 0.0f ) };
 	}
 	else
 	{
-		p = B3_LITERAL( b3Vec3 ){ B3_FIX( 0.0f ), a.z, -a.y };
+		p = FIX_LITERAL( fixVec3 ){ FIX( 0.0f ), a.z, -a.y };
 	}
 
-	return b3Normalize( p );
+	return fixNormalize( p );
 }
 
 /// Is a vector normalized? In other words, does it have unit length?
-B3_INLINE bool b3IsNormalized( b3Vec3 a )
+FIX_INLINE bool fixIsNormalized( fixVec3 a )
 {
-	b3Fixed aa = b3Dot( a, a );
-	return b3FixAbs( B3_FIX( 1.0f ) - aa ) < 100 * B3_FIXED_EPSILON;
+	fixed_t aa = fixDot( a, a );
+	return fixAbs( FIX( 1.0f ) - aa ) < 100 * FIX_EPSILON;
 }
 
 /// a + s * b
-B3_INLINE b3Vec3 b3MulAdd( b3Vec3 a, b3Fixed s, b3Vec3 b )
+FIX_INLINE fixVec3 fixMulAdd( fixVec3 a, fixed_t s, fixVec3 b )
 {
-	return B3_LITERAL( b3Vec3 ){ a.x + b3FixMul( s , b.x ), a.y + b3FixMul( s , b.y ), a.z + b3FixMul( s , b.z ) };
+	return FIX_LITERAL( fixVec3 ){ a.x + fixMul( s , b.x ), a.y + fixMul( s , b.y ), a.z + fixMul( s , b.z ) };
 }
 
 /// a - s * b
-B3_INLINE b3Vec3 b3MulSub( b3Vec3 a, b3Fixed s, b3Vec3 b )
+FIX_INLINE fixVec3 fixMulSub( fixVec3 a, fixed_t s, fixVec3 b )
 {
-	return B3_LITERAL( b3Vec3 ){ a.x - b3FixMul( s , b.x ), a.y - b3FixMul( s , b.y ), a.z - b3FixMul( s , b.z ) };
+	return FIX_LITERAL( fixVec3 ){ a.x - fixMul( s , b.x ), a.y - fixMul( s , b.y ), a.z - fixMul( s , b.z ) };
 }
 
 /// s * a
-B3_INLINE b3Vec3 b3MulSV( b3Fixed s, b3Vec3 a )
+FIX_INLINE fixVec3 fixMulSV( fixed_t s, fixVec3 a )
 {
-	return B3_LITERAL( b3Vec3 ){ b3FixMul( s , a.x ), b3FixMul( s , a.y ), b3FixMul( s , a.z ) };
+	return FIX_LITERAL( fixVec3 ){ fixMul( s , a.x ), fixMul( s , a.y ), fixMul( s , a.z ) };
 }
 
 /// https://en.wikipedia.org/wiki/Cross_product
-B3_INLINE b3Vec3 b3Cross( b3Vec3 a, b3Vec3 b )
+FIX_INLINE fixVec3 fixCross( fixVec3 a, fixVec3 b )
 {
-	b3Vec3 c;
-	c.x = b3FixMul( a.y , b.z ) - b3FixMul( a.z , b.y );
-	c.y = b3FixMul( a.z , b.x ) - b3FixMul( a.x , b.z );
-	c.z = b3FixMul( a.x , b.y ) - b3FixMul( a.y , b.x );
+	fixVec3 c;
+	c.x = fixMul( a.y , b.z ) - fixMul( a.z , b.y );
+	c.y = fixMul( a.z , b.x ) - fixMul( a.x , b.z );
+	c.z = fixMul( a.x , b.y ) - fixMul( a.y , b.x );
 	return c;
 }
 
 /// Linearly interpolate between two vectors.
-B3_INLINE b3Vec3 b3Lerp( b3Vec3 a, b3Vec3 b, b3Fixed alpha )
+FIX_INLINE fixVec3 fixVecLerp( fixVec3 a, fixVec3 b, fixed_t alpha )
 {
-	B3_ASSERT( B3_FIX( 0.0f ) <= alpha && alpha <= B3_FIX( 1.0f ) );
+	FIX_ASSERT( FIX( 0.0f ) <= alpha && alpha <= FIX( 1.0f ) );
 
-	b3Vec3 c = {
-		b3FixMul( ( B3_FIX( 1.0f ) - alpha ) , a.x ) + b3FixMul( alpha , b.x ),
-		b3FixMul( ( B3_FIX( 1.0f ) - alpha ) , a.y ) + b3FixMul( alpha , b.y ),
-		b3FixMul( ( B3_FIX( 1.0f ) - alpha ) , a.z ) + b3FixMul( alpha , b.z ),
+	fixVec3 c = {
+		fixMul( ( FIX( 1.0f ) - alpha ) , a.x ) + fixMul( alpha , b.x ),
+		fixMul( ( FIX( 1.0f ) - alpha ) , a.y ) + fixMul( alpha , b.y ),
+		fixMul( ( FIX( 1.0f ) - alpha ) , a.z ) + fixMul( alpha , b.z ),
 	};
 	return c;
 }
 
 /// Blend two vectors: s * a + t * b
-B3_INLINE b3Vec3 b3Blend2( b3Fixed s, b3Vec3 a, b3Fixed t, b3Vec3 b )
+FIX_INLINE fixVec3 fixBlend2( fixed_t s, fixVec3 a, fixed_t t, fixVec3 b )
 {
-	b3Vec3 d = {
-		b3FixMul( s , a.x ) + b3FixMul( t , b.x ),
-		b3FixMul( s , a.y ) + b3FixMul( t , b.y ),
-		b3FixMul( s , a.z ) + b3FixMul( t , b.z ),
+	fixVec3 d = {
+		fixMul( s , a.x ) + fixMul( t , b.x ),
+		fixMul( s , a.y ) + fixMul( t , b.y ),
+		fixMul( s , a.z ) + fixMul( t , b.z ),
 	};
 	return d;
 }
 
 /// Component-wise absolute value.
-B3_INLINE b3Vec3 b3Abs( b3Vec3 a )
+FIX_INLINE fixVec3 fixVecAbs( fixVec3 a )
 {
-	return B3_LITERAL( b3Vec3 ){
-		b3FixAbs( a.x ),
-		b3FixAbs( a.y ),
-		b3FixAbs( a.z ),
+	return FIX_LITERAL( fixVec3 ){
+		fixAbs( a.x ),
+		fixAbs( a.y ),
+		fixAbs( a.z ),
 	};
 }
 
 /// Component-wise -1 or 1 (1 if zero).
-B3_INLINE b3Vec3 b3Sign( b3Vec3 a )
+FIX_INLINE fixVec3 fixSign( fixVec3 a )
 {
-	return B3_LITERAL( b3Vec3 ){
-		a.x >= B3_FIX( 0.0f ) ? B3_FIX( 1.0f ) : -B3_FIX( 1.0f ),
-		a.y >= B3_FIX( 0.0f ) ? B3_FIX( 1.0f ) : -B3_FIX( 1.0f ),
-		a.z >= B3_FIX( 0.0f ) ? B3_FIX( 1.0f ) : -B3_FIX( 1.0f ),
+	return FIX_LITERAL( fixVec3 ){
+		a.x >= FIX( 0.0f ) ? FIX( 1.0f ) : -FIX( 1.0f ),
+		a.y >= FIX( 0.0f ) ? FIX( 1.0f ) : -FIX( 1.0f ),
+		a.z >= FIX( 0.0f ) ? FIX( 1.0f ) : -FIX( 1.0f ),
 	};
 }
 
 /// Component-wise minimum value.
-B3_INLINE b3Vec3 b3Min( b3Vec3 a, b3Vec3 b )
+FIX_INLINE fixVec3 fixVecMin( fixVec3 a, fixVec3 b )
 {
-	return B3_LITERAL( b3Vec3 ){
-		b3FixMin( a.x, b.x ),
-		b3FixMin( a.y, b.y ),
-		b3FixMin( a.z, b.z ),
+	return FIX_LITERAL( fixVec3 ){
+		fixMin( a.x, b.x ),
+		fixMin( a.y, b.y ),
+		fixMin( a.z, b.z ),
 	};
 }
 
 /// Component-wise maximum value.
-B3_INLINE b3Vec3 b3Max( b3Vec3 a, b3Vec3 b )
+FIX_INLINE fixVec3 fixVecMax( fixVec3 a, fixVec3 b )
 {
-	return B3_LITERAL( b3Vec3 ){
-		b3FixMax( a.x, b.x ),
-		b3FixMax( a.y, b.y ),
-		b3FixMax( a.z, b.z ),
+	return FIX_LITERAL( fixVec3 ){
+		fixMax( a.x, b.x ),
+		fixMax( a.y, b.y ),
+		fixMax( a.z, b.z ),
 	};
 }
 
 /// Component-wise clamped value.
-B3_INLINE b3Vec3 b3Clamp( b3Vec3 a, b3Vec3 lower, b3Vec3 upper )
+FIX_INLINE fixVec3 fixVecClamp( fixVec3 a, fixVec3 lower, fixVec3 upper )
 {
-	b3Vec3 b;
-	b.x = b3FixClamp( a.x, lower.x, upper.x );
-	b.y = b3FixClamp( a.y, lower.y, upper.y );
-	b.z = b3FixClamp( a.z, lower.z, upper.z );
+	fixVec3 b;
+	b.x = fixClamp( a.x, lower.x, upper.x );
+	b.y = fixClamp( a.y, lower.y, upper.y );
+	b.z = fixClamp( a.z, lower.z, upper.z );
 	return b;
 }
 
 /// Create a safe scaling value for scaling collision. This allows
 /// negative scale, but keeps scale sufficiently far from zero.
-B3_INLINE b3Vec3 b3SafeScale( b3Vec3 a )
+FIX_INLINE fixVec3 fixSafeScale( fixVec3 a )
 {
-	b3Vec3 absScale = b3Abs( a );
-	b3Vec3 minScale = { B3_MIN_SCALE, B3_MIN_SCALE, B3_MIN_SCALE };
-	b3Vec3 safeScale = b3Mul( b3Sign( a ), b3Max( absScale, minScale ) );
+	fixVec3 absScale = fixVecAbs( a );
+	fixVec3 minScale = { FIX_MIN_SCALE, FIX_MIN_SCALE, FIX_MIN_SCALE };
+	fixVec3 safeScale = fixVecMul( fixSign( a ), fixVecMax( absScale, minScale ) );
 	return safeScale;
 }
 
 /// Does the supplied quaternion have unit length?
-B3_INLINE bool b3IsNormalizedQuat( b3Quat q )
+FIX_INLINE bool fixIsNormalizedQuat( fixQuat q )
 {
-	b3Fixed qq = b3FixMul( q.v.x , q.v.x ) + b3FixMul( q.v.y , q.v.y ) + b3FixMul( q.v.z , q.v.z ) + b3FixMul( q.s , q.s );
-	return B3_FIX( 1.0f ) - 100 * B3_FIXED_EPSILON < qq && qq < B3_FIX( 1.0f ) + 100 * B3_FIXED_EPSILON;
+	fixed_t qq = fixMul( q.v.x , q.v.x ) + fixMul( q.v.y , q.v.y ) + fixMul( q.v.z , q.v.z ) + fixMul( q.s , q.s );
+	return FIX( 1.0f ) - 100 * FIX_EPSILON < qq && qq < FIX( 1.0f ) + 100 * FIX_EPSILON;
 }
 
 /// Rotate a vector.
 /// Kept in the two-cross form: fused single-rounding variants of this and
-/// b3Lerp/b3MulMV/b3Cross perturb knife-edge equilibria (mesh-drop sleep,
+/// fixVecLerp/fixMulMV/fixCross perturb knife-edge equilibria (mesh-drop sleep,
 /// convex pile SAT cache). See the round-3 notes in CLAUDE.md.
-B3_INLINE b3Vec3 b3RotateVector( b3Quat q, b3Vec3 v )
+FIX_INLINE fixVec3 fixRotateVector( fixQuat q, fixVec3 v )
 {
 	// v + 2 * cross(q.v, cross(q.v, v) + q.s * v)
-	// B3_ASSERT( b3IsNormalizedQuat( q ) );
-	b3Vec3 t1 = b3Cross( q.v, v );
-	b3Vec3 t2 = b3MulAdd( t1, q.s, v );
-	b3Vec3 t3 = b3Cross( q.v, t2 );
-	return b3MulAdd( v, B3_FIX( 2.0f ), t3 );
+	// FIX_ASSERT( fixIsNormalizedQuat( q ) );
+	fixVec3 t1 = fixCross( q.v, v );
+	fixVec3 t2 = fixMulAdd( t1, q.s, v );
+	fixVec3 t3 = fixCross( q.v, t2 );
+	return fixMulAdd( v, FIX( 2.0f ), t3 );
 }
 
 /// Inverse rotate a vector.
-B3_INLINE b3Vec3 b3InvRotateVector( b3Quat q, b3Vec3 v )
+FIX_INLINE fixVec3 fixInvRotateVector( fixQuat q, fixVec3 v )
 {
 	// v + 2 * cross(q.v, cross(q.v, v) - q.s * v)
-	// B3_ASSERT( b3IsNormalizedQuat( q ) );
-	b3Vec3 t1 = b3Cross( q.v, v );
-	b3Vec3 t2 = b3MulSub( t1, q.s, v );
-	b3Vec3 t3 = b3Cross( q.v, t2 );
-	return b3MulAdd( v, B3_FIX( 2.0f ), t3 );
+	// FIX_ASSERT( fixIsNormalizedQuat( q ) );
+	fixVec3 t1 = fixCross( q.v, v );
+	fixVec3 t2 = fixMulSub( t1, q.s, v );
+	fixVec3 t3 = fixCross( q.v, t2 );
+	return fixMulAdd( v, FIX( 2.0f ), t3 );
 }
 
 /// Compute dot product of two quaternions. Useful for polarity tests.
 /// One rounding on the exact 128-bit sum.
-B3_INLINE b3Fixed b3DotQuat( b3Quat a, b3Quat b )
+FIX_INLINE fixed_t fixDotQuat( fixQuat a, fixQuat b )
 {
-	return b3FixFromDotRaw( (b3Int128)a.v.x * b.v.x + (b3Int128)a.v.y * b.v.y + (b3Int128)a.v.z * b.v.z +
-							(b3Int128)a.s * b.s );
+	return fixFromDotRaw( (fixInt128)a.v.x * b.v.x + (fixInt128)a.v.y * b.v.y + (fixInt128)a.v.z * b.v.z +
+							(fixInt128)a.s * b.s );
 }
 
 /// Multiply two quaternions. Each component is a fused 128-bit reduction with
 /// a single rounding.
-B3_INLINE b3Quat b3MulQuat( b3Quat q1, b3Quat q2 )
+FIX_INLINE fixQuat fixMulQuat( fixQuat q1, fixQuat q2 )
 {
 	// v = cross(q1.v, q2.v) + q1.s * q2.v + q2.s * q1.v
 	// s = q1.s * q2.s - dot(q1.v, q2.v)
-	b3Quat q = {
+	fixQuat q = {
 		{
-			b3FixFromDotRaw( (b3Int128)q1.v.y * q2.v.z - (b3Int128)q1.v.z * q2.v.y + (b3Int128)q1.s * q2.v.x +
-							 (b3Int128)q2.s * q1.v.x ),
-			b3FixFromDotRaw( (b3Int128)q1.v.z * q2.v.x - (b3Int128)q1.v.x * q2.v.z + (b3Int128)q1.s * q2.v.y +
-							 (b3Int128)q2.s * q1.v.y ),
-			b3FixFromDotRaw( (b3Int128)q1.v.x * q2.v.y - (b3Int128)q1.v.y * q2.v.x + (b3Int128)q1.s * q2.v.z +
-							 (b3Int128)q2.s * q1.v.z ),
+			fixFromDotRaw( (fixInt128)q1.v.y * q2.v.z - (fixInt128)q1.v.z * q2.v.y + (fixInt128)q1.s * q2.v.x +
+							 (fixInt128)q2.s * q1.v.x ),
+			fixFromDotRaw( (fixInt128)q1.v.z * q2.v.x - (fixInt128)q1.v.x * q2.v.z + (fixInt128)q1.s * q2.v.y +
+							 (fixInt128)q2.s * q1.v.y ),
+			fixFromDotRaw( (fixInt128)q1.v.x * q2.v.y - (fixInt128)q1.v.y * q2.v.x + (fixInt128)q1.s * q2.v.z +
+							 (fixInt128)q2.s * q1.v.z ),
 		},
-		b3FixFromDotRaw( (b3Int128)q1.s * q2.s - (b3Int128)q1.v.x * q2.v.x - (b3Int128)q1.v.y * q2.v.y -
-						 (b3Int128)q1.v.z * q2.v.z ),
+		fixFromDotRaw( (fixInt128)q1.s * q2.s - (fixInt128)q1.v.x * q2.v.x - (fixInt128)q1.v.y * q2.v.y -
+						 (fixInt128)q1.v.z * q2.v.z ),
 	};
 	return q;
 }
 
 /// Compute a relative quaternion.
 /// inv(q1) * q2
-B3_INLINE b3Quat b3InvMulQuat( b3Quat q1, b3Quat q2 )
+FIX_INLINE fixQuat fixInvMulQuat( fixQuat q1, fixQuat q2 )
 {
 	// v = cross(q2.v, q1.v) + q1.s * q2.v - q2.s * q1.v
 	// s = q1.s * q2.s + dot(q1.v, q2.v)
-	b3Quat q = {
+	fixQuat q = {
 		{
-			b3FixFromDotRaw( (b3Int128)q2.v.y * q1.v.z - (b3Int128)q2.v.z * q1.v.y + (b3Int128)q1.s * q2.v.x -
-							 (b3Int128)q2.s * q1.v.x ),
-			b3FixFromDotRaw( (b3Int128)q2.v.z * q1.v.x - (b3Int128)q2.v.x * q1.v.z + (b3Int128)q1.s * q2.v.y -
-							 (b3Int128)q2.s * q1.v.y ),
-			b3FixFromDotRaw( (b3Int128)q2.v.x * q1.v.y - (b3Int128)q2.v.y * q1.v.x + (b3Int128)q1.s * q2.v.z -
-							 (b3Int128)q2.s * q1.v.z ),
+			fixFromDotRaw( (fixInt128)q2.v.y * q1.v.z - (fixInt128)q2.v.z * q1.v.y + (fixInt128)q1.s * q2.v.x -
+							 (fixInt128)q2.s * q1.v.x ),
+			fixFromDotRaw( (fixInt128)q2.v.z * q1.v.x - (fixInt128)q2.v.x * q1.v.z + (fixInt128)q1.s * q2.v.y -
+							 (fixInt128)q2.s * q1.v.y ),
+			fixFromDotRaw( (fixInt128)q2.v.x * q1.v.y - (fixInt128)q2.v.y * q1.v.x + (fixInt128)q1.s * q2.v.z -
+							 (fixInt128)q2.s * q1.v.z ),
 		},
-		b3FixFromDotRaw( (b3Int128)q1.s * q2.s + (b3Int128)q1.v.x * q2.v.x + (b3Int128)q1.v.y * q2.v.y +
-						 (b3Int128)q1.v.z * q2.v.z ),
+		fixFromDotRaw( (fixInt128)q1.s * q2.s + (fixInt128)q1.v.x * q2.v.x + (fixInt128)q1.v.y * q2.v.y +
+						 (fixInt128)q1.v.z * q2.v.z ),
 	};
 	return q;
 }
 
 /// Quaternion conjugate (cheap inverse).
-B3_INLINE b3Quat b3Conjugate( b3Quat q )
+FIX_INLINE fixQuat fixConjugate( fixQuat q )
 {
-	return B3_LITERAL( b3Quat ){ { -q.v.x, -q.v.y, -q.v.z }, q.s };
+	return FIX_LITERAL( fixQuat ){ { -q.v.x, -q.v.y, -q.v.z }, q.s };
 }
 
 /// Component-wise quaternion negation.
-B3_INLINE b3Quat b3NegateQuat( b3Quat q )
+FIX_INLINE fixQuat fixNegateQuat( fixQuat q )
 {
-	return B3_LITERAL( b3Quat ){ { -q.v.x, -q.v.y, -q.v.z }, -q.s };
+	return FIX_LITERAL( fixQuat ){ { -q.v.x, -q.v.y, -q.v.z }, -q.s };
 }
 
-/// Normalize a quaternion at 128-bit precision, see b3Normalize.
-B3_INLINE b3Quat b3NormalizeQuat( b3Quat q )
+/// Normalize a quaternion at 128-bit precision, see fixNormalize.
+FIX_INLINE fixQuat fixNormalizeQuat( fixQuat q )
 {
-	b3Int128 ls = (b3Int128)q.v.x * q.v.x + (b3Int128)q.v.y * q.v.y + (b3Int128)q.v.z * q.v.z + (b3Int128)q.s * q.s;
+	fixInt128 ls = (fixInt128)q.v.x * q.v.x + (fixInt128)q.v.y * q.v.y + (fixInt128)q.v.z * q.v.z + (fixInt128)q.s * q.s;
 	if ( ls > 0 )
 	{
-		b3Fixed length = (b3Fixed)b3ISqrt128High( (uint64_t)( (b3UInt128)ls >> 64 ), (uint64_t)ls );
-		// b3FixDiv computes the same truncating quotient, with a single hardware
+		fixed_t length = (fixed_t)fixISqrt128High( (uint64_t)( (fixUInt128)ls >> 64 ), (uint64_t)ls );
+		// fixDiv computes the same truncating quotient, with a single hardware
 		// divide for the near-unit components this always sees
-		b3Quat qn = {
+		fixQuat qn = {
 			{
-				b3FixDiv( q.v.x, length ),
-				b3FixDiv( q.v.y, length ),
-				b3FixDiv( q.v.z, length ),
+				fixDiv( q.v.x, length ),
+				fixDiv( q.v.y, length ),
+				fixDiv( q.v.z, length ),
 			},
-			b3FixDiv( q.s, length ),
+			fixDiv( q.s, length ),
 		};
 		return qn;
 	}
 
-	return b3Quat_identity;
+	return fixQuat_identity;
 }
 
 /// Make a quaternion that is equivalent to rotating around an axis by a specified angle.
-B3_INLINE b3Quat b3MakeQuatFromAxisAngle( b3Vec3 axis, b3Fixed radians )
+FIX_INLINE fixQuat fixMakeQuatFromAxisAngle( fixVec3 axis, fixed_t radians )
 {
-	B3_ASSERT( b3IsNormalized( axis ) );
-	b3CosSin cs = b3ComputeCosSin( b3FixMul( B3_FIX( 0.5f ) , radians ) );
-	b3Quat q = { { b3FixMul( cs.sine , axis.x ), b3FixMul( cs.sine , axis.y ), b3FixMul( cs.sine , axis.z ) }, cs.cosine };
+	FIX_ASSERT( fixIsNormalized( axis ) );
+	fixCosSin cs = fixComputeCosSin( fixMul( FIX( 0.5f ) , radians ) );
+	fixQuat q = { { fixMul( cs.sine , axis.x ), fixMul( cs.sine , axis.y ), fixMul( cs.sine , axis.z ) }, cs.cosine };
 	return q;
 }
 
 /// Get the axis and angle from a quaternion. Assumes the quaternion is normalized.
-B3_INLINE b3Vec3 b3GetAxisAngle( b3Fixed* radians, b3Quat q )
+FIX_INLINE fixVec3 fixGetAxisAngle( fixed_t* radians, fixQuat q )
 {
-	b3Fixed length = b3FixSqrt( b3FixMul( q.v.x , q.v.x ) + b3FixMul( q.v.y , q.v.y ) + b3FixMul( q.v.z , q.v.z ) );
-	*radians = b3FixMul( B3_FIX( 2.0f ) , b3Atan2( length, q.s ) );
-	if ( length > B3_FIX( 0.0f ) )
+	fixed_t length = fixSqrt( fixMul( q.v.x , q.v.x ) + fixMul( q.v.y , q.v.y ) + fixMul( q.v.z , q.v.z ) );
+	*radians = fixMul( FIX( 2.0f ) , fixAtan2( length, q.s ) );
+	if ( length > FIX( 0.0f ) )
 	{
-		b3Fixed invLength = b3FixDiv( B3_FIX( 1.0f ) , length );
-		b3Vec3 axis = { b3FixMul( invLength , q.v.x ), b3FixMul( invLength , q.v.y ), b3FixMul( invLength , q.v.z ) };
+		fixed_t invLength = fixDiv( FIX( 1.0f ) , length );
+		fixVec3 axis = { fixMul( invLength , q.v.x ), fixMul( invLength , q.v.y ), fixMul( invLength , q.v.z ) };
 		return axis;
 	}
 
-	return b3Vec3_zero;
+	return fixVec3_zero;
 }
 
 /// Get the angle for a quaternion in radians
-B3_INLINE b3Fixed b3GetQuatAngle( b3Quat q )
+FIX_INLINE fixed_t fixGetQuatAngle( fixQuat q )
 {
-	b3Fixed length = b3FixSqrt( b3FixMul( q.v.x , q.v.x ) + b3FixMul( q.v.y , q.v.y ) + b3FixMul( q.v.z , q.v.z ) );
-	return b3FixMul( B3_FIX( 2.0f ) , b3Atan2( length, q.s ) );
+	fixed_t length = fixSqrt( fixMul( q.v.x , q.v.x ) + fixMul( q.v.y , q.v.y ) + fixMul( q.v.z , q.v.z ) );
+	return fixMul( FIX( 2.0f ) , fixAtan2( length, q.s ) );
 }
 
 /// Extract a quaternion from a rotation matrix.
-B3_API b3Quat b3MakeQuatFromMatrix( const b3Matrix3* m );
+FIX_API fixQuat fixMakeQuatFromMatrix( const fixMatrix3* m );
 
 /// Find a quaternion that rotates one vector to another.
-B3_API b3Quat b3ComputeQuatBetweenUnitVectors( b3Vec3 v1, b3Vec3 v2 );
+FIX_API fixQuat fixComputeQuatBetweenUnitVectors( fixVec3 v1, fixVec3 v2 );
 
 /// Twist angle around the z-axis, used for twist limit and revolute angle limit
-B3_INLINE b3Fixed b3GetTwistAngle( b3Quat q )
+FIX_INLINE fixed_t fixGetTwistAngle( fixQuat q )
 {
 	// Account for polarity to keep the twist angle in range.
 	// This is simpler than asking the user to check polarity or unwinding.
-	b3Fixed twist = q.s < B3_FIX( 0.0f ) ? b3Atan2( -q.v.z, -q.s ) : b3Atan2( q.v.z, q.s );
-	twist = b3FixMul( twist, B3_FIX( 2.0f ) );
-	B3_ASSERT( -B3_PI - 2 * B3_FIXED_EPSILON <= twist && twist <= B3_PI + 2 * B3_FIXED_EPSILON );
+	fixed_t twist = q.s < FIX( 0.0f ) ? fixAtan2( -q.v.z, -q.s ) : fixAtan2( q.v.z, q.s );
+	twist = fixMul( twist, FIX( 2.0f ) );
+	FIX_ASSERT( -FIX_PI - 2 * FIX_EPSILON <= twist && twist <= FIX_PI + 2 * FIX_EPSILON );
 	return twist;
 }
 
 /// Swing angle used for cone limit
-B3_INLINE b3Fixed b3GetSwingAngle( b3Quat q )
+FIX_INLINE fixed_t fixGetSwingAngle( fixQuat q )
 {
 	// Polarity should not matter because all terms are squared.
-	b3Fixed x = b3FixSqrt( b3FixMul( q.v.z , q.v.z ) + b3FixMul( q.s , q.s ) );
-	b3Fixed y = b3FixSqrt( b3FixMul( q.v.x , q.v.x ) + b3FixMul( q.v.y , q.v.y ) );
-	b3Fixed swing = b3FixMul( B3_FIX( 2.0f ) , b3Atan2( y, x ) );
-	B3_ASSERT( B3_FIX( 0.0f ) <= swing && swing <= B3_PI + 2 * B3_FIXED_EPSILON );
+	fixed_t x = fixSqrt( fixMul( q.v.z , q.v.z ) + fixMul( q.s , q.s ) );
+	fixed_t y = fixSqrt( fixMul( q.v.x , q.v.x ) + fixMul( q.v.y , q.v.y ) );
+	fixed_t swing = fixMul( FIX( 2.0f ) , fixAtan2( y, x ) );
+	FIX_ASSERT( FIX( 0.0f ) <= swing && swing <= FIX_PI + 2 * FIX_EPSILON );
 	return swing;
 }
 
 /// Linearly interpolate and normalize between two quaternions
-B3_INLINE b3Quat b3NLerp( b3Quat q1, b3Quat q2, b3Fixed alpha )
+FIX_INLINE fixQuat fixNLerp( fixQuat q1, fixQuat q2, fixed_t alpha )
 {
-	B3_VALIDATE( B3_FIX( 0.0f ) <= alpha && alpha <= B3_FIX( 1.0f ) );
-	if ( b3DotQuat( q1, q2 ) < B3_FIX( 0.0f ) )
+	FIX_VALIDATE( FIX( 0.0f ) <= alpha && alpha <= FIX( 1.0f ) );
+	if ( fixDotQuat( q1, q2 ) < FIX( 0.0f ) )
 	{
-		q1 = B3_LITERAL( b3Quat ){ { -q1.v.x, -q1.v.y, -q1.v.z }, -q1.s };
+		q1 = FIX_LITERAL( fixQuat ){ { -q1.v.x, -q1.v.y, -q1.v.z }, -q1.s };
 	}
 
-	b3Quat q;
-	q.v = b3Lerp( q1.v, q2.v, alpha );
-	q.s = b3FixMul( ( B3_FIX( 1.0f ) - alpha ) , q1.s ) + b3FixMul( alpha , q2.s );
+	fixQuat q;
+	q.v = fixVecLerp( q1.v, q2.v, alpha );
+	q.s = fixMul( ( FIX( 1.0f ) - alpha ) , q1.s ) + fixMul( alpha , q2.s );
 
-	return b3NormalizeQuat( q );
+	return fixNormalizeQuat( q );
 }
 
 /// Multiply two transforms. If the result is applied to a point p local to frame B,
 /// the transform would first convert p to a point local to frame A, then into a point
 /// in the world frame. This is useful if frame B is a child of frame A.
-B3_INLINE b3Transform b3MulTransforms( b3Transform a, b3Transform b )
+FIX_INLINE fixTransform fixMulTransforms( fixTransform a, fixTransform b )
 {
-	b3Transform out;
-	out.p = b3Add( b3RotateVector( a.q, b.p ), a.p );
-	out.q = b3MulQuat( a.q, b.q );
+	fixTransform out;
+	out.p = fixVecAdd( fixRotateVector( a.q, b.p ), a.p );
+	out.q = fixMulQuat( a.q, b.q );
 	return out;
 }
 
 /// Creates a transform that converts a local point in frame B to a local point in frame A.
 /// This is useful for transforming points between the local spaces of two frames that are
 /// in world space.
-B3_FORCE_INLINE b3Transform b3InvMulTransforms( b3Transform a, b3Transform b )
+FIX_FORCE_INLINE fixTransform fixInvMulTransforms( fixTransform a, fixTransform b )
 {
-	b3Transform out;
-	out.p = b3InvRotateVector( a.q, b3Sub( b.p, a.p ) );
-	out.q = b3InvMulQuat( a.q, b.q );
+	fixTransform out;
+	out.p = fixInvRotateVector( a.q, fixVecSub( b.p, a.p ) );
+	out.q = fixInvMulQuat( a.q, b.q );
 	return out;
 }
 
 /// Get the inverse of a transform.
-B3_INLINE b3Transform b3InvertTransform( b3Transform t )
+FIX_INLINE fixTransform fixInvertTransform( fixTransform t )
 {
-	b3Transform out;
-	out.p = b3InvRotateVector( t.q, b3Neg( t.p ) );
-	out.q = b3Conjugate( t.q );
+	fixTransform out;
+	out.p = fixInvRotateVector( t.q, fixVecNeg( t.p ) );
+	out.q = fixConjugate( t.q );
 	return out;
 }
 
 /// Transform a point.
-B3_INLINE b3Vec3 b3TransformPoint( b3Transform t, b3Vec3 v )
+FIX_INLINE fixVec3 fixTransformPoint( fixTransform t, fixVec3 v )
 {
-	b3Vec3 rv = b3RotateVector( t.q, v );
-	return b3Add( rv, t.p );
+	fixVec3 rv = fixRotateVector( t.q, v );
+	return fixVecAdd( rv, t.p );
 }
 
 /// Inverse transform a point.
-B3_INLINE b3Vec3 b3InvTransformPoint( b3Transform t, b3Vec3 v )
+FIX_INLINE fixVec3 fixInvTransformPoint( fixTransform t, fixVec3 v )
 {
-	return b3InvRotateVector( t.q, b3Sub( v, t.p ) );
+	return fixInvRotateVector( t.q, fixVecSub( v, t.p ) );
 }
 
 /// Convert a vector to a world position.
-B3_INLINE b3Pos b3ToPos( b3Vec3 v )
+FIX_INLINE fixPos fixToPos( fixVec3 v )
 {
-	return B3_LITERAL( b3Pos ){ v.x, v.y, v.z };
+	return FIX_LITERAL( fixPos ){ v.x, v.y, v.z };
 }
 
-/// Lossy conversion of a world position to a b3Fixed vector.
-B3_INLINE b3Vec3 b3ToVec3( b3Pos p )
+/// Lossy conversion of a world position to a fixed_t vector.
+FIX_INLINE fixVec3 fixToVec3( fixPos p )
 {
-	return B3_LITERAL( b3Vec3 ){ (b3Fixed)p.x, (b3Fixed)p.y, (b3Fixed)p.z };
+	return FIX_LITERAL( fixVec3 ){ (fixed_t)p.x, (fixed_t)p.y, (fixed_t)p.z };
 }
 
 /// Narrow a world coordinate. World coordinates are the same fixed-point type as
 /// local coordinates, so this is the identity. Kept for API compatibility with the
 /// old large-world mode.
-B3_INLINE b3Fixed b3RoundDownFloat( b3Fixed x )
+FIX_INLINE fixed_t fixRoundDownFloat( fixed_t x )
 {
 	return x;
 }
 
 /// Narrow a world coordinate. The identity in fixed point.
-B3_INLINE b3Fixed b3RoundUpFloat( b3Fixed x )
+FIX_INLINE fixed_t fixRoundUpFloat( fixed_t x )
 {
 	return x;
 }
 
-/// a - b, demoted to b3Fixed. The primary precision boundary operation.
-B3_INLINE b3Vec3 b3SubPos( b3Pos a, b3Pos b )
+/// a - b, demoted to fixed_t. The primary precision boundary operation.
+FIX_INLINE fixVec3 fixSubPos( fixPos a, fixPos b )
 {
-	return B3_LITERAL( b3Vec3 ){ (b3Fixed)( a.x - b.x ), (b3Fixed)( a.y - b.y ), (b3Fixed)( a.z - b.z ) };
+	return FIX_LITERAL( fixVec3 ){ (fixed_t)( a.x - b.x ), (fixed_t)( a.y - b.y ), (fixed_t)( a.z - b.z ) };
 }
 
 /// p + d
-B3_INLINE b3Pos b3OffsetPos( b3Pos p, b3Vec3 d )
+FIX_INLINE fixPos fixOffsetPos( fixPos p, fixVec3 d )
 {
-	return B3_LITERAL( b3Pos ){ p.x + d.x, p.y + d.y, p.z + d.z };
+	return FIX_LITERAL( fixPos ){ p.x + d.x, p.y + d.y, p.z + d.z };
 }
 
 /// World position interpolation for sweeps and sampling.
-B3_INLINE b3Pos b3LerpPosition( b3Pos a, b3Pos b, b3Fixed t )
+FIX_INLINE fixPos fixLerpPosition( fixPos a, fixPos b, fixed_t t )
 {
-	return B3_LITERAL( b3Pos ){
-		b3FixMul( ( B3_FIX( 1.0f ) - t ) , a.x ) + b3FixMul( t , b.x ),
-		b3FixMul( ( B3_FIX( 1.0f ) - t ) , a.y ) + b3FixMul( t , b.y ),
-		b3FixMul( ( B3_FIX( 1.0f ) - t ) , a.z ) + b3FixMul( t , b.z ),
+	return FIX_LITERAL( fixPos ){
+		fixMul( ( FIX( 1.0f ) - t ) , a.x ) + fixMul( t , b.x ),
+		fixMul( ( FIX( 1.0f ) - t ) , a.y ) + fixMul( t , b.y ),
+		fixMul( ( FIX( 1.0f ) - t ) , a.z ) + fixMul( t , b.z ),
 	};
 }
 
-/// Transform a local point to a world position. Rotation in b3Fixed, translation in double.
-B3_INLINE b3Pos b3TransformWorldPoint( b3WorldTransform t, b3Vec3 p )
+/// Transform a local point to a world position. Rotation in fixed_t, translation in double.
+FIX_INLINE fixPos fixTransformWorldPoint( fixWorldTransform t, fixVec3 p )
 {
-	b3Vec3 r = b3RotateVector( t.q, p );
-	return B3_LITERAL( b3Pos ){ t.p.x + r.x, t.p.y + r.y, t.p.z + r.z };
+	fixVec3 r = fixRotateVector( t.q, p );
+	return FIX_LITERAL( fixPos ){ t.p.x + r.x, t.p.y + r.y, t.p.z + r.z };
 }
 
-/// Transform a world position to a local point. One double subtraction, then b3Fixed.
-B3_INLINE b3Vec3 b3InvTransformWorldPoint( b3WorldTransform t, b3Pos p )
+/// Transform a world position to a local point. One double subtraction, then fixed_t.
+FIX_INLINE fixVec3 fixInvTransformWorldPoint( fixWorldTransform t, fixPos p )
 {
-	b3Vec3 d = { (b3Fixed)( p.x - t.p.x ), (b3Fixed)( p.y - t.p.y ), (b3Fixed)( p.z - t.p.z ) };
-	return b3InvRotateVector( t.q, d );
+	fixVec3 d = { (fixed_t)( p.x - t.p.x ), (fixed_t)( p.y - t.p.y ), (fixed_t)( p.z - t.p.z ) };
+	return fixInvRotateVector( t.q, d );
 }
 
 /// Relative transform of frame B in frame A. The narrow phase boundary.
-B3_INLINE b3Transform b3InvMulWorldTransforms( b3WorldTransform A, b3WorldTransform B )
+FIX_INLINE fixTransform fixInvMulWorldTransforms( fixWorldTransform A, fixWorldTransform B )
 {
-	b3Transform C;
-	C.q = b3InvMulQuat( A.q, B.q );
-	b3Vec3 d = { (b3Fixed)( B.p.x - A.p.x ), (b3Fixed)( B.p.y - A.p.y ), (b3Fixed)( B.p.z - A.p.z ) };
-	C.p = b3InvRotateVector( A.q, d );
+	fixTransform C;
+	C.q = fixInvMulQuat( A.q, B.q );
+	fixVec3 d = { (fixed_t)( B.p.x - A.p.x ), (fixed_t)( B.p.y - A.p.y ), (fixed_t)( B.p.z - A.p.z ) };
+	C.p = fixInvRotateVector( A.q, d );
 	return C;
 }
 
 /// Compose a world transform with a local transform.
-B3_INLINE b3WorldTransform b3MulWorldTransforms( b3WorldTransform A, b3Transform B )
+FIX_INLINE fixWorldTransform fixMulWorldTransforms( fixWorldTransform A, fixTransform B )
 {
-	b3WorldTransform C;
-	C.q = b3MulQuat( A.q, B.q );
-	b3Vec3 r = b3RotateVector( A.q, B.p );
-	C.p = B3_LITERAL( b3Pos ){ A.p.x + r.x, A.p.y + r.y, A.p.z + r.z };
+	fixWorldTransform C;
+	C.q = fixMulQuat( A.q, B.q );
+	fixVec3 r = fixRotateVector( A.q, B.p );
+	C.p = FIX_LITERAL( fixPos ){ A.p.x + r.x, A.p.y + r.y, A.p.z + r.z };
 	return C;
 }
 
 /// Shift a world transform into the frame of a base position.
-B3_INLINE b3Transform b3ToRelativeTransform( b3WorldTransform t, b3Pos base )
+FIX_INLINE fixTransform fixToRelativeTransform( fixWorldTransform t, fixPos base )
 {
-	b3Transform r;
+	fixTransform r;
 	r.q = t.q;
-	r.p = B3_LITERAL( b3Vec3 ){ (b3Fixed)( t.p.x - base.x ), (b3Fixed)( t.p.y - base.y ), (b3Fixed)( t.p.z - base.z ) };
+	r.p = FIX_LITERAL( fixVec3 ){ (fixed_t)( t.p.x - base.x ), (fixed_t)( t.p.y - base.y ), (fixed_t)( t.p.z - base.z ) };
 	return r;
 }
 
-/// Promote a b3Fixed transform to a world transform. Lossless.
-B3_INLINE b3WorldTransform b3MakeWorldTransform( b3Transform t )
+/// Promote a fixed_t transform to a world transform. Lossless.
+FIX_INLINE fixWorldTransform fixMakeWorldTransform( fixTransform t )
 {
-	b3WorldTransform w;
-	w.p = b3ToPos( t.p );
+	fixWorldTransform w;
+	w.p = fixToPos( t.p );
 	w.q = t.q;
 	return w;
 }
 
 /// Compute the determinant of a 3-by-3 matrix.
-B3_INLINE b3Fixed b3Det( b3Matrix3 m )
+FIX_INLINE fixed_t fixDet( fixMatrix3 m )
 {
-	return b3Dot( m.cx, b3Cross( m.cy, m.cz ) );
+	return fixDot( m.cx, fixCross( m.cy, m.cz ) );
 }
 
-#if B3_HAS_INT128
+#if FIX_HAS_INT128
 // Internal: 3x3 cofactors at Q32.32 in 128 bits and the determinant at Q16.48.
 // The Q48.16 determinant of a matrix with small entries (like the inertia of a
 // small body) underflows to zero, so the inverse and solve helpers work at
 // full precision internally.
-B3_INLINE b3Int128 b3Cofactor128( b3Fixed a, b3Fixed b, b3Fixed c, b3Fixed d )
+FIX_INLINE fixInt128 fixCofactor128( fixed_t a, fixed_t b, fixed_t c, fixed_t d )
 {
-	return (b3Int128)a * b - (b3Int128)c * d; // Q32.32
+	return (fixInt128)a * b - (fixInt128)c * d; // Q32.32
 }
 
 /// Validity predicates for the fixed-point math types.
 ///
 /// Extracted from fixed3d's math_functions.c, unchanged in behaviour. In fixed3d these
-/// are B3_API functions in a translation unit; here they are inline, matching the rest
+/// are FIX_API functions in a translation unit; here they are inline, matching the rest
 /// of this header. The bodies are byte-equivalent.
 ///
 /// Deliberately NOT extracted, and the reason matters:
-///   - b3IsValidPosition / b3IsValidWorldTransform have TWO definitions in fixed3d,
-///     selected by BOX3D_LUDICROUS_MODE, because b3Pos changes shape under that flag.
-///     They cannot move until the narrow/wide b3Pos design fork is resolved.
-///   - b3IsValidAABB / b3IsValidPlane / b3IsValidRay take collision types (b3AABB,
-///     b3Plane, b3RayCastInput). Those are physics, not fixed-point math, and stay.
+///   - fixIsValidPosition / fixIsValidWorldTransform have TWO definitions in fixed3d,
+///     selected by BOX3D_LUDICROUS_MODE, because fixPos changes shape under that flag.
+///     They cannot move until the narrow/wide fixPos design fork is resolved.
+///   - fixIsValidAABB / fixIsValidPlane / fixIsValidRay take collision types (fixAABB,
+///     fixPlane, fixRayCastInput). Those are physics, not fixed-point math, and stay.
 
 /// True if a is a representable fixed-point quantity.
 ///
-/// Fixed point has no NaN, and the saturation values are legal quantities: B3_FIXED_MAX
+/// Fixed point has no NaN, and the saturation values are legal quantities: FIX_MAX
 /// plays the role FLT_MAX did (joint thresholds and spring force limits default to it,
 /// mirroring isfinite( FLT_MAX ) == true). Only INT64_MIN is unrepresentable -- reserved
 /// so that negation cannot overflow.
-B3_INLINE bool b3IsValidFixed( b3Fixed a )
+FIX_INLINE bool fixIsValidFixed( fixed_t a )
 {
 	return a != INT64_MIN;
 }
 
 /// True if every component of a is a representable fixed-point quantity.
-B3_INLINE bool b3IsValidVec3( b3Vec3 a )
+FIX_INLINE bool fixIsValidVec3( fixVec3 a )
 {
-	return b3IsValidFixed( a.x ) && b3IsValidFixed( a.y ) && b3IsValidFixed( a.z );
+	return fixIsValidFixed( a.x ) && fixIsValidFixed( a.y ) && fixIsValidFixed( a.z );
 }
 
 /// True if q is representable AND normalized. A non-normalized quaternion is not a
 /// rotation, so the normalization check is part of validity, not a separate question.
-B3_INLINE bool b3IsValidQuat( b3Quat a )
+FIX_INLINE bool fixIsValidQuat( fixQuat a )
 {
-	if ( !b3IsValidFixed( a.v.x ) || !b3IsValidFixed( a.v.y ) || !b3IsValidFixed( a.v.z ) || !b3IsValidFixed( a.s ) )
+	if ( !fixIsValidFixed( a.v.x ) || !fixIsValidFixed( a.v.y ) || !fixIsValidFixed( a.v.z ) || !fixIsValidFixed( a.s ) )
 	{
 		return false;
 	}
 
-	return b3IsNormalizedQuat( a );
+	return fixIsNormalizedQuat( a );
 }
 
 /// True if both the translation and the rotation of a are valid.
-B3_INLINE bool b3IsValidTransform( b3Transform a )
+FIX_INLINE bool fixIsValidTransform( fixTransform a )
 {
-	return b3IsValidVec3( a.p ) && b3IsValidQuat( a.q );
+	return fixIsValidVec3( a.p ) && fixIsValidQuat( a.q );
 }
 
 /// True if every column of a is a valid vector.
-B3_INLINE bool b3IsValidMatrix3( b3Matrix3 a )
+FIX_INLINE bool fixIsValidMatrix3( fixMatrix3 a )
 {
-	return b3IsValidVec3( a.cx ) && b3IsValidVec3( a.cy ) && b3IsValidVec3( a.cz );
+	return fixIsValidVec3( a.cx ) && fixIsValidVec3( a.cy ) && fixIsValidVec3( a.cz );
 }
 
 /// A plane: unit normal and offset along it.
-typedef struct b3Plane
+typedef struct fixPlane
 {
-	b3Vec3 normal;
-	b3Fixed offset;
-} b3Plane;
+	fixVec3 normal;
+	fixed_t offset;
+} fixPlane;
 
 /// Is this a valid plane? Normal must be finite AND unit length.
-B3_INLINE bool b3IsValidPlane( b3Plane a )
+FIX_INLINE bool fixIsValidPlane( fixPlane a )
 {
-	if ( b3IsValidVec3( a.normal ) == false )
+	if ( fixIsValidVec3( a.normal ) == false )
 	{
 		return false;
 	}
 
-	if ( b3IsNormalized( a.normal ) == false )
+	if ( fixIsNormalized( a.normal ) == false )
 	{
 		return false;
 	}
 
-	return b3IsValidFixed( a.offset );
+	return fixIsValidFixed( a.offset );
 }
 
 /// An axis-aligned bounding box in local (Q48.16) space.
 ///
-/// The wide (Q112.16) counterpart is b3AABBWide in fixed_wide.h. Both are exported
+/// The wide (Q112.16) counterpart is fixAABBWide in fixed_wide.h. Both are exported
 /// unconditionally: a consumer picks narrow or wide by which type it names, not by a
 /// compile flag that silently changes an ABI. In box3d these two live in opposite
 /// branches of BOX3D_LUDICROUS_MODE, which means the wide half only compiles when that
 /// flag is set -- and it is off by default, so that code is dark in every ordinary
 /// build. Here both compile and both are tested on every run.
-typedef struct b3AABB
+typedef struct fixAABB
 {
-	b3Vec3 lowerBound;
-	b3Vec3 upperBound;
-} b3AABB;
+	fixVec3 lowerBound;
+	fixVec3 upperBound;
+} fixAABB;
 
 /// Get the AABB of a point cloud, expanded by a uniform radius.
-B3_INLINE b3AABB b3MakeAABB( const b3Vec3* points, int count, b3Fixed radius )
+FIX_INLINE fixAABB fixMakeAABB( const fixVec3* points, int count, fixed_t radius )
 {
-	B3_ASSERT( count > 0 );
-	b3AABB a = { points[0], points[0] };
+	FIX_ASSERT( count > 0 );
+	fixAABB a = { points[0], points[0] };
 	for ( int i = 1; i < count; ++i )
 	{
-		a.lowerBound = b3Min( a.lowerBound, points[i] );
-		a.upperBound = b3Max( a.upperBound, points[i] );
+		a.lowerBound = fixVecMin( a.lowerBound, points[i] );
+		a.upperBound = fixVecMax( a.upperBound, points[i] );
 	}
 
-	b3Vec3 r = { radius, radius, radius };
-	a.lowerBound = b3Sub( a.lowerBound, r );
-	a.upperBound = b3Add( a.upperBound, r );
+	fixVec3 r = { radius, radius, radius };
+	a.lowerBound = fixVecSub( a.lowerBound, r );
+	a.upperBound = fixVecAdd( a.upperBound, r );
 
 	return a;
 }
 
 /// Does a fully contain b?
-B3_INLINE bool b3AABB_Contains( b3AABB a, b3AABB b )
+FIX_INLINE bool fixAABB_Contains( fixAABB a, fixAABB b )
 {
 	if ( a.lowerBound.x > b.lowerBound.x || b.upperBound.x > a.upperBound.x )
 		return false;
@@ -867,46 +867,46 @@ B3_INLINE bool b3AABB_Contains( b3AABB a, b3AABB b )
 }
 
 /// Get the surface area of an axis-aligned bounding box.
-B3_INLINE b3Fixed b3AABB_Area( b3AABB a )
+FIX_INLINE fixed_t fixAABB_Area( fixAABB a )
 {
-	b3Vec3 delta = b3Sub( a.upperBound, a.lowerBound );
-	return b3FixMul( B3_FIX( 2.0f ) , ( b3FixMul( delta.x , delta.y ) + b3FixMul( delta.y , delta.z ) + b3FixMul( delta.z , delta.x ) ) );
+	fixVec3 delta = fixVecSub( a.upperBound, a.lowerBound );
+	return fixMul( FIX( 2.0f ) , ( fixMul( delta.x , delta.y ) + fixMul( delta.y , delta.z ) + fixMul( delta.z , delta.x ) ) );
 }
 
 /// Get the center of an axis-aligned bounding box.
-B3_INLINE b3Vec3 b3AABB_Center( b3AABB a )
+FIX_INLINE fixVec3 fixAABB_Center( fixAABB a )
 {
-	return b3MulSV( B3_FIX( 0.5f ), b3Add( a.upperBound, a.lowerBound ) );
+	return fixMulSV( FIX( 0.5f ), fixVecAdd( a.upperBound, a.lowerBound ) );
 }
 
 /// Get the extents (half-widths) of an axis-aligned bounding box.
-B3_INLINE b3Vec3 b3AABB_Extents( b3AABB a )
+FIX_INLINE fixVec3 fixAABB_Extents( fixAABB a )
 {
-	return b3MulSV( B3_FIX( 0.5f ), b3Sub( a.upperBound, a.lowerBound ) );
+	return fixMulSV( FIX( 0.5f ), fixVecSub( a.upperBound, a.lowerBound ) );
 }
 
 /// Get the union of two axis-aligned bounding boxes.
-B3_INLINE b3AABB b3AABB_Union( b3AABB a, b3AABB b )
+FIX_INLINE fixAABB fixAABB_Union( fixAABB a, fixAABB b )
 {
-	b3AABB out;
-	out.lowerBound = b3Min( a.lowerBound, b.lowerBound );
-	out.upperBound = b3Max( a.upperBound, b.upperBound );
+	fixAABB out;
+	out.lowerBound = fixVecMin( a.lowerBound, b.lowerBound );
+	out.upperBound = fixVecMax( a.upperBound, b.upperBound );
 	return out;
 }
 
 /// Add uniform padding to an axis-aligned bounding box.
-B3_INLINE b3AABB b3AABB_Inflate( b3AABB a, b3Fixed extension )
+FIX_INLINE fixAABB fixAABB_Inflate( fixAABB a, fixed_t extension )
 {
-	b3Vec3 radius = { extension, extension, extension };
+	fixVec3 radius = { extension, extension, extension };
 
-	b3AABB out;
-	out.lowerBound = b3Sub( a.lowerBound, radius );
-	out.upperBound = b3Add( a.upperBound, radius );
+	fixAABB out;
+	out.lowerBound = fixVecSub( a.lowerBound, radius );
+	out.upperBound = fixVecAdd( a.upperBound, radius );
 	return out;
 }
 
 /// Do two axis-aligned boxes overlap?
-B3_INLINE bool b3AABB_Overlaps( b3AABB a, b3AABB b )
+FIX_INLINE bool fixAABB_Overlaps( fixAABB a, fixAABB b )
 {
 	// No intersection if separated along one axis
 	if ( a.upperBound.x < b.lowerBound.x || a.lowerBound.x > b.upperBound.x )
@@ -921,14 +921,14 @@ B3_INLINE bool b3AABB_Overlaps( b3AABB a, b3AABB b )
 }
 
 /// Is this a valid AABB? Both bounds finite, and lower <= upper on every axis.
-B3_INLINE bool b3IsValidAABB( b3AABB a )
+FIX_INLINE bool fixIsValidAABB( fixAABB a )
 {
-	if ( b3IsValidVec3( a.lowerBound ) == false )
+	if ( fixIsValidVec3( a.lowerBound ) == false )
 	{
 		return false;
 	}
 
-	if ( b3IsValidVec3( a.upperBound ) == false )
+	if ( fixIsValidVec3( a.upperBound ) == false )
 	{
 		return false;
 	}
@@ -954,23 +954,23 @@ B3_INLINE bool b3IsValidAABB( b3AABB a )
 #endif
 
 /// Multiply a matrix times a column vector.
-B3_INLINE b3Vec3 b3MulMV( b3Matrix3 m, b3Vec3 a )
+FIX_INLINE fixVec3 fixMulMV( fixMatrix3 m, fixVec3 a )
 {
 	// Kept as per-product rounding: the single-rounding form shifted the SAT
 	// edge-query geometry by an ulp and put convex hull piles into a persistent
 	// cache-miss regime (convex_pile +40%). See the round-3 notes in CLAUDE.md.
-	b3Vec3 b = {
-		b3FixMul( m.cx.x , a.x ) + b3FixMul( m.cy.x , a.y ) + b3FixMul( m.cz.x , a.z ),
-		b3FixMul( m.cx.y , a.x ) + b3FixMul( m.cy.y , a.y ) + b3FixMul( m.cz.y , a.z ),
-		b3FixMul( m.cx.z , a.x ) + b3FixMul( m.cy.z , a.y ) + b3FixMul( m.cz.z , a.z ),
+	fixVec3 b = {
+		fixMul( m.cx.x , a.x ) + fixMul( m.cy.x , a.y ) + fixMul( m.cz.x , a.z ),
+		fixMul( m.cx.y , a.x ) + fixMul( m.cy.y , a.y ) + fixMul( m.cz.y , a.z ),
+		fixMul( m.cx.z , a.x ) + fixMul( m.cy.z , a.y ) + fixMul( m.cz.z , a.z ),
 	};
 	return b;
 }
 
 /// Negate a matrix.
-B3_INLINE b3Matrix3 b3NegateMat3( b3Matrix3 a )
+FIX_INLINE fixMatrix3 fixNegateMat3( fixMatrix3 a )
 {
-	return B3_LITERAL( b3Matrix3 ){
+	return FIX_LITERAL( fixMatrix3 ){
 		{ -a.cx.x, -a.cx.y, -a.cx.z },
 		{ -a.cy.x, -a.cy.y, -a.cy.z },
 		{ -a.cz.x, -a.cz.y, -a.cz.z },
@@ -979,9 +979,9 @@ B3_INLINE b3Matrix3 b3NegateMat3( b3Matrix3 a )
 
 /// Matrix addition.
 /// @return a + b
-B3_INLINE b3Matrix3 b3AddMM( b3Matrix3 a, b3Matrix3 b )
+FIX_INLINE fixMatrix3 fixAddMM( fixMatrix3 a, fixMatrix3 b )
 {
-	return B3_LITERAL( b3Matrix3 ){
+	return FIX_LITERAL( fixMatrix3 ){
 		{ a.cx.x + b.cx.x, a.cx.y + b.cx.y, a.cx.z + b.cx.z },
 		{ a.cy.x + b.cy.x, a.cy.y + b.cy.y, a.cy.z + b.cy.z },
 		{ a.cz.x + b.cz.x, a.cz.y + b.cz.y, a.cz.z + b.cz.z },
@@ -990,9 +990,9 @@ B3_INLINE b3Matrix3 b3AddMM( b3Matrix3 a, b3Matrix3 b )
 
 /// Matrix subtraction.
 /// @return a - b
-B3_INLINE b3Matrix3 b3SubMM( b3Matrix3 a, b3Matrix3 b )
+FIX_INLINE fixMatrix3 fixSubMM( fixMatrix3 a, fixMatrix3 b )
 {
-	return B3_LITERAL( b3Matrix3 ){
+	return FIX_LITERAL( fixMatrix3 ){
 		{ a.cx.x - b.cx.x, a.cx.y - b.cx.y, a.cx.z - b.cx.z },
 		{ a.cy.x - b.cy.x, a.cy.y - b.cy.y, a.cy.z - b.cy.z },
 		{ a.cz.x - b.cz.x, a.cz.y - b.cz.y, a.cz.z - b.cz.z },
@@ -1000,180 +1000,180 @@ B3_INLINE b3Matrix3 b3SubMM( b3Matrix3 a, b3Matrix3 b )
 }
 
 /// Multiply a matrix by a scalar, component-wise.
-B3_INLINE b3Matrix3 b3MulSM( b3Fixed s, b3Matrix3 a )
+FIX_INLINE fixMatrix3 fixMulSM( fixed_t s, fixMatrix3 a )
 {
-	return B3_LITERAL( b3Matrix3 ){
-		{ b3FixMul( s , a.cx.x ), b3FixMul( s , a.cx.y ), b3FixMul( s , a.cx.z ) },
-		{ b3FixMul( s , a.cy.x ), b3FixMul( s , a.cy.y ), b3FixMul( s , a.cy.z ) },
-		{ b3FixMul( s , a.cz.x ), b3FixMul( s , a.cz.y ), b3FixMul( s , a.cz.z ) },
+	return FIX_LITERAL( fixMatrix3 ){
+		{ fixMul( s , a.cx.x ), fixMul( s , a.cx.y ), fixMul( s , a.cx.z ) },
+		{ fixMul( s , a.cy.x ), fixMul( s , a.cy.y ), fixMul( s , a.cy.z ) },
+		{ fixMul( s , a.cz.x ), fixMul( s , a.cz.y ), fixMul( s , a.cz.z ) },
 	};
 }
 
 /// Matrix multiplication.
 /// @return a * b
-B3_INLINE b3Matrix3 b3MulMM( b3Matrix3 a, b3Matrix3 b )
+FIX_INLINE fixMatrix3 fixMulMM( fixMatrix3 a, fixMatrix3 b )
 {
-	b3Matrix3 out;
-	out.cx = b3MulMV( a, b.cx );
-	out.cy = b3MulMV( a, b.cy );
-	out.cz = b3MulMV( a, b.cz );
+	fixMatrix3 out;
+	out.cx = fixMulMV( a, b.cx );
+	out.cy = fixMulMV( a, b.cy );
+	out.cz = fixMulMV( a, b.cz );
 	return out;
 }
 
 /// Matrix transpose.
-B3_INLINE b3Matrix3 b3Transpose( b3Matrix3 m )
+FIX_INLINE fixMatrix3 fixTranspose( fixMatrix3 m )
 {
-	b3Matrix3 out;
-	out.cx = B3_LITERAL( b3Vec3 ){ m.cx.x, m.cy.x, m.cz.x };
-	out.cy = B3_LITERAL( b3Vec3 ){ m.cx.y, m.cy.y, m.cz.y };
-	out.cz = B3_LITERAL( b3Vec3 ){ m.cx.z, m.cy.z, m.cz.z };
+	fixMatrix3 out;
+	out.cx = FIX_LITERAL( fixVec3 ){ m.cx.x, m.cy.x, m.cz.x };
+	out.cy = FIX_LITERAL( fixVec3 ){ m.cx.y, m.cy.y, m.cz.y };
+	out.cz = FIX_LITERAL( fixVec3 ){ m.cx.z, m.cy.z, m.cz.z };
 
 	return out;
 }
 
 /// General matrix inverse.
-B3_INLINE b3Matrix3 b3InvertMatrix( b3Matrix3 m )
+FIX_INLINE fixMatrix3 fixInvertMatrix( fixMatrix3 m )
 {
 	// Full precision cofactors (Q32.32 in 128 bits) so small matrices like the
 	// inertia of tiny bodies stay invertible: a Q48.16 determinant underflows.
-	b3Int128 c00 = b3Cofactor128( m.cy.y, m.cz.z, m.cy.z, m.cz.y );
-	b3Int128 c01 = b3Cofactor128( m.cy.z, m.cz.x, m.cy.x, m.cz.z );
-	b3Int128 c02 = b3Cofactor128( m.cy.x, m.cz.y, m.cy.y, m.cz.x );
-	b3Int128 c10 = b3Cofactor128( m.cz.y, m.cx.z, m.cz.z, m.cx.y );
-	b3Int128 c11 = b3Cofactor128( m.cz.z, m.cx.x, m.cz.x, m.cx.z );
-	b3Int128 c12 = b3Cofactor128( m.cz.x, m.cx.y, m.cz.y, m.cx.x );
-	b3Int128 c20 = b3Cofactor128( m.cx.y, m.cy.z, m.cx.z, m.cy.y );
-	b3Int128 c21 = b3Cofactor128( m.cx.z, m.cy.x, m.cx.x, m.cy.z );
-	b3Int128 c22 = b3Cofactor128( m.cx.x, m.cy.y, m.cx.y, m.cy.x );
+	fixInt128 c00 = fixCofactor128( m.cy.y, m.cz.z, m.cy.z, m.cz.y );
+	fixInt128 c01 = fixCofactor128( m.cy.z, m.cz.x, m.cy.x, m.cz.z );
+	fixInt128 c02 = fixCofactor128( m.cy.x, m.cz.y, m.cy.y, m.cz.x );
+	fixInt128 c10 = fixCofactor128( m.cz.y, m.cx.z, m.cz.z, m.cx.y );
+	fixInt128 c11 = fixCofactor128( m.cz.z, m.cx.x, m.cz.x, m.cx.z );
+	fixInt128 c12 = fixCofactor128( m.cz.x, m.cx.y, m.cz.y, m.cx.x );
+	fixInt128 c20 = fixCofactor128( m.cx.y, m.cy.z, m.cx.z, m.cy.y );
+	fixInt128 c21 = fixCofactor128( m.cx.z, m.cy.x, m.cx.x, m.cy.z );
+	fixInt128 c22 = fixCofactor128( m.cx.x, m.cy.y, m.cx.y, m.cy.x );
 
-	b3Int128 limit = (b3Int128)1 << 62;
+	fixInt128 limit = (fixInt128)1 << 62;
 	if ( -limit < c00 && c00 < limit && -limit < c10 && c10 < limit && -limit < c20 && c20 < limit )
 	{
 		// Exact path: cofactors fit in 64 bits, determinant at Q16.48
-		b3Int128 det = (b3Int128)m.cx.x * (int64_t)c00 + (b3Int128)m.cy.x * (int64_t)c10 + (b3Int128)m.cz.x * (int64_t)c20;
+		fixInt128 det = (fixInt128)m.cx.x * (int64_t)c00 + (fixInt128)m.cy.x * (int64_t)c10 + (fixInt128)m.cz.x * (int64_t)c20;
 		if ( det != 0 )
 		{
 			// inverse_ij = cofactor_ji / det: (Q32.32 << 32) / Q16.48 -> Q48.16
-			b3Matrix3 out;
-			out.cx = B3_LITERAL( b3Vec3 ){ (b3Fixed)b3Int128Div( b3Int128ShiftLeft( c00, 32 ), det ),
-										   (b3Fixed)b3Int128Div( b3Int128ShiftLeft( c10, 32 ), det ),
-										   (b3Fixed)b3Int128Div( b3Int128ShiftLeft( c20, 32 ), det ) };
-			out.cy = B3_LITERAL( b3Vec3 ){ (b3Fixed)b3Int128Div( b3Int128ShiftLeft( c01, 32 ), det ),
-										   (b3Fixed)b3Int128Div( b3Int128ShiftLeft( c11, 32 ), det ),
-										   (b3Fixed)b3Int128Div( b3Int128ShiftLeft( c21, 32 ), det ) };
-			out.cz = B3_LITERAL( b3Vec3 ){ (b3Fixed)b3Int128Div( b3Int128ShiftLeft( c02, 32 ), det ),
-										   (b3Fixed)b3Int128Div( b3Int128ShiftLeft( c12, 32 ), det ),
-										   (b3Fixed)b3Int128Div( b3Int128ShiftLeft( c22, 32 ), det ) };
+			fixMatrix3 out;
+			out.cx = FIX_LITERAL( fixVec3 ){ (fixed_t)fixInt128Div( fixInt128ShiftLeft( c00, 32 ), det ),
+										   (fixed_t)fixInt128Div( fixInt128ShiftLeft( c10, 32 ), det ),
+										   (fixed_t)fixInt128Div( fixInt128ShiftLeft( c20, 32 ), det ) };
+			out.cy = FIX_LITERAL( fixVec3 ){ (fixed_t)fixInt128Div( fixInt128ShiftLeft( c01, 32 ), det ),
+										   (fixed_t)fixInt128Div( fixInt128ShiftLeft( c11, 32 ), det ),
+										   (fixed_t)fixInt128Div( fixInt128ShiftLeft( c21, 32 ), det ) };
+			out.cz = FIX_LITERAL( fixVec3 ){ (fixed_t)fixInt128Div( fixInt128ShiftLeft( c02, 32 ), det ),
+										   (fixed_t)fixInt128Div( fixInt128ShiftLeft( c12, 32 ), det ),
+										   (fixed_t)fixInt128Div( fixInt128ShiftLeft( c22, 32 ), det ) };
 			return out;
 		}
-		return b3Mat3_zero;
+		return fixMat3_zero;
 	}
 
 	// Huge matrix path: drop 16 fraction bits from the cofactors to keep the
 	// determinant accumulation in range
-	b3Int128 det = (b3Int128)m.cx.x * (int64_t)( c00 >> 16 ) + (b3Int128)m.cy.x * (int64_t)( c10 >> 16 ) +
-				   (b3Int128)m.cz.x * (int64_t)( c20 >> 16 ); // ~Q16.32
+	fixInt128 det = (fixInt128)m.cx.x * (int64_t)( c00 >> 16 ) + (fixInt128)m.cy.x * (int64_t)( c10 >> 16 ) +
+				   (fixInt128)m.cz.x * (int64_t)( c20 >> 16 ); // ~Q16.32
 	if ( det != 0 )
 	{
-		// b3Int128ShiftLeft: the raw << the float era used here is UB for the
+		// fixInt128ShiftLeft: the raw << the float era used here is UB for the
 		// negative cofactors this path exists for (same bits, defined behavior)
-		b3Matrix3 out;
-		out.cx = B3_LITERAL( b3Vec3 ){ (b3Fixed)b3Int128Div( b3Int128ShiftLeft( c00, 16 ), det ),
-									   (b3Fixed)b3Int128Div( b3Int128ShiftLeft( c10, 16 ), det ),
-									   (b3Fixed)b3Int128Div( b3Int128ShiftLeft( c20, 16 ), det ) };
-		out.cy = B3_LITERAL( b3Vec3 ){ (b3Fixed)b3Int128Div( b3Int128ShiftLeft( c01, 16 ), det ),
-									   (b3Fixed)b3Int128Div( b3Int128ShiftLeft( c11, 16 ), det ),
-									   (b3Fixed)b3Int128Div( b3Int128ShiftLeft( c21, 16 ), det ) };
-		out.cz = B3_LITERAL( b3Vec3 ){ (b3Fixed)b3Int128Div( b3Int128ShiftLeft( c02, 16 ), det ),
-									   (b3Fixed)b3Int128Div( b3Int128ShiftLeft( c12, 16 ), det ),
-									   (b3Fixed)b3Int128Div( b3Int128ShiftLeft( c22, 16 ), det ) };
+		fixMatrix3 out;
+		out.cx = FIX_LITERAL( fixVec3 ){ (fixed_t)fixInt128Div( fixInt128ShiftLeft( c00, 16 ), det ),
+									   (fixed_t)fixInt128Div( fixInt128ShiftLeft( c10, 16 ), det ),
+									   (fixed_t)fixInt128Div( fixInt128ShiftLeft( c20, 16 ), det ) };
+		out.cy = FIX_LITERAL( fixVec3 ){ (fixed_t)fixInt128Div( fixInt128ShiftLeft( c01, 16 ), det ),
+									   (fixed_t)fixInt128Div( fixInt128ShiftLeft( c11, 16 ), det ),
+									   (fixed_t)fixInt128Div( fixInt128ShiftLeft( c21, 16 ), det ) };
+		out.cz = FIX_LITERAL( fixVec3 ){ (fixed_t)fixInt128Div( fixInt128ShiftLeft( c02, 16 ), det ),
+									   (fixed_t)fixInt128Div( fixInt128ShiftLeft( c12, 16 ), det ),
+									   (fixed_t)fixInt128Div( fixInt128ShiftLeft( c22, 16 ), det ) };
 		return out;
 	}
 
-	return b3Mat3_zero;
+	return fixMat3_zero;
 }
 
 /// Solve a matrix equation.
 /// @return inv(m) * a
 /// Solves directly from the 128-bit cofactors with three divisions rather than
 /// inverting (nine divisions) and multiplying.
-B3_INLINE b3Vec3 b3Solve3( b3Matrix3 m, b3Vec3 a )
+FIX_INLINE fixVec3 fixSolve3( fixMatrix3 m, fixVec3 a )
 {
-	b3Int128 c00 = b3Cofactor128( m.cy.y, m.cz.z, m.cy.z, m.cz.y );
-	b3Int128 c01 = b3Cofactor128( m.cy.z, m.cz.x, m.cy.x, m.cz.z );
-	b3Int128 c02 = b3Cofactor128( m.cy.x, m.cz.y, m.cy.y, m.cz.x );
-	b3Int128 c10 = b3Cofactor128( m.cz.y, m.cx.z, m.cz.z, m.cx.y );
-	b3Int128 c11 = b3Cofactor128( m.cz.z, m.cx.x, m.cz.x, m.cx.z );
-	b3Int128 c12 = b3Cofactor128( m.cz.x, m.cx.y, m.cz.y, m.cx.x );
-	b3Int128 c20 = b3Cofactor128( m.cx.y, m.cy.z, m.cx.z, m.cy.y );
-	b3Int128 c21 = b3Cofactor128( m.cx.z, m.cy.x, m.cx.x, m.cy.z );
-	b3Int128 c22 = b3Cofactor128( m.cx.x, m.cy.y, m.cx.y, m.cy.x );
+	fixInt128 c00 = fixCofactor128( m.cy.y, m.cz.z, m.cy.z, m.cz.y );
+	fixInt128 c01 = fixCofactor128( m.cy.z, m.cz.x, m.cy.x, m.cz.z );
+	fixInt128 c02 = fixCofactor128( m.cy.x, m.cz.y, m.cy.y, m.cz.x );
+	fixInt128 c10 = fixCofactor128( m.cz.y, m.cx.z, m.cz.z, m.cx.y );
+	fixInt128 c11 = fixCofactor128( m.cz.z, m.cx.x, m.cz.x, m.cx.z );
+	fixInt128 c12 = fixCofactor128( m.cz.x, m.cx.y, m.cz.y, m.cx.x );
+	fixInt128 c20 = fixCofactor128( m.cx.y, m.cy.z, m.cx.z, m.cy.y );
+	fixInt128 c21 = fixCofactor128( m.cx.z, m.cy.x, m.cx.x, m.cy.z );
+	fixInt128 c22 = fixCofactor128( m.cx.x, m.cy.y, m.cx.y, m.cy.x );
 
-	b3Int128 limit = (b3Int128)1 << 62;
+	fixInt128 limit = (fixInt128)1 << 62;
 	if ( -limit < c00 && c00 < limit && -limit < c10 && c10 < limit && -limit < c20 && c20 < limit )
 	{
 		// Exact path: cofactors fit in 64 bits, determinant at Q16.48
-		b3Int128 det = (b3Int128)m.cx.x * (int64_t)c00 + (b3Int128)m.cy.x * (int64_t)c10 + (b3Int128)m.cz.x * (int64_t)c20;
+		fixInt128 det = (fixInt128)m.cx.x * (int64_t)c00 + (fixInt128)m.cy.x * (int64_t)c10 + (fixInt128)m.cz.x * (int64_t)c20;
 		if ( det != 0 )
 		{
 			// x_i = ( sum_j cofactor_ji * a_j ) / det: (Q32.32 * Q48.16 << 16) / Q16.48 -> Q48.16
-			b3Int128 nx = (b3Int128)(int64_t)c00 * a.x + (b3Int128)(int64_t)c01 * a.y + (b3Int128)(int64_t)c02 * a.z;
-			b3Int128 ny = (b3Int128)(int64_t)c10 * a.x + (b3Int128)(int64_t)c11 * a.y + (b3Int128)(int64_t)c12 * a.z;
-			b3Int128 nz = (b3Int128)(int64_t)c20 * a.x + (b3Int128)(int64_t)c21 * a.y + (b3Int128)(int64_t)c22 * a.z;
+			fixInt128 nx = (fixInt128)(int64_t)c00 * a.x + (fixInt128)(int64_t)c01 * a.y + (fixInt128)(int64_t)c02 * a.z;
+			fixInt128 ny = (fixInt128)(int64_t)c10 * a.x + (fixInt128)(int64_t)c11 * a.y + (fixInt128)(int64_t)c12 * a.z;
+			fixInt128 nz = (fixInt128)(int64_t)c20 * a.x + (fixInt128)(int64_t)c21 * a.y + (fixInt128)(int64_t)c22 * a.z;
 
-			b3Vec3 b = {
-				(b3Fixed)b3Int128Div( b3Int128ShiftLeft( nx, 16 ), det ),
-				(b3Fixed)b3Int128Div( b3Int128ShiftLeft( ny, 16 ), det ),
-				(b3Fixed)b3Int128Div( b3Int128ShiftLeft( nz, 16 ), det ),
+			fixVec3 b = {
+				(fixed_t)fixInt128Div( fixInt128ShiftLeft( nx, 16 ), det ),
+				(fixed_t)fixInt128Div( fixInt128ShiftLeft( ny, 16 ), det ),
+				(fixed_t)fixInt128Div( fixInt128ShiftLeft( nz, 16 ), det ),
 			};
 			return b;
 		}
-		return b3Vec3_zero;
+		return fixVec3_zero;
 	}
 
 	// Huge matrix path
-	b3Matrix3 inv = b3InvertMatrix( m );
-	return b3MulMV( inv, a );
+	fixMatrix3 inv = fixInvertMatrix( m );
+	return fixMulMV( inv, a );
 }
 
 /// Inverse transpose of a matrix. Identical to the inverse for the symmetric
 /// matrices (like inertia tensors) this is used with.
-B3_INLINE b3Matrix3 b3InvertT( b3Matrix3 m )
+FIX_INLINE fixMatrix3 fixInvertT( fixMatrix3 m )
 {
-	b3Matrix3 out = b3InvertMatrix( m );
-	return b3Transpose( out );
+	fixMatrix3 out = fixInvertMatrix( m );
+	return fixTranspose( out );
 }
 
 /// Get the component-wise absolute value of a matrix.
-B3_INLINE b3Matrix3 b3AbsMatrix3( b3Matrix3 m )
+FIX_INLINE fixMatrix3 fixAbsMatrix3( fixMatrix3 m )
 {
-	b3Matrix3 out;
-	out.cx = b3Abs( m.cx );
-	out.cy = b3Abs( m.cy );
-	out.cz = b3Abs( m.cz );
+	fixMatrix3 out;
+	out.cx = fixVecAbs( m.cx );
+	out.cy = fixVecAbs( m.cy );
+	out.cz = fixVecAbs( m.cz );
 
 	return out;
 }
 
 /// Make a matrix from a quaternion. This is useful if you need to
 /// rotate many vectors.
-/// The force inline improves the performance of b3ShapeDistance.
-B3_FORCE_INLINE b3Matrix3 b3MakeMatrixFromQuat( b3Quat q )
+/// The force inline improves the performance of fixShapeDistance.
+FIX_FORCE_INLINE fixMatrix3 fixMakeMatrixFromQuat( fixQuat q )
 {
-	b3Fixed xx = b3FixMul( q.v.x , q.v.x );
-	b3Fixed yy = b3FixMul( q.v.y , q.v.y );
-	b3Fixed zz = b3FixMul( q.v.z , q.v.z );
-	b3Fixed xy = b3FixMul( q.v.x , q.v.y );
-	b3Fixed xz = b3FixMul( q.v.x , q.v.z );
-	b3Fixed xw = b3FixMul( q.v.x , q.s );
-	b3Fixed yz = b3FixMul( q.v.y , q.v.z );
-	b3Fixed yw = b3FixMul( q.v.y , q.s );
-	b3Fixed zw = b3FixMul( q.v.z , q.s );
+	fixed_t xx = fixMul( q.v.x , q.v.x );
+	fixed_t yy = fixMul( q.v.y , q.v.y );
+	fixed_t zz = fixMul( q.v.z , q.v.z );
+	fixed_t xy = fixMul( q.v.x , q.v.y );
+	fixed_t xz = fixMul( q.v.x , q.v.z );
+	fixed_t xw = fixMul( q.v.x , q.s );
+	fixed_t yz = fixMul( q.v.y , q.v.z );
+	fixed_t yw = fixMul( q.v.y , q.s );
+	fixed_t zw = fixMul( q.v.z , q.s );
 
-	return B3_LITERAL( b3Matrix3 ){
-		{ B3_FIX( 1.0f ) - b3FixMul( B3_FIX( 2.0f ) , ( yy + zz ) ), b3FixMul( B3_FIX( 2.0f ) , ( xy + zw ) ), b3FixMul( B3_FIX( 2.0f ) , ( xz - yw ) ) },
-		{ b3FixMul( B3_FIX( 2.0f ) , ( xy - zw ) ), B3_FIX( 1.0f ) - b3FixMul( B3_FIX( 2.0f ) , ( xx + zz ) ), b3FixMul( B3_FIX( 2.0f ) , ( yz + xw ) ) },
-		{ b3FixMul( B3_FIX( 2.0f ) , ( xz + yw ) ), b3FixMul( B3_FIX( 2.0f ) , ( yz - xw ) ), B3_FIX( 1.0f ) - b3FixMul( B3_FIX( 2.0f ) , ( xx + yy ) ) },
+	return FIX_LITERAL( fixMatrix3 ){
+		{ FIX( 1.0f ) - fixMul( FIX( 2.0f ) , ( yy + zz ) ), fixMul( FIX( 2.0f ) , ( xy + zw ) ), fixMul( FIX( 2.0f ) , ( xz - yw ) ) },
+		{ fixMul( FIX( 2.0f ) , ( xy - zw ) ), FIX( 1.0f ) - fixMul( FIX( 2.0f ) , ( xx + zz ) ), fixMul( FIX( 2.0f ) , ( yz + xw ) ) },
+		{ fixMul( FIX( 2.0f ) , ( xz + yw ) ), fixMul( FIX( 2.0f ) , ( yz - xw ) ), FIX( 1.0f ) - fixMul( FIX( 2.0f ) , ( xx + yy ) ) },
 	};
 }
 
@@ -1181,19 +1181,19 @@ B3_FORCE_INLINE b3Matrix3 b3MakeMatrixFromQuat( b3Quat q )
 /// recomputed the AABB of the original shape with the transform applied.
 ///
 /// Defined here rather than beside the other AABB operations because it needs
-/// b3TransformPoint, b3MakeMatrixFromQuat, b3AbsMatrix3 and b3MulMV, all of which are
+/// fixTransformPoint, fixMakeMatrixFromQuat, fixAbsMatrix3 and fixMulMV, all of which are
 /// declared further down this header than the AABB block.
-B3_INLINE b3AABB b3AABB_Transform( b3Transform transform, b3AABB a )
+FIX_INLINE fixAABB fixAABB_Transform( fixTransform transform, fixAABB a )
 {
-	b3Vec3 center = b3TransformPoint( transform, b3AABB_Center( a ) );
-	b3Matrix3 m = b3MakeMatrixFromQuat( transform.q );
-	b3Vec3 extent = b3MulMV( b3AbsMatrix3( m ), b3AABB_Extents( a ) );
-	b3AABB out = { b3Sub( center, extent ), b3Add( center, extent ) };
+	fixVec3 center = fixTransformPoint( transform, fixAABB_Center( a ) );
+	fixMatrix3 m = fixMakeMatrixFromQuat( transform.q );
+	fixVec3 extent = fixMulMV( fixAbsMatrix3( m ), fixAABB_Extents( a ) );
+	fixAABB out = { fixVecSub( center, extent ), fixVecAdd( center, extent ) };
 	return out;
 }
 
 /// Get the closest point on an axis-aligned bounding box.
-B3_INLINE b3Vec3 b3ClosestPointToAABB( b3Vec3 point, b3AABB a )
+FIX_INLINE fixVec3 fixClosestPointToAABB( fixVec3 point, fixAABB a )
 {
-	return b3Clamp( point, a.lowerBound, a.upperBound );
+	return fixVecClamp( point, a.lowerBound, a.upperBound );
 }

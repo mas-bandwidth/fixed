@@ -30,50 +30,50 @@ static int fails = 0;
 int main( void )
 {
 	// ---- wide: exact hand values ----
-	CHECK( b3WideToFixed( b3WideFromFixed( 0 ) ) == 0 );
-	CHECK( b3WideToFixed( b3WideFromFixed( B3_FIXED_ONE ) ) == B3_FIXED_ONE );
-	CHECK( b3WideToFixed( b3WideFromFixed( INT64_MAX ) ) == INT64_MAX );
-	CHECK( b3WideToFixed( b3WideFromFixed( INT64_MIN ) ) == INT64_MIN );
+	CHECK( fixWideToFixed( fixWideFromFixed( 0 ) ) == 0 );
+	CHECK( fixWideToFixed( fixWideFromFixed( FIX_ONE ) ) == FIX_ONE );
+	CHECK( fixWideToFixed( fixWideFromFixed( INT64_MAX ) ) == INT64_MAX );
+	CHECK( fixWideToFixed( fixWideFromFixed( INT64_MIN ) ) == INT64_MIN );
 
 	// saturation: one past local range in each direction
-	CHECK( b3WideToFixed( (b3FixedWide)INT64_MAX + 1 ) == INT64_MAX );
-	CHECK( b3WideToFixed( (b3FixedWide)INT64_MIN - 1 ) == INT64_MIN );
-	CHECK( b3WideToFixed( (b3FixedWide)1 << 100 ) == INT64_MAX );
-	CHECK( b3WideToFixed( -( (b3FixedWide)1 << 100 ) ) == INT64_MIN );
+	CHECK( fixWideToFixed( (fixedWide_t)INT64_MAX + 1 ) == INT64_MAX );
+	CHECK( fixWideToFixed( (fixedWide_t)INT64_MIN - 1 ) == INT64_MIN );
+	CHECK( fixWideToFixed( (fixedWide_t)1 << 100 ) == INT64_MAX );
+	CHECK( fixWideToFixed( -( (fixedWide_t)1 << 100 ) ) == INT64_MIN );
 
 	// the boundary subtract: nearby pair at a ludicrous base is exact
 	{
-		b3FixedWide base = (b3FixedWide)1 << 90; // far past Q48.16 range
-		b3FixedWide a = b3WideOffset( base, B3_FIX( 3.25 ) );
-		b3FixedWide b = b3WideOffset( base, B3_FIX( 1.0 ) );
-		CHECK( b3WideSubToFixed( a, b ) == B3_FIX( 2.25 ) );
-		CHECK( b3WideSubToFixed( b, a ) == -B3_FIX( 2.25 ) );
+		fixedWide_t base = (fixedWide_t)1 << 90; // far past Q48.16 range
+		fixedWide_t a = fixWideOffset( base, FIX( 3.25 ) );
+		fixedWide_t b = fixWideOffset( base, FIX( 1.0 ) );
+		CHECK( fixWideSubToFixed( a, b ) == FIX( 2.25 ) );
+		CHECK( fixWideSubToFixed( b, a ) == -FIX( 2.25 ) );
 		// a pair separated by more than local range saturates, loudly defined
-		CHECK( b3WideSubToFixed( base + ( (b3FixedWide)1 << 70 ), base ) == INT64_MAX );
+		CHECK( fixWideSubToFixed( base + ( (fixedWide_t)1 << 70 ), base ) == INT64_MAX );
 	}
 
 	// ---- wide: min/max ----
 	// These exist to be CALLED. Their first version compiled fine and shipped green
-	// while being unreachable — they sat inside the `#if !B3_HAS_INT128` block, which
+	// while being unreachable — they sat inside the `#if !FIX_HAS_INT128` block, which
 	// is the block that #errors, so on every real platform they did not exist. Nothing
 	// referenced them, so CI had nothing to say. A header-only helper with no caller is
 	// not covered by a passing build; it is invisible to it.
 	{
-		CHECK( b3WideMin( (b3FixedWide)3, (b3FixedWide)7 ) == 3 );
-		CHECK( b3WideMax( (b3FixedWide)3, (b3FixedWide)7 ) == 7 );
-		CHECK( b3WideMin( (b3FixedWide)-7, (b3FixedWide)-3 ) == -7 );
-		CHECK( b3WideMax( (b3FixedWide)-7, (b3FixedWide)-3 ) == -3 );
-		CHECK( b3WideMin( (b3FixedWide)5, (b3FixedWide)5 ) == 5 );
-		CHECK( b3WideMax( (b3FixedWide)5, (b3FixedWide)5 ) == 5 );
+		CHECK( fixWideMin( (fixedWide_t)3, (fixedWide_t)7 ) == 3 );
+		CHECK( fixWideMax( (fixedWide_t)3, (fixedWide_t)7 ) == 7 );
+		CHECK( fixWideMin( (fixedWide_t)-7, (fixedWide_t)-3 ) == -7 );
+		CHECK( fixWideMax( (fixedWide_t)-7, (fixedWide_t)-3 ) == -3 );
+		CHECK( fixWideMin( (fixedWide_t)5, (fixedWide_t)5 ) == 5 );
+		CHECK( fixWideMax( (fixedWide_t)5, (fixedWide_t)5 ) == 5 );
 
 		// the point of the wide type: ordering past Q48.16 range, where a narrow
 		// min/max would have saturated both operands to INT64_MAX and tied
-		b3FixedWide lo = (b3FixedWide)1 << 90;
-		b3FixedWide hi = (b3FixedWide)1 << 100;
-		CHECK( b3WideMin( lo, hi ) == lo );
-		CHECK( b3WideMax( lo, hi ) == hi );
-		CHECK( b3WideMin( -hi, -lo ) == -hi );
-		CHECK( b3WideMax( -hi, -lo ) == -lo );
+		fixedWide_t lo = (fixedWide_t)1 << 90;
+		fixedWide_t hi = (fixedWide_t)1 << 100;
+		CHECK( fixWideMin( lo, hi ) == lo );
+		CHECK( fixWideMax( lo, hi ) == hi );
+		CHECK( fixWideMin( -hi, -lo ) == -hi );
+		CHECK( fixWideMax( -hi, -lo ) == -lo );
 	}
 
 	// ---- wide: properties over an LCG sweep ----
@@ -82,55 +82,55 @@ int main( void )
 		for ( int i = 0; i < 100000; i++ )
 		{
 			s = s * 6364136223846793005ULL + 1442695040888963407ULL;
-			b3Fixed x = (b3Fixed)s >> 8;
+			fixed_t x = (fixed_t)s >> 8;
 			s = s * 6364136223846793005ULL + 1442695040888963407ULL;
-			b3Fixed d = (b3Fixed)s >> 8;
+			fixed_t d = (fixed_t)s >> 8;
 			s = s * 6364136223846793005ULL + 1442695040888963407ULL;
 			// unsigned shift: left-shifting a negative value is UB
-			b3FixedWide base = (b3FixedWide)( (b3UInt128)(int64_t)s << ( s % 60 ) );
+			fixedWide_t base = (fixedWide_t)( (fixUInt128)(int64_t)s << ( s % 60 ) );
 
 			// widen/narrow roundtrip is exact for every int64
-			CHECK( b3WideToFixed( b3WideFromFixed( x ) ) == x );
+			CHECK( fixWideToFixed( fixWideFromFixed( x ) ) == x );
 			// offset then difference recovers the delta exactly, at any base
-			b3FixedWide w = b3WideOffset( base, x );
-			CHECK( b3WideSubToFixed( b3WideOffset( w, d ), w ) == d );
+			fixedWide_t w = fixWideOffset( base, x );
+			CHECK( fixWideSubToFixed( fixWideOffset( w, d ), w ) == d );
 			// add/sub inverse
-			b3FixedWide y = b3WideFromFixed( d );
-			CHECK( b3WideSub( b3WideAdd( w, y ), y ) == w );
+			fixedWide_t y = fixWideFromFixed( d );
+			CHECK( fixWideSub( fixWideAdd( w, y ), y ) == w );
 		}
 	}
 
 	// ---- wide: vector wrappers ----
 	{
-		b3Vec3 v = { B3_FIX( 1.5 ), -B3_FIX( 2.0 ), B3_FIX( 100.0 ) };
-		b3Vec3 d = { B3_FIX( 0.25 ), B3_FIX( 3.0 ), -B3_FIX( 7.5 ) };
-		b3PosWide p = b3PosWideFromVec3( v );
-		b3Vec3 back = b3PosWideToVec3( p );
+		fixVec3 v = { FIX( 1.5 ), -FIX( 2.0 ), FIX( 100.0 ) };
+		fixVec3 d = { FIX( 0.25 ), FIX( 3.0 ), -FIX( 7.5 ) };
+		fixPosWide p = fixPosWideFromVec3( v );
+		fixVec3 back = fixPosWideToVec3( p );
 		CHECK( back.x == v.x && back.y == v.y && back.z == v.z );
-		b3Vec3 diff = b3PosWideSub( b3PosWideOffset( p, d ), p );
+		fixVec3 diff = fixPosWideSub( fixPosWideOffset( p, d ), p );
 		CHECK( diff.x == d.x && diff.y == d.y && diff.z == d.z );
 	}
 
 	// ---- time: exact hand values ----
-	CHECK( B3_TIME( 1.0 ) == B3_TIME_ONE );
-	CHECK( B3_TIME( 0.5 ) == B3_TIME_HALF );
-	CHECK( B3_TIME( -1.0 ) == -B3_TIME_ONE );
-	CHECK( b3TimeFromFixed( B3_FIXED_ONE ) == B3_TIME_ONE );
-	CHECK( b3TimeFromFixed( -B3_FIXED_ONE ) == -B3_TIME_ONE );
-	CHECK( b3TimeToFixed( B3_TIME_ONE ) == B3_FIXED_ONE );
-	CHECK( b3TimeFromSeconds( 2.5 ) == ( (b3Time)5 << 31 ) );
-	CHECK( b3TimeToSeconds( B3_TIME_ONE ) == 1.0 );
+	CHECK( FIX_TIME( 1.0 ) == FIX_TIME_ONE );
+	CHECK( FIX_TIME( 0.5 ) == FIX_TIME_HALF );
+	CHECK( FIX_TIME( -1.0 ) == -FIX_TIME_ONE );
+	CHECK( fixTimeFromFixed( FIX_ONE ) == FIX_TIME_ONE );
+	CHECK( fixTimeFromFixed( -FIX_ONE ) == -FIX_TIME_ONE );
+	CHECK( fixTimeToFixed( FIX_TIME_ONE ) == FIX_ONE );
+	CHECK( fixTimeFromSeconds( 2.5 ) == ( (fixTime)5 << 31 ) );
+	CHECK( fixTimeToSeconds( FIX_TIME_ONE ) == 1.0 );
 
 	// 60 exact adds of a 1/60s tick: drift is only dt's one-time rounding,
 	// under 60 * 2^-32 s — that is the whole argument for Q32.32 time.
 	{
-		b3Time tick = B3_TIME( 1.0 / 60.0 );
-		b3Time acc = 0;
+		fixTime tick = FIX_TIME( 1.0 / 60.0 );
+		fixTime acc = 0;
 		for ( int i = 0; i < 60; i++ )
 		{
 			acc += tick;
 		}
-		b3Time drift = acc - B3_TIME_ONE;
+		fixTime drift = acc - FIX_TIME_ONE;
 		if ( drift < 0 )
 		{
 			drift = -drift;
@@ -146,11 +146,11 @@ int main( void )
 		for ( int i = 0; i < 100000; i++ )
 		{
 			s = s * 6364136223846793005ULL + 1442695040888963407ULL;
-			b3Time t = (b3Time)s >> 4;
+			fixTime t = (fixTime)s >> 4;
 			s = s * 6364136223846793005ULL + 1442695040888963407ULL;
-			b3Fixed f = (b3Fixed)s >> 24;
-			b3Int128 ref = ( (b3Int128)t * f + B3_FIXED_HALF ) >> 16;
-			CHECK( b3TimeMulFixed( t, f ) == (b3Time)ref );
+			fixed_t f = (fixed_t)s >> 24;
+			fixInt128 ref = ( (fixInt128)t * f + FIX_HALF ) >> 16;
+			CHECK( fixTimeMulFixed( t, f ) == (fixTime)ref );
 		}
 	}
 
@@ -158,30 +158,30 @@ int main( void )
 	// Pins the int128 comparison/narrowing edge behavior bit-for-bit.
 	{
 		uint64_t fnv = 1469598103934665603ULL;
-		b3FixedWide probes[] = {
+		fixedWide_t probes[] = {
 			0,
-			(b3FixedWide)INT64_MAX,
-			(b3FixedWide)INT64_MAX + 1,
-			(b3FixedWide)INT64_MIN,
-			(b3FixedWide)INT64_MIN - 1,
-			( (b3FixedWide)1 << 64 ),
-			-( (b3FixedWide)1 << 64 ),
+			(fixedWide_t)INT64_MAX,
+			(fixedWide_t)INT64_MAX + 1,
+			(fixedWide_t)INT64_MIN,
+			(fixedWide_t)INT64_MIN - 1,
+			( (fixedWide_t)1 << 64 ),
+			-( (fixedWide_t)1 << 64 ),
 			// Kept at 1<<125 so every pairwise sum and difference in the sweep
 			// stays inside int128 -- 1<<126 probes made a+b overflow, which is
 			// UB that gcc and clang compile differently (the ubuntu CI hash
 			// mismatch that caught it). Far beyond the Q112.16 world contract
 			// (~2^111) either way.
-			( (b3FixedWide)1 << 125 ),
-			-( (b3FixedWide)1 << 125 ),
+			( (fixedWide_t)1 << 125 ),
+			-( (fixedWide_t)1 << 125 ),
 		};
 		int n = (int)( sizeof( probes ) / sizeof( probes[0] ) );
 		for ( int i = 0; i < n; i++ )
 		{
 			for ( int j = 0; j < n; j++ )
 			{
-				uint64_t v = (uint64_t)b3WideSubToFixed( probes[i], probes[j] );
+				uint64_t v = (uint64_t)fixWideSubToFixed( probes[i], probes[j] );
 				fnv = ( fnv ^ v ) * 1099511628211ULL;
-				v = (uint64_t)b3WideToFixed( probes[i] + probes[j] );
+				v = (uint64_t)fixWideToFixed( probes[i] + probes[j] );
 				fnv = ( fnv ^ v ) * 1099511628211ULL;
 			}
 		}

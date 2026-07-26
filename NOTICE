@@ -5,8 +5,8 @@ PROVENANCE
   licensed under the MIT License. Box3D's copyright and the MIT License (see LICENSE)
   are retained and apply to all Box3D-derived material in this library.
 
-  The fixed-point conversion -- the b3Fixed type and its arithmetic, the deterministic
-  integer transcendentals (b3ComputeCosSin, b3Atan2), and this library's assembly -- is
+  The fixed-point conversion -- the fixed_t type and its arithmetic, the deterministic
+  integer transcendentals (fixComputeCosSin, fixAtan2), and this library's assembly -- is
   derivative work by Más Bandwidth LLC.
 
 LICENSE

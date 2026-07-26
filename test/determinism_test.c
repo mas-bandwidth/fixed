@@ -9,7 +9,7 @@
 #include <stdio.h>
 
 static uint64_t fnv = 0xCBF29CE484222325ULL;
-static void mix( b3Fixed v ) { const uint8_t* b=(const uint8_t*)&v;
+static void mix( fixed_t v ) { const uint8_t* b=(const uint8_t*)&v;
     for (int i=0;i<8;i++){ fnv ^= b[i]; fnv *= 0x00000100000001B3ULL; } }
 
 int main( void )
@@ -19,17 +19,17 @@ int main( void )
     for ( int i = 0; i < 200000; i++ )
     {
         s = s * 6364136223846793005ULL + 1442695040888963407ULL;
-        b3Fixed a = (b3Fixed)( (int64_t)( s >> 16 ) % ( (int64_t)1 << 34 ) );
+        fixed_t a = (fixed_t)( (int64_t)( s >> 16 ) % ( (int64_t)1 << 34 ) );
         s = s * 6364136223846793005ULL + 1442695040888963407ULL;
-        b3Fixed b = (b3Fixed)( (int64_t)( s >> 16 ) % ( (int64_t)1 << 34 ) );
-        if ( b == 0 ) b = B3_FIXED_ONE;
-        mix( b3FixMul( a, b ) );
-        mix( b3FixDiv( a, b ) );
-        mix( b3FixSqrt( a < 0 ? -a : a ) );
-        mix( b3FixAbs( a ) );
-        mix( b3FixFloor( a ) );
-        mix( b3FixCeil( b ) );
-        mix( b3FixClamp( a, -B3_FIXED_ONE, B3_FIXED_ONE ) );
+        fixed_t b = (fixed_t)( (int64_t)( s >> 16 ) % ( (int64_t)1 << 34 ) );
+        if ( b == 0 ) b = FIX_ONE;
+        mix( fixMul( a, b ) );
+        mix( fixDiv( a, b ) );
+        mix( fixSqrt( a < 0 ? -a : a ) );
+        mix( fixAbs( a ) );
+        mix( fixFloor( a ) );
+        mix( fixCeil( b ) );
+        mix( fixClamp( a, -FIX_ONE, FIX_ONE ) );
     }
     printf( "fixed-core determinism hash = 0x%016llx\n", (unsigned long long)fnv );
     // FROZEN 2026-07-22, verified identical on arm64 and x86_64. Any platform,

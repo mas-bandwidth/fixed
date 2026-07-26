@@ -1,48 +1,51 @@
 // SPDX-FileCopyrightText: 2025-2026 Erin Catto -- derived from Box3D (https://github.com/erincatto/box3d)
 // SPDX-FileCopyrightText: 2026 Más Bandwidth LLC -- fixed-point conversion
 // SPDX-License-Identifier: MIT
-// Minimal macro base for the fixed library, extracted from box3d/base.h so box3d
-// can depend on this library without renaming its API.
+// Minimal macro base for the fixed library. Originally lifted from box3d/base.h so
+// box3d could depend on this library without renaming its API -- that premise is gone:
+// nothing here is named b3 any more, and a consumer wraps these types in its own
+// vocabulary rather than sharing a namespace with them.
 #pragma once
 
 #include <stdbool.h>
-// Guarded so a host that already defines these (e.g. box3d/base.h, whose B3_API
-// carries an export decoration) wins when both headers are in the same translation
-// unit. Standalone users of `fixed` get the definitions below.
-#ifndef B3_API
+// Guarded so a consumer that needs its own definitions -- an export decoration on
+// FIX_API, a different inline policy -- can supply them before including this header
+// and have them win. Standalone users of `fixed` get the definitions below.
+#ifndef FIX_API
 #ifdef __cplusplus
-	#define B3_API extern "C"
-	#define B3_INLINE inline
+	#define FIX_API extern "C"
+	#define FIX_INLINE inline
 	#if defined( _MSC_VER )
-		#define B3_FORCE_INLINE __forceinline
+		#define FIX_FORCE_INLINE __forceinline
 	#elif defined( __GNUC__ ) || defined( __clang__ )
-		#define B3_FORCE_INLINE inline __attribute__((always_inline))
+		#define FIX_FORCE_INLINE inline __attribute__((always_inline))
 	#else
-		#define B3_FORCE_INLINE inline
+		#define FIX_FORCE_INLINE inline
 	#endif
-	#define B3_LITERAL(T) T
-	#define B3_ZERO_INIT {}
+	#define FIX_LITERAL(T) T
+	#define FIX_ZERO_INIT {}
 #else
-	#define B3_API
-	#define B3_INLINE static inline
+	#define FIX_API
+	#define FIX_INLINE static inline
 	#if defined( _MSC_VER )
-		#define B3_FORCE_INLINE static __forceinline
+		#define FIX_FORCE_INLINE static __forceinline
 	#elif defined( __GNUC__ ) || defined( __clang__ )
-		#define B3_FORCE_INLINE static inline __attribute__((always_inline))
+		#define FIX_FORCE_INLINE static inline __attribute__((always_inline))
 	#else
-		#define B3_FORCE_INLINE static inline
+		#define FIX_FORCE_INLINE static inline
 	#endif
-	#define B3_LITERAL(T) (T)
-	#define B3_ZERO_INIT {0}
+	#define FIX_LITERAL(T) (T)
+	#define FIX_ZERO_INIT {0}
 #endif
-#endif // B3_API
+#endif // FIX_API
 
-// Guarded assert hooks: a host (box3d) that defines these first wins; standalone
-// users of `fixed` get plain assert() semantics.
+// Guarded assert hooks: a consumer that defines these first wins, so it can route
+// this library's assertions into its own diagnostics. Standalone users of `fixed`
+// get plain assert() semantics.
 #include <assert.h>
-#ifndef B3_ASSERT
-	#define B3_ASSERT( ... ) assert( ( __VA_ARGS__ ) )
+#ifndef FIX_ASSERT
+	#define FIX_ASSERT( ... ) assert( ( __VA_ARGS__ ) )
 #endif
-#ifndef B3_VALIDATE
-	#define B3_VALIDATE( ... ) ( (void)0 )
+#ifndef FIX_VALIDATE
+	#define FIX_VALIDATE( ... ) ( (void)0 )
 #endif

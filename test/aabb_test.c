@@ -301,6 +301,52 @@ int main( void )
 		CHECK( fixAABBWide_Contains( r, a ) );
 	}
 
+	// ---- wide: the two completions box3d's ludicrous build actually needs ----
+	// fixMakeAABBWide takes WIDE points, but box3d builds boxes from LOCAL mesh/hull
+	// vertices at a wide origin -- a different function, and its absence is why the
+	// ludicrous build could not be wired to this library.
+	{
+		fixedWide_t base = (fixedWide_t)1 << 95;
+		fixPosWide origin = { base, base, base };
+		fixVec3 pts[3] = { V( 0.0f, 0.0f, 0.0f ), V( 2.0f, -1.0f, 3.0f ), V( -4.0f, 5.0f, 1.0f ) };
+
+		fixAABBWide w = fixMakeAABBWideAt( pts, 3, FIX( 0.0f ), origin );
+		fixAABB    n = fixMakeAABB( pts, 3, FIX( 0.0f ) );
+
+		// same box, just placed: extents match the local build exactly, at any distance
+		CHECK( VecEq( fixAABBWide_Extents( w ), fixAABB_Extents( n ) ) );
+		CHECK( w.lowerBound.x == base + n.lowerBound.x );
+		CHECK( w.upperBound.z == base + n.upperBound.z );
+		CHECK( fixIsValidAABBWide( w ) );
+
+		// and it agrees with widening the narrow box by hand
+		fixAABBWide viaOffset = fixOffsetAABBWide( n, origin );
+		CHECK( viaOffset.lowerBound.x == w.lowerBound.x );
+		CHECK( viaOffset.upperBound.y == w.upperBound.y );
+	}
+
+	// fixAABBWide_Transform: conservative-bound property must hold in the wide build too
+	{
+		fixAABB unit = Box( -1.0f, -1.0f, -1.0f, 1.0f, 1.0f, 1.0f );
+		fixAABBWide w = Widen( unit, 0 );
+
+		fixTransform id = { V( 0.0f, 0.0f, 0.0f ), fixMakeQuatFromAxisAngle( V( 0.0f, 1.0f, 0.0f ), FIX( 0.0f ) ) };
+		fixAABBWide t0 = fixAABBWide_Transform( id, w );
+		CHECK( VecEq( fixPosWideToVec3( t0.lowerBound ), unit.lowerBound ) );
+		CHECK( VecEq( fixPosWideToVec3( t0.upperBound ), unit.upperBound ) );
+
+		// near the origin, wide and narrow transforms must agree exactly
+		fixTransform rot = { V( 3.0f, -2.0f, 0.5f ), fixMakeQuatFromAxisAngle( V( 0.0f, 0.0f, 1.0f ), FIX( 0.7f ) ) };
+		fixAABBWide tw = fixAABBWide_Transform( rot, w );
+		fixAABB     tn = fixAABB_Transform( rot, unit );
+		CHECK( VecEq( fixPosWideToVec3( tw.lowerBound ), tn.lowerBound ) );
+		CHECK( VecEq( fixPosWideToVec3( tw.upperBound ), tn.upperBound ) );
+		CHECK( fixIsValidAABBWide( tw ) );
+
+		// rotating never shrinks the box
+		CHECK( fixAABBWide_Area( tw ) >= fixAABBWide_Area( w ) );
+	}
+
 	if ( fails > 0 )
 	{
 		printf( "%d AABB check(s) FAILED\n", fails );

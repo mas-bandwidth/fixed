@@ -29,9 +29,24 @@ and CI extends that to Linux/libstdc++ and Windows/MSVC.
 - [x] Integer transcendentals (`b3ComputeCosSin`, `b3Atan2`, `b3Sin`, `b3Cos`,
       `b3UnwindAngle`) — pure fixed-point, cross-arch determinism-validated, and
       correct vs libm (cos/sin < 0.0017, atan2 < 0.00004 rad).
-- [ ] Vector / quaternion / matrix / transform / position types on `b3Fixed`.
-- [ ] Fixed-point scalars and fixed-point time.
+- [x] Vector / quaternion / matrix / transform / position types on `b3Fixed`
+      (`fixed_vec.h`), with their arithmetic, and the validity predicates
+      (`b3IsValidVec3`, `b3IsValidQuat`, `b3IsValidMatrix3`, `b3IsValidTransform`,
+      `b3IsValidFixed`).
+- [x] Fixed-point time (`fixed_time.h`): Q32.32, with exact conversion to and
+      from `b3Fixed`.
+- [x] Wide 128-bit primitives (`fixed_wide.h`): the Q112.16 scalar and position
+      types, and the boundary vocabulary that moves values between wide world
+      space and local Q48.16 by exact integer subtract.
+- [ ] The remaining fixed-point-typed aggregates still in box3d: the AABB
+      operations, the wide/narrow `Bound` conversions, and the validity
+      predicates for `b3Plane`, `b3Pos` and `b3WorldTransform`.
 - [ ] box3d depends on `fixed` for its fixed-point core.
+
+Deliberately **not** moving here: geometric queries (`b3SegmentDistance`,
+`b3LineDistance`, `b3PointToSegmentDistance`, `b3ClosestPointToAABB`) and inertia
+(`b3Steiner`). Those are physics that happens to be written in fixed point, not
+fixed-point math, and they belong with the solver.
 
 ## Provenance & license
 

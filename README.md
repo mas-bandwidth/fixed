@@ -42,7 +42,7 @@ and CI extends that to Linux/libstdc++ and Windows/MSVC.
       operations and validity predicates. Both widths are exported unconditionally:
       a consumer selects narrow or wide by which type it names, never by a compile
       flag that silently changes an ABI.
-- [ ] box3d depends on `fixed` for its fixed-point core.
+- [ ] fixed3d depends on `fixed` for its fixed-point core.
 
 Deliberately **not** here: geometric queries (`b3SegmentDistance`, `b3LineDistance`,
 `b3PointToSegmentDistance`) and inertia (`b3Steiner`). Those are physics that happens
@@ -54,19 +54,20 @@ library should hold no opinion about how big a world is.
 ## Naming
 
 Every symbol carries a `fix` / `FIX_` prefix. Nothing here is named `b3`, because
-none of it belongs to box3d any more — the fixed-point types are this library's, and
-a consumer that wants its own vocabulary wraps them in its own types. box3d does
+none of it belongs to box3d or fixed3d any more — the fixed-point types are this library's, and
+a consumer that wants its own vocabulary wraps them in its own types. fixed3d does
 exactly that.
 
 Two families that read alike are deliberately distinguished: scalar operations are
 `fixMin`, `fixMax`, `fixAbs`, `fixClamp`, `fixLerp`, `fixMul`; the componentwise
 vector forms are `fixVecMin`, `fixVecMax`, `fixVecAbs`, `fixVecClamp`, `fixVecLerp`,
-`fixVecMul`. In box3d these were `b3FixMin` and `b3Min`, a one-token difference for
+`fixVecMul`. In fixed3d these were `b3FixMin` and `b3Min`, a one-token difference for
 two different operations.
 
 ## Provenance & license
 
-Derived from [Box3D](https://github.com/erincatto/box3d) by Erin Catto (MIT). Box3D's
+Derived from [Fixed3D](https://github.com/mas-bandwidth/fixed3d) by Mas Bandwidth LLC 
+and [Box3D](https://github.com/erincatto/box3d) by Erin Catto (MIT). Box3D's
 copyright and MIT license (`LICENSE`) are retained and apply to all Box3D-derived
 material. The fixed-point conversion — the `fixed_t` type and its arithmetic, the
 deterministic integer transcendentals, and this library's assembly — is derivative work

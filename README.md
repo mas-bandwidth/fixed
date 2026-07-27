@@ -12,9 +12,9 @@ compute the same numbers from the same inputs. Floating point breaks this:
 fused multiply-add, `libm` transcendentals, and `-ffp-contract` differ across
 compilers and architectures. Fixed-point removes the whole class of divergence.
 
-This library is extracted from the fixed-point core of
-[box3d](https://github.com/erincatto/box3d) by Erin Catto (see `LICENSE`), so it
-can be reused independently of the physics engine.
+This library is extracted from the fixed-point core of [fixed3d](https://github.com/mas-bandwidth/fixed3d), 
+which is a fixed point port of [box3d](https://github.com/erincatto/box3d) by Erin Catto (see `LICENSE`), so it
+can be used independently of the physics engine.
 
 ## Guarantee, checked in code
 

@@ -125,6 +125,25 @@ static int32_t bump32( int32_t v, int perturb )
 	#define REF_NOINLINE __attribute__( ( noinline ) )
 #endif
 
+// Index of the highest set bit, spelled portably. DUPLICATED from src/fixed_math.c
+// rather than shared with it, and that is the point: this file is an independent
+// reference, so it must not import the thing it is checking. If the library's helper were
+// wrong, sharing it would break both sides identically and the sweep would still pass.
+#if defined( _MSC_VER ) && !defined( __clang__ )
+	#include <intrin.h>
+static int refMostSignificantBit64( uint64_t v )
+{
+	unsigned long index;
+	_BitScanReverse64( &index, v );
+	return (int)index;
+}
+#else
+static int refMostSignificantBit64( uint64_t v )
+{
+	return 63 - __builtin_clzll( v );
+}
+#endif
+
 static REF_NOINLINE int64_t refQ32Mul( int64_t a, int64_t b )
 {
 	return fixInt128ToI64( fixInt128Shr( fixInt128MulI64( a, b ), 32 ) );
@@ -197,7 +216,7 @@ static REF_NOINLINE fixed_t refLog2( fixed_t a )
 		return INT64_MIN;
 	}
 
-	int msb = 63 - __builtin_clzll( (uint64_t)a );
+	int msb = refMostSignificantBit64( (uint64_t)a );
 	int64_t integerPart = (int64_t)( msb - FIX_FRACTION_BITS );
 
 	uint64_t m;

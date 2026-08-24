@@ -153,22 +153,86 @@ static REF_NOINLINE nativeUInt128 refUAnd( nativeUInt128 a, nativeUInt128 b ) { 
 static REF_NOINLINE nativeUInt128 refUOr( nativeUInt128 a, nativeUInt128 b ) { return a | b; }
 static REF_NOINLINE nativeUInt128 refUXor( nativeUInt128 a, nativeUInt128 b ) { return a ^ b; }
 static REF_NOINLINE nativeUInt128 refUNot( nativeUInt128 a ) { return ~a; }
+// DIVISION IS THE ONE REFERENCE THAT CANNOT ALWAYS BE THE COMPILER'S OPERATOR.
+//
+// ClangCL compiles __int128 but does not link compiler-rt, so __udivti3 and friends are
+// undefined symbols at link time -- the same constraint fixInt128Div already documents
+// and works around. Where the operator links it is used, because it is the strongest
+// possible oracle; where it does not, the reference is shift-subtract long division
+// written on the NATIVE 128-bit type, which still shares nothing with the emulated pair's
+// lane arithmetic and so still catches a carry, borrow or half-boundary mistake.
+#if defined( _WIN32 )
+static REF_NOINLINE nativeUInt128 refUDivMod( nativeUInt128 a, nativeUInt128 b, bool wantRemainder )
+{
+	nativeUInt128 q = 0;
+	nativeUInt128 r = 0;
+	for ( int i = 127; i >= 0; i-- )
+	{
+		r = ( r << 1 ) | ( ( a >> i ) & 1 );
+		if ( r >= b )
+		{
+			r -= b;
+			q |= (nativeUInt128)1 << i;
+		}
+	}
+	return wantRemainder ? r : q;
+}
+static REF_NOINLINE nativeUInt128 refUDiv( nativeUInt128 a, nativeUInt128 b ) { return refUDivMod( a, b, false ); }
+static REF_NOINLINE nativeUInt128 refUMod( nativeUInt128 a, nativeUInt128 b ) { return refUDivMod( a, b, true ); }
+#else
 static REF_NOINLINE nativeUInt128 refUDiv( nativeUInt128 a, nativeUInt128 b ) { return a / b; }
 static REF_NOINLINE nativeUInt128 refUMod( nativeUInt128 a, nativeUInt128 b ) { return a % b; }
+#endif
 static REF_NOINLINE int refUCmp( nativeUInt128 a, nativeUInt128 b )
 {
 	return ( a == b ? 1 : 0 ) | ( a < b ? 2 : 0 ) | ( a > b ? 4 : 0 ) | ( a <= b ? 8 : 0 ) | ( a >= b ? 16 : 0 );
 }
 
-static REF_NOINLINE nativeInt128 refSAdd( nativeInt128 a, nativeInt128 b ) { return a + b; }
-static REF_NOINLINE nativeInt128 refSSub( nativeInt128 a, nativeInt128 b ) { return a - b; }
-static REF_NOINLINE nativeInt128 refSMul( nativeInt128 a, nativeInt128 b ) { return a * b; }
+// The signed arithmetic references go through the unsigned type. The emulated pair wraps
+// on overflow because two's complement lanes wrap, which is what native hardware does --
+// but writing `a + b` on a signed __int128 and letting it overflow is UNDEFINED behavior,
+// and this suite runs under UBSan. Casting through unsigned is the same bit pattern with
+// defined semantics, the same idiom fixShiftLeft uses in the library itself. The
+// structured domain deliberately includes both saturation ends, so these DO overflow.
+static REF_NOINLINE nativeInt128 refSAdd( nativeInt128 a, nativeInt128 b )
+{
+	return (nativeInt128)( (nativeUInt128)a + (nativeUInt128)b );
+}
+static REF_NOINLINE nativeInt128 refSSub( nativeInt128 a, nativeInt128 b )
+{
+	return (nativeInt128)( (nativeUInt128)a - (nativeUInt128)b );
+}
+static REF_NOINLINE nativeInt128 refSMul( nativeInt128 a, nativeInt128 b )
+{
+	return (nativeInt128)( (nativeUInt128)a * (nativeUInt128)b );
+}
 static REF_NOINLINE nativeInt128 refSNeg( nativeInt128 a ) { return (nativeInt128)( -(nativeUInt128)a ); }
 static REF_NOINLINE nativeInt128 refSMulI64( int64_t a, int64_t b ) { return (nativeInt128)a * b; }
 static REF_NOINLINE nativeInt128 refSShl( nativeInt128 a, int s ) { return (nativeInt128)( (nativeUInt128)a << s ); }
 static REF_NOINLINE nativeInt128 refSShr( nativeInt128 a, int s ) { return a >> s; }
+#if defined( _WIN32 )
+// Sign extraction, unsigned division on the magnitudes, sign application: C semantics,
+// truncation toward zero with the remainder's sign following the dividend.
+static REF_NOINLINE nativeInt128 refSDivMod( nativeInt128 a, nativeInt128 b, bool wantRemainder )
+{
+	bool negativeA = a < 0;
+	bool negativeB = b < 0;
+	nativeUInt128 ua = negativeA ? -(nativeUInt128)a : (nativeUInt128)a;
+	nativeUInt128 ub = negativeB ? -(nativeUInt128)b : (nativeUInt128)b;
+	if ( wantRemainder )
+	{
+		nativeUInt128 r = refUDivMod( ua, ub, true );
+		return (nativeInt128)( negativeA ? -r : r );
+	}
+	nativeUInt128 q = refUDivMod( ua, ub, false );
+	return (nativeInt128)( ( negativeA != negativeB ) ? -q : q );
+}
+static REF_NOINLINE nativeInt128 refSDiv( nativeInt128 a, nativeInt128 b ) { return refSDivMod( a, b, false ); }
+static REF_NOINLINE nativeInt128 refSMod( nativeInt128 a, nativeInt128 b ) { return refSDivMod( a, b, true ); }
+#else
 static REF_NOINLINE nativeInt128 refSDiv( nativeInt128 a, nativeInt128 b ) { return a / b; }
 static REF_NOINLINE nativeInt128 refSMod( nativeInt128 a, nativeInt128 b ) { return a % b; }
+#endif
 static REF_NOINLINE int64_t refSToI64( nativeInt128 a ) { return (int64_t)a; }
 static REF_NOINLINE int refSCmp( nativeInt128 a, nativeInt128 b )
 {

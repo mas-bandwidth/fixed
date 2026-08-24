@@ -634,11 +634,28 @@ FIX_ALWAYS_INLINE uint64_t fixInt128Lo( fixInt128 a ) { return (uint64_t)a; }
 FIX_ALWAYS_INLINE uint64_t fixInt128Hi( fixInt128 a ) { return (uint64_t)( (fixUInt128)a >> 64 ); }
 FIX_ALWAYS_INLINE fixUInt128 fixInt128ToUnsigned( fixInt128 a ) { return (fixUInt128)a; }
 FIX_ALWAYS_INLINE fixInt128 fixInt128FromUnsigned( fixUInt128 a ) { return (fixInt128)a; }
-FIX_ALWAYS_INLINE fixInt128 fixInt128Add( fixInt128 a, fixInt128 b ) { return a + b; }
-FIX_ALWAYS_INLINE fixInt128 fixInt128Sub( fixInt128 a, fixInt128 b ) { return a - b; }
-FIX_ALWAYS_INLINE fixInt128 fixInt128Mul( fixInt128 a, fixInt128 b ) { return a * b; }
+// THROUGH THE UNSIGNED TYPE, and this is a correctness matter rather than a style one.
+// The emulated arm wraps on overflow because two's complement lanes wrap; native signed
+// overflow is UNDEFINED. If the native arm kept the bare signed operators the two arms
+// would not agree at the boundary -- which is the one thing this seam exists to promise --
+// and the difference would be invisible until a compiler decided to exploit the UB. The
+// cast is free: the same instruction, with defined semantics, verified by diffing the
+// compiled consumer. It is the idiom fixShiftLeft already uses for the same reason.
+FIX_ALWAYS_INLINE fixInt128 fixInt128Add( fixInt128 a, fixInt128 b )
+{
+	return (fixInt128)( (fixUInt128)a + (fixUInt128)b );
+}
+FIX_ALWAYS_INLINE fixInt128 fixInt128Sub( fixInt128 a, fixInt128 b )
+{
+	return (fixInt128)( (fixUInt128)a - (fixUInt128)b );
+}
+FIX_ALWAYS_INLINE fixInt128 fixInt128Mul( fixInt128 a, fixInt128 b )
+{
+	return (fixInt128)( (fixUInt128)a * (fixUInt128)b );
+}
+// The widening multiply cannot overflow: the largest product of two int64 values is 2^126.
 FIX_ALWAYS_INLINE fixInt128 fixInt128MulI64( int64_t a, int64_t b ) { return (fixInt128)a * b; }
-FIX_ALWAYS_INLINE fixInt128 fixInt128Neg( fixInt128 a ) { return -a; }
+FIX_ALWAYS_INLINE fixInt128 fixInt128Neg( fixInt128 a ) { return (fixInt128)( -(fixUInt128)a ); }
 FIX_ALWAYS_INLINE fixInt128 fixInt128Shr( fixInt128 a, int shift ) { return a >> shift; }
 FIX_ALWAYS_INLINE bool fixInt128Eq( fixInt128 a, fixInt128 b ) { return a == b; }
 FIX_ALWAYS_INLINE bool fixInt128Lt( fixInt128 a, fixInt128 b ) { return a < b; }

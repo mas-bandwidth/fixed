@@ -145,6 +145,39 @@ static REF_NOINLINE int64_t refWiden( int64_t raw, int shift )
 	return (int64_t)( (uint64_t)raw << shift );
 }
 
+// OPAQUE WRAPPERS AROUND THE LIBRARY'S OWN FUNCTIONS.
+//
+// The checks below compare two header-inline functions that are supposed to BE the same
+// function -- fixFromFix30 against fixNarrow, fixFromDouble against fixQuantize. That is
+// precisely the shape an optimizer can prove equivalent and fold to a constant false: the
+// check would then pass without either side running, which is the pull request #9 failure
+// mode aimed at the equivalence test itself. Routing one side through an opaque call
+// forces both to execute.
+//
+// MSVC did not merely fold it. cl.exe exited with an access violation attempting the
+// equivalence, on the plain target, while the negative-control target -- whose macro adds
+// a +1 that breaks the equivalence -- compiled from the same source on the same runner in
+// the same second. That asymmetry is what identified the site.
+static REF_NOINLINE int64_t opaqueNarrow( int64_t raw, int shift )
+{
+	return fixNarrow( raw, shift );
+}
+
+static REF_NOINLINE int64_t opaqueWiden( int64_t raw, int shift )
+{
+	return fixWiden( raw, shift );
+}
+
+static REF_NOINLINE int64_t opaqueQuantize( double value, int64_t scale )
+{
+	return fixQuantize( value, scale );
+}
+
+static REF_NOINLINE double opaqueDequantize( int64_t raw, int64_t scale )
+{
+	return fixDequantize( raw, scale );
+}
+
 // One quantum applied to a reference value. The add is unsigned because a reference value
 // can sit at INT64_MAX, where +1 as a signed value is overflow -- the negative control
 // must not itself be undefined behaviour.
@@ -505,8 +538,9 @@ static uint64_t sweepWiden( int perturb, uint64_t samples )
 		if ( got != want ) bad++;
 
 		// Round trip: narrow undoes widen exactly. The other order does not, and that is
-		// the whole point of the pair.
-		if ( !perturb && fixNarrow( fixWiden( raw, shift ), shift ) != raw ) bad++;
+		// the whole point of the pair. Through the opaque wrappers, because nesting the
+		// two inline forms is an identity the optimizer can answer without running them.
+		if ( !perturb && opaqueNarrow( opaqueWiden( raw, shift ), shift ) != raw ) bad++;
 	}
 
 	return bad;
@@ -569,7 +603,7 @@ static void checkGeneralizesThePinnedConverters( void )
 	{
 		int32_t raw = (int32_t)( k * 20011 );
 		fixed30_t packed = { raw };
-		if ( fixFromFix30( packed ) != fixNarrow( raw, FIX30_SHIFT ) ) local++;
+		if ( fixFromFix30( packed ) != opaqueNarrow( raw, FIX30_SHIFT ) ) local++;
 	}
 
 	// fix30FromFix IS fixWiden at FIX30_SHIFT wherever the value is in range and the
@@ -578,7 +612,7 @@ static void checkGeneralizesThePinnedConverters( void )
 	{
 		fixed_t a = k * 13;
 		if ( a >= ( (fixed_t)2 << FIX_FRACTION_BITS ) || a < -( (fixed_t)2 << FIX_FRACTION_BITS ) ) continue;
-		if ( (int64_t)fix30FromFix( a ).raw != fixWiden( a, FIX30_SHIFT ) ) local++;
+		if ( (int64_t)fix30FromFix( a ).raw != opaqueWiden( a, FIX30_SHIFT ) ) local++;
 	}
 
 	// fixFromDouble IS fixQuantize at FIX_ONE.
@@ -591,7 +625,7 @@ static void checkGeneralizesThePinnedConverters( void )
 			int64_t k = (int64_t)( nextRandom() % 2000001ULL ) - 1000000;
 			x = ( (double)k + 0.5 ) / (double)FIX_ONE;
 		}
-		if ( fixFromDouble( x ) != fixQuantize( x, FIX_ONE ) ) local++;
+		if ( fixFromDouble( x ) != opaqueQuantize( x, FIX_ONE ) ) local++;
 	}
 
 	// fixToDouble IS fixDequantize at FIX_ONE. The library multiplies by the reciprocal
@@ -600,7 +634,7 @@ static void checkGeneralizesThePinnedConverters( void )
 	for ( int i = 0; i < 200000; i++ )
 	{
 		fixed_t raw = (fixed_t)nextRandom() >> 12;
-		if ( fixToDouble( raw ) != fixDequantize( raw, FIX_ONE ) ) local++;
+		if ( fixToDouble( raw ) != opaqueDequantize( raw, FIX_ONE ) ) local++;
 	}
 
 	if ( local != 0 )

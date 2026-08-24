@@ -49,6 +49,14 @@ add_executable(fixed_override_api_test test/override_api_test.c)
 target_link_libraries(fixed_override_api_test PRIVATE fixed)
 add_test(NAME override_api COMMAND fixed_override_api_test)
 
+# Bit-equality against the fixed3d implementations these functions were ported from,
+# for the whole ported set. Carries its own always-on negative controls (each sweep is
+# also run against a reference perturbed by one quantum and must detect it), plus a
+# frozen cross-platform hash over its structured sweeps.
+add_executable(fixed_port_equality_test test/port_equality_test.c)
+target_link_libraries(fixed_port_equality_test PRIVATE fixed)
+add_test(NAME port_equality COMMAND fixed_port_equality_test)
+
 # Negative control: the SAME exhaustive suite with a deliberate 1-ulp error
 # injected into multiply. This build MUST fail (WILL_FAIL) — a test of the
 # tests, proving the suite actually detects breakage rather than silently
@@ -58,3 +66,12 @@ target_link_libraries(fixed_negative_control PRIVATE fixed)
 target_compile_definitions(fixed_negative_control PRIVATE FIXED_NEGATIVE_CONTROL)
 add_test(NAME negative_control COMMAND fixed_negative_control)
 set_tests_properties(negative_control PROPERTIES WILL_FAIL TRUE)
+
+# The same control for the port suite, injecting the error on the LIBRARY side rather
+# than the reference side. The in-test controls prove the sweeps can see a difference;
+# this proves they catch a regression in the shipped code. MUST fail.
+add_executable(fixed_port_negative_control test/port_equality_test.c)
+target_link_libraries(fixed_port_negative_control PRIVATE fixed)
+target_compile_definitions(fixed_port_negative_control PRIVATE PORT_NEGATIVE_CONTROL)
+add_test(NAME port_negative_control COMMAND fixed_port_negative_control)
+set_tests_properties(port_negative_control PROPERTIES WILL_FAIL TRUE)

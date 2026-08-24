@@ -94,6 +94,18 @@ FIX_ALWAYS_INLINE fixInt128 fixInt128ShiftLeft( fixInt128 a, int shift )
 	return (fixInt128)( (fixUInt128)a << shift );
 }
 
+/// @return the minimum of two 128-bit values.
+FIX_ALWAYS_INLINE fixInt128 fixInt128Min( fixInt128 a, fixInt128 b )
+{
+	return a < b ? a : b;
+}
+
+/// @return the maximum of two 128-bit values.
+FIX_ALWAYS_INLINE fixInt128 fixInt128Max( fixInt128 a, fixInt128 b )
+{
+	return a > b ? a : b;
+}
+
 /// Exact signed 128-bit division. Bit-identical to the compiler's __divti3 for
 /// every input: integer division has a unique truncating result, so any exact
 /// algorithm agrees. On x86-64 the case the solver almost always produces --
@@ -385,6 +397,96 @@ FIX_ALWAYS_INLINE fixed_t fixFromDouble( double x )
 {
 	double d = x * (double)FIX_ONE;
 	return (fixed_t)( d >= 0.0 ? d + 0.5 : d - 0.5 );
+}
+
+//! @cond
+
+// ---------------------------------------------------------------------------------------------
+// Q2.30 packed components (fixed30_t)
+//
+// A SECOND raw fixed-point domain: 32-bit storage, 2 integer bits (sign included), 30 fraction
+// bits. Built for always-normalized quantities (quaternion components never leave [-1, 1], so
+// nearly all bits go to fraction). The raw value is wrapped in a struct ON PURPOSE: fixed_t is
+// a bare int64 typedef and Q48.16/Q2.30 raws differ by 2^14, so a bare 32-bit typedef would
+// let a mixup compile silently -- the same trap as assigning a double into a fixed_t. With the
+// struct, arithmetic and cross-domain assignment refuse to compile; go through the converters.
+//
+// ROUNDING RULE (pinned): dropping bits rounds to nearest via ( raw + ( 1 << ( drop - 1 ) ) ) >> drop,
+// the same form as the floor( v * scale + 0.5 ) wire family.
+// ---------------------------------------------------------------------------------------------
+
+//! @endcond
+
+/// Number of fractional bits in a Q2.30 packed component.
+#define FIX30_FRACTION_BITS 30
+
+/// One, in Q2.30.
+#define FIX30_ONE ( (int32_t)1 << FIX30_FRACTION_BITS )
+
+/// The shift between the Q48.16 and Q2.30 raw domains.
+#define FIX30_SHIFT ( FIX30_FRACTION_BITS - FIX_FRACTION_BITS )
+
+/// A Q2.30 packed fixed-point component: 32-bit storage, 2 integer bits (sign included),
+/// 30 fraction bits. Domain [-2, 2); built for always-normalized quantities. Deliberately a
+/// struct so a Q48.16/Q2.30 raw mixup cannot compile silently.
+typedef struct fixed30_t
+{
+	int32_t raw;
+} fixed30_t;
+
+/// Pack Q48.16 to Q2.30. Gains 14 fraction bits (exact for in-range values); values outside
+/// [-2, 2) saturate to the domain bounds.
+FIX_ALWAYS_INLINE fixed30_t fix30FromFix( fixed_t a )
+{
+	// Saturation is tested BEFORE the shift. Shifting first and testing after -- which is
+	// what this looked like in box3d -- is signed overflow for |a| >= 2^49, and the shifted
+	// value is discarded in exactly those cases, so the order is free. Same answer for
+	// every input, no undefined behavior. The in-range shift routes through fixShiftLeft
+	// because a is signed and may be negative.
+	if ( a >= ( (fixed_t)2 << FIX_FRACTION_BITS ) )
+	{
+		fixed30_t saturated = { INT32_MAX };
+		return saturated;
+	}
+
+	if ( a < -( (fixed_t)2 << FIX_FRACTION_BITS ) )
+	{
+		fixed30_t saturated = { INT32_MIN };
+		return saturated;
+	}
+
+	fixed30_t result = { (int32_t)fixShiftLeft( a, FIX30_SHIFT ) };
+	return result;
+}
+
+/// Unpack Q2.30 to Q48.16. Drops 14 fraction bits, rounding to nearest per the pinned rule.
+FIX_ALWAYS_INLINE fixed_t fixFromFix30( fixed30_t a )
+{
+	return ( (fixed_t)a.raw + ( (fixed_t)1 << ( FIX30_SHIFT - 1 ) ) ) >> FIX30_SHIFT;
+}
+
+/// Convert Q2.30 to a double. Exact: every Q2.30 value is representable in a double.
+FIX_ALWAYS_INLINE double fix30ToDouble( fixed30_t a )
+{
+	return (double)a.raw / (double)FIX30_ONE;
+}
+
+/// Convert a double to Q2.30, rounding to nearest, saturating to the domain. A boundary
+/// helper, and like the other double boundary helpers it takes a finite input.
+FIX_ALWAYS_INLINE fixed30_t fix30FromDouble( double x )
+{
+	double d = x * (double)FIX30_ONE;
+	d = ( d >= 0.0 ? d + 0.5 : d - 0.5 );
+	if ( d >= (double)INT32_MAX )
+	{
+		d = (double)INT32_MAX;
+	}
+	else if ( d <= (double)INT32_MIN )
+	{
+		d = (double)INT32_MIN;
+	}
+	fixed30_t result = { (int32_t)d };
+	return result;
 }
 
 /**@}*/ // fixed

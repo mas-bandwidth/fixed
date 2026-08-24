@@ -120,15 +120,11 @@ FIX_INLINE int fixClampInt( int a, int lower, int upper )
 
 // fixAbs, fixMin, fixMax, and fixClamp live in fixed.h
 
-/// Interpolate a scalar.
-FIX_INLINE fixed_t fixLerp( fixed_t a, fixed_t b, fixed_t alpha )
-{
-	return fixMul( ( FIX( 1.0f ) - alpha ) , a ) + fixMul( alpha , b );
-}
-
-// fixAtan2, fixComputeCosSin, fixSin, fixCos, and fixUnwindAngle are provided by
-// fixed/fixed_math.h (included above). fixed3d's physics calls them; the vendored
-// `fixed` library owns their declarations and definitions.
+// fixLerp, fixAtan2, fixComputeCosSin, fixSin, fixCos, and fixUnwindAngle are provided
+// by fixed/fixed_math.h (included above). fixed3d's physics calls them; the vendored
+// `fixed` library owns their declarations and definitions. fixLerp is scalar math and
+// lives with the rest of the scalar math, not in the vector header that happens to have
+// been its first caller.
 
 /// Vector addition.
 FIX_INLINE fixVec3 fixVecAdd( fixVec3 a, fixVec3 b )

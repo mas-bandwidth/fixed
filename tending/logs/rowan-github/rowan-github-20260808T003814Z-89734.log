@@ -1,2 +1,0 @@
-2026-08-08T00:38:14Z info  log: /Users/glenn/rowan-working/fixed/tending/logs/rowan-github/rowan-github-20260808T003814Z-89734.log
-2026-08-08T00:38:14Z info  argv: api repos/mas-bandwidth/fixed/releases/tags/v1.2.1 --jq {tag_name, draft, prerelease, name, html_url, target_commitish}

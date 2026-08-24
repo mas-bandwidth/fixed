@@ -1,2 +1,6 @@
 build/
 *.o
+
+# Local operator logs from the tending harness. Not repository content: these are
+# one machine's run records, and they arrived here by an over-broad `git add -A`.
+tending/

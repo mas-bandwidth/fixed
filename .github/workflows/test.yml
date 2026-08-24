@@ -62,7 +62,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build and run under UBSan
         run: |
-          for t in determinism_test transcendental_test exhaustive_test wide_time_test port_equality_test int128_test quantize_test geometry_test aabb_test usage_test inverse_envelope_test; do
+          for t in determinism_test transcendental_test exhaustive_test wide_time_test port_equality_test int128_test quantize_test geometry_test aabb_test usage_test inverse_envelope_test int256_division_test; do
             for arm in "" "-DFIX_FORCE_EMULATED_INT128"; do
               clang -O2 -fsanitize=undefined -fno-sanitize-recover=all $arm \
                 -I include "test/$t.c" src/fixed_math.c src/fixed_vec.c -lm -o "/tmp/$t"

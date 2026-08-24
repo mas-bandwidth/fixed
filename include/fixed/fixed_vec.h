@@ -1087,13 +1087,10 @@ FIX_INLINE fixMatrix3 fixTranspose( fixMatrix3 m )
 /// can hold, and the honest report of an unrepresentable inverse is that it rounds away.
 /// Callers that care about the difference between "zero because static" and "zero because
 /// too large to invert" test the input, not the output -- see fixed3d's b3UpdateBodyMassData.
-FIX_INLINE fixed_t fixDivShiftedWide( fixInt128 numerator, int shift, fixUInt256 absDeterminant, bool determinantNegative )
+FIX_INLINE fixed_t fixDivShifted256( fixUInt256 numerator, int shift, fixUInt256 absDeterminant, bool determinantNegative )
 {
-	bool numeratorNegative = fixInt128IsNegative( numerator );
-	fixUInt128 absNumerator =
-		numeratorNegative ? fixUInt128Neg( fixInt128ToUnsigned( numerator ) ) : fixInt128ToUnsigned( numerator );
-
-	fixUInt256 scaled = fixUInt256Shl( fixUInt256FromU128( absNumerator ), shift );
+	bool numeratorNegative = fixInt256IsNegative( numerator );
+	fixUInt256 scaled = fixUInt256Shl( fixInt256Abs( numerator ), shift );
 
 	fixUInt256 quotient;
 	fixUInt256 remainder;
@@ -1111,6 +1108,19 @@ FIX_INLINE fixed_t fixDivShiftedWide( fixInt128 numerator, int shift, fixUInt256
 
 	int64_t magnitude = (int64_t)fixUInt128Lo( quotient.lo );
 	return negative ? -magnitude : magnitude;
+}
+
+/// Internal: the same ratio for a numerator that is still only 128 bits wide, which is
+/// every entry of the inverse. Widening first and dividing once keeps one implementation
+/// of the rounding and the saturation rather than two that must be kept in step.
+FIX_INLINE fixed_t fixDivShiftedWide( fixInt128 numerator, int shift, fixUInt256 absDeterminant, bool determinantNegative )
+{
+	bool numeratorNegative = fixInt128IsNegative( numerator );
+	fixUInt128 absNumerator =
+		numeratorNegative ? fixUInt128Neg( fixInt128ToUnsigned( numerator ) ) : fixInt128ToUnsigned( numerator );
+
+	fixUInt256 widened = fixUInt256FromU128( absNumerator );
+	return fixDivShifted256( numeratorNegative ? fixUInt256Neg( widened ) : widened, shift, absDeterminant, determinantNegative );
 }
 
 /// Internal: the exact inverse of a matrix whose cofactors are too large for 128-bit
@@ -1223,6 +1233,53 @@ FIX_INLINE fixMatrix3 fixInvertMatrix( fixMatrix3 m )
 	return fixInvertMatrixWide( m );
 }
 
+/// Internal: the exact solve of a system whose cofactors are too large for 128-bit
+/// arithmetic. The wide counterpart of the direct solve, not of the inverse -- it keeps
+/// the one-division-per-component form all the way out to the top of the range.
+///
+/// Each numerator is a cofactor (126 bits) against a component (64), summed three ways
+/// and then shifted up 16, which reaches 208 bits. The determinant reaches 190. Both are
+/// exact here, so the result is the same truncated rational the 128-bit arm computes and
+/// the two arms differ only in cost.
+FIX_INLINE fixVec3 fixSolve3Wide( fixMatrix3 m, fixVec3 a )
+{
+	fixInt128 c00 = fixCofactor128( m.cy.y, m.cz.z, m.cy.z, m.cz.y );
+	fixInt128 c01 = fixCofactor128( m.cy.z, m.cz.x, m.cy.x, m.cz.z );
+	fixInt128 c02 = fixCofactor128( m.cy.x, m.cz.y, m.cy.y, m.cz.x );
+	fixInt128 c10 = fixCofactor128( m.cz.y, m.cx.z, m.cz.z, m.cx.y );
+	fixInt128 c11 = fixCofactor128( m.cz.z, m.cx.x, m.cz.x, m.cx.z );
+	fixInt128 c12 = fixCofactor128( m.cz.x, m.cx.y, m.cz.y, m.cx.x );
+	fixInt128 c20 = fixCofactor128( m.cx.y, m.cy.z, m.cx.z, m.cy.y );
+	fixInt128 c21 = fixCofactor128( m.cx.z, m.cy.x, m.cx.x, m.cy.z );
+	fixInt128 c22 = fixCofactor128( m.cx.x, m.cy.y, m.cx.y, m.cy.x );
+
+	fixUInt256 det = fixUInt256Add( fixUInt256Add( fixInt256MulI128ByI64( c00, m.cx.x ), fixInt256MulI128ByI64( c10, m.cy.x ) ),
+									fixInt256MulI128ByI64( c20, m.cz.x ) );
+	if ( fixUInt256IsZero( det ) )
+	{
+		return fixVec3_zero;
+	}
+
+	bool negative = fixInt256IsNegative( det );
+	fixUInt256 absDet = fixInt256Abs( det );
+
+	// Two's complement sums: a wrapping 256-bit add is the signed add, and nothing here
+	// comes close to the width.
+	fixUInt256 nx = fixUInt256Add( fixUInt256Add( fixInt256MulI128ByI64( c00, a.x ), fixInt256MulI128ByI64( c01, a.y ) ),
+								   fixInt256MulI128ByI64( c02, a.z ) );
+	fixUInt256 ny = fixUInt256Add( fixUInt256Add( fixInt256MulI128ByI64( c10, a.x ), fixInt256MulI128ByI64( c11, a.y ) ),
+								   fixInt256MulI128ByI64( c12, a.z ) );
+	fixUInt256 nz = fixUInt256Add( fixUInt256Add( fixInt256MulI128ByI64( c20, a.x ), fixInt256MulI128ByI64( c21, a.y ) ),
+								   fixInt256MulI128ByI64( c22, a.z ) );
+
+	fixVec3 b = {
+		fixDivShifted256( nx, 16, absDet, negative ),
+		fixDivShifted256( ny, 16, absDet, negative ),
+		fixDivShifted256( nz, 16, absDet, negative ),
+	};
+	return b;
+}
+
 /// Solve a matrix equation.
 /// @return inv(m) * a
 /// Solves directly from the 128-bit cofactors with three divisions rather than
@@ -1290,10 +1347,12 @@ FIX_INLINE fixVec3 fixSolve3( fixMatrix3 m, fixVec3 a )
 		}
 	}
 
-	// Anything larger inverts wide and multiplies. One rounding more than solving
-	// directly, and the only form available once the direct numerators stop fitting.
-	fixMatrix3 inv = fixInvertMatrix( m );
-	return fixMulMV( inv, a );
+	// Anything larger solves wide, which is still one division per component and still
+	// one rounding. Inverting and multiplying was the old fallback and it is a worse
+	// answer for the same work: the inverse of a large matrix is a handful of quanta or
+	// none at all, so rounding it to Q48.16 and then multiplying rounds twice through the
+	// coarsest value in the calculation.
+	return fixSolve3Wide( m, a );
 }
 
 /// Inverse transpose of a matrix. Identical to the inverse for the symmetric

@@ -157,8 +157,14 @@ static void mixTransform( fixTransform t ) { mixVec( t.p ); mixQuat( t.q ); }
 // FROZEN 2026-08-24. Every OS and compiler in CI must reproduce this exactly, on the
 // native and the emulated 128-bit arm alike. If a legitimate change alters it, re-capture
 // deliberately and say why in the pull request; never loosen it to make a mismatch go away.
+//
+// RE-CAPTURED 2026-08-24, from 0xd83f7a5bee88e262, when the wide arm of the inverse
+// started carrying its full width. Exactly two values moved and both are in the huge
+// matrix above: the inverse of it and the solve through it. Every other value in this
+// sweep is bit-identical, which was checked directly rather than assumed -- the sweep's
+// matrices are of order 5, so they take the 128-bit arm, which did not change.
 #ifndef EXPECTED_GEOMETRY_HASH
-	#define EXPECTED_GEOMETRY_HASH 0xd83f7a5bee88e262ULL
+	#define EXPECTED_GEOMETRY_HASH 0x660211d75929badeULL
 #endif
 
 // Deterministic sampling. splitmix64: pure integer, identical on every platform.
@@ -585,12 +591,17 @@ static void testMatrices( void )
 		fixMatrix3 symmetric = { V( 4.0f, 1.0f, 0.5f ), V( 1.0f, 3.0f, 0.25f ), V( 0.5f, 0.25f, 2.0f ) };
 		CHECK( MatEq( fixInvertT( symmetric ), fixInvertMatrix( symmetric ) ) );
 
-		// The huge-matrix path, where the cofactors leave 64 bits and the inverse drops
-		// sixteen fraction bits to keep the determinant in range. Reached only by entries
-		// far outside ordinary simulation scale, so it is dark code unless named.
+		// The wide path, where the cofactors leave 64 bits and the whole calculation moves
+		// to 256. Reached only by entries far outside ordinary simulation scale, so it is
+		// dark code unless named. Every true entry of this inverse is of order 1e-10 to
+		// 1e-12, which is far below one Q48.16 quantum, so the exact truncated answer is
+		// the zero matrix -- and saying so is the fix. This same input used to come back
+		// with entries of both signs. inverse_envelope_test.c is where that boundary is
+		// walked properly; this case is here so the hash covers the wide arm.
 		fixMatrix3 huge = { V( 1e9f, 2e9f, 3e8f ), V( 4e8f, 5e9f, 6e9f ), V( 7e9f, 8e8f, 1e9f ) };
 		fixMatrix3 hugeInverse = fixInvertMatrix( huge );
 		CHECK( fixIsValidMatrix3( hugeInverse ) );
+		CHECK( MatEq( hugeInverse, fixMat3_zero ) );
 		mixMat( hugeInverse );
 	}
 
@@ -605,7 +616,10 @@ static void testMatrices( void )
 		fixMatrix3 singular = { V( 1.0f, 2.0f, 3.0f ), V( 2.0f, 4.0f, 6.0f ), V( 3.0f, 6.0f, 9.0f ) };
 		CHECK( VecEq( fixSolve3( singular, target ), fixVec3_zero ) );
 
-		// And the huge path, which falls back to inverting and multiplying.
+		// And the wide path, which solves directly at 256 bits rather than inverting and
+		// multiplying: the inverse of a matrix this large is the zero matrix, so the old
+		// fallback multiplied through it and returned zero for every target. The direct
+		// solve keeps the ratio whole and gets a nonzero answer where one exists.
 		fixMatrix3 huge = { V( 1e9f, 2e9f, 3e8f ), V( 4e8f, 5e9f, 6e9f ), V( 7e9f, 8e8f, 1e9f ) };
 		mixVec( fixSolve3( huge, target ) );
 	}

@@ -7,6 +7,7 @@
 #pragma once
 #include "fixed/base.h"
 #include "fixed/fixed.h"
+#include "fixed/fixed_int256.h"
 #include "fixed/fixed_math.h"
 
 /// A 2D vector.
@@ -752,9 +753,35 @@ FIX_INLINE fixInt128 fixCofactor128( fixed_t a, fixed_t b, fixed_t c, fixed_t d 
 /// Internal: ( numerator << shift ) / denominator, truncated to Q48.16. The shift routes
 /// through fixInt128ShiftLeft because the numerators here are signed cofactors and a raw
 /// left shift of a negative value is undefined.
+///
+/// SATURATES rather than truncating to 64 bits. A ratio outside Q48.16 range -- the
+/// inverse of a matrix close enough to singular that its inverse does not fit -- used to
+/// keep the low 64 bits of the quotient, which is a value of arbitrary magnitude AND
+/// arbitrary sign. Saturating keeps the one property every caller relies on: a large
+/// inverse reads as large, and its sign is the sign of the true ratio.
 FIX_INLINE fixed_t fixDivShifted( fixInt128 numerator, int shift, fixInt128 denominator )
 {
-	return (fixed_t)fixInt128ToI64( fixInt128Div( fixInt128ShiftLeft( numerator, shift ), denominator ) );
+	fixInt128 quotient = fixInt128Div( fixInt128ShiftLeft( numerator, shift ), denominator );
+
+	bool representable = fixInt128Le( quotient, fixInt128FromI64( FIX_MAX ) ) && fixInt128Ge( quotient, fixInt128FromI64( FIX_MIN ) );
+	FIX_VALIDATE( representable );
+	if ( representable == false )
+	{
+		return fixInt128IsNegative( quotient ) ? FIX_MIN : FIX_MAX;
+	}
+
+	return (fixed_t)fixInt128ToI64( quotient );
+}
+
+/// Internal: is a 128-bit value strictly inside +/- limit?
+///
+/// The range test that decides whether the 128-bit arm of the inverse and the solve can
+/// stay exact. Those arms cast cofactors to int64 and shift numerators left, so every
+/// value they touch has to be small enough for both -- which is why the tests below name
+/// all nine cofactors rather than the three the determinant expands along.
+FIX_ALWAYS_INLINE bool fixInt128InRange( fixInt128 c, fixInt128 limit )
+{
+	return fixInt128Lt( fixInt128Neg( limit ), c ) && fixInt128Lt( c, limit );
 }
 
 /// Validity predicates for the fixed-point math types.
@@ -1048,7 +1075,113 @@ FIX_INLINE fixMatrix3 fixTranspose( fixMatrix3 m )
 	return out;
 }
 
+/// Internal: the exact ratio ( cofactor << shift ) / determinant, at 256 bits.
+///
+/// The wide arm's counterpart to fixDivShifted, and the reason the wide arm exists: the
+/// numerator reaches 158 bits and the denominator 190, so neither the shift nor the
+/// division fits in 128. Truncated toward zero, matching fixInt128Div, and saturating on
+/// a ratio outside Q48.16 range, matching fixDivShifted.
+///
+/// A ratio whose magnitude is below one quantum comes back as zero. That is the exact
+/// answer and not a failure: the inverse of a matrix this large IS smaller than Q48.16
+/// can hold, and the honest report of an unrepresentable inverse is that it rounds away.
+/// Callers that care about the difference between "zero because static" and "zero because
+/// too large to invert" test the input, not the output -- see fixed3d's b3UpdateBodyMassData.
+FIX_INLINE fixed_t fixDivShifted256( fixUInt256 numerator, int shift, fixUInt256 absDeterminant, bool determinantNegative )
+{
+	bool numeratorNegative = fixInt256IsNegative( numerator );
+	fixUInt256 scaled = fixUInt256Shl( fixInt256Abs( numerator ), shift );
+
+	fixUInt256 quotient;
+	fixUInt256 remainder;
+	fixUInt256DivMod( scaled, absDeterminant, &quotient, &remainder );
+
+	bool negative = numeratorNegative != determinantNegative;
+
+	bool representable = fixUInt128Eq( quotient.hi, FIX_UINT128_ZERO ) &&
+						 fixUInt128Le( quotient.lo, fixUInt128FromU64( (uint64_t)FIX_MAX ) );
+	FIX_VALIDATE( representable );
+	if ( representable == false )
+	{
+		return negative ? FIX_MIN : FIX_MAX;
+	}
+
+	int64_t magnitude = (int64_t)fixUInt128Lo( quotient.lo );
+	return negative ? -magnitude : magnitude;
+}
+
+/// Internal: the same ratio for a numerator that is still only 128 bits wide, which is
+/// every entry of the inverse. Widening first and dividing once keeps one implementation
+/// of the rounding and the saturation rather than two that must be kept in step.
+FIX_INLINE fixed_t fixDivShiftedWide( fixInt128 numerator, int shift, fixUInt256 absDeterminant, bool determinantNegative )
+{
+	bool numeratorNegative = fixInt128IsNegative( numerator );
+	fixUInt128 absNumerator =
+		numeratorNegative ? fixUInt128Neg( fixInt128ToUnsigned( numerator ) ) : fixInt128ToUnsigned( numerator );
+
+	fixUInt256 widened = fixUInt256FromU128( absNumerator );
+	return fixDivShifted256( numeratorNegative ? fixUInt256Neg( widened ) : widened, shift, absDeterminant, determinantNegative );
+}
+
+/// Internal: the exact inverse of a matrix whose cofactors are too large for 128-bit
+/// arithmetic. Same value the 128-bit arm computes, carried at a width that cannot
+/// overflow, so the two arms differ only in cost.
+///
+/// This replaces a reduction that dropped 16 fraction bits from each cofactor and then
+/// cast the result to int64 to accumulate the determinant. Both steps were silent: the
+/// cast wrapped for any cofactor past 2^79, and the determinant itself overflowed 128
+/// bits shortly after, so the answer became a number of arbitrary sign rather than a
+/// refusal. Nothing about the wide arm can wrap -- the determinant is exact at 256 bits,
+/// every entry is the exact truncated ratio, and a ratio outside Q48.16 saturates.
+///
+/// The cofactors are recomputed rather than handed in. This arm runs at mass-data time,
+/// where nine extra multiplies cost nothing, and a nine-argument signature would be
+/// carried by the 128-bit arm as well.
+FIX_INLINE fixMatrix3 fixInvertMatrixWide( fixMatrix3 m )
+{
+	fixInt128 c00 = fixCofactor128( m.cy.y, m.cz.z, m.cy.z, m.cz.y );
+	fixInt128 c01 = fixCofactor128( m.cy.z, m.cz.x, m.cy.x, m.cz.z );
+	fixInt128 c02 = fixCofactor128( m.cy.x, m.cz.y, m.cy.y, m.cz.x );
+	fixInt128 c10 = fixCofactor128( m.cz.y, m.cx.z, m.cz.z, m.cx.y );
+	fixInt128 c11 = fixCofactor128( m.cz.z, m.cx.x, m.cz.x, m.cx.z );
+	fixInt128 c12 = fixCofactor128( m.cz.x, m.cx.y, m.cz.y, m.cx.x );
+	fixInt128 c20 = fixCofactor128( m.cx.y, m.cy.z, m.cx.z, m.cy.y );
+	fixInt128 c21 = fixCofactor128( m.cx.z, m.cy.x, m.cx.x, m.cy.z );
+	fixInt128 c22 = fixCofactor128( m.cx.x, m.cy.y, m.cx.y, m.cy.x );
+
+	// Determinant by expansion along the first row of the cofactor matrix, exact at
+	// Q**.48 in 256 bits.
+	fixUInt256 det = fixUInt256Add( fixUInt256Add( fixInt256MulI128ByI64( c00, m.cx.x ), fixInt256MulI128ByI64( c10, m.cy.x ) ),
+									fixInt256MulI128ByI64( c20, m.cz.x ) );
+
+	if ( fixUInt256IsZero( det ) )
+	{
+		return fixMat3_zero;
+	}
+
+	bool negative = fixInt256IsNegative( det );
+	fixUInt256 absDet = fixInt256Abs( det );
+
+	// inverse_ij = cofactor_ji / det: (Q32.32 << 32) / Q**.48 -> Q48.16
+	fixMatrix3 out;
+	out.cx = FIX_LITERAL( fixVec3 ){ fixDivShiftedWide( c00, 32, absDet, negative ), fixDivShiftedWide( c10, 32, absDet, negative ),
+								   fixDivShiftedWide( c20, 32, absDet, negative ) };
+	out.cy = FIX_LITERAL( fixVec3 ){ fixDivShiftedWide( c01, 32, absDet, negative ), fixDivShiftedWide( c11, 32, absDet, negative ),
+								   fixDivShiftedWide( c21, 32, absDet, negative ) };
+	out.cz = FIX_LITERAL( fixVec3 ){ fixDivShiftedWide( c02, 32, absDet, negative ), fixDivShiftedWide( c12, 32, absDet, negative ),
+								   fixDivShiftedWide( c22, 32, absDet, negative ) };
+	return out;
+}
+
 /// General matrix inverse.
+///
+/// REPRESENTABILITY. The result is Q48.16, so an inverse entry below one quantum
+/// (1/65536) rounds to zero and an entry past FIX_MAX saturates. For an inertia tensor
+/// that means a body whose principal inertia exceeds 65,536 units has no representable
+/// inverse inertia at all and gets a zero matrix -- a uniform solid cube crosses that
+/// line at about 13.1 units on a side. This is a property of the format, not of the
+/// algorithm: both arms below compute the same exact ratio, and both round it the same
+/// way. What changed is that they now say so instead of returning wrapped bits.
 FIX_INLINE fixMatrix3 fixInvertMatrix( fixMatrix3 m )
 {
 	// Full precision cofactors (Q32.32 in 128 bits) so small matrices like the
@@ -1063,15 +1196,19 @@ FIX_INLINE fixMatrix3 fixInvertMatrix( fixMatrix3 m )
 	fixInt128 c21 = fixCofactor128( m.cx.z, m.cy.x, m.cx.x, m.cy.z );
 	fixInt128 c22 = fixCofactor128( m.cx.x, m.cy.y, m.cx.y, m.cy.x );
 
-	// The cofactor range test, spelled out at both call sites rather than factored into a
-	// helper: a helper made the compiler materialize `limit` and cost fixInvertMatrix an
-	// instruction. This shape reproduces the pre-seam instruction stream exactly.
+	// EVERY cofactor inside the limit, not just the three the determinant expands along.
+	// The arm below casts all nine to int64 and shifts all nine left by 32, so a large
+	// off-column cofactor overflows it just as surely as a large in-column one -- it was
+	// simply never tested, because the three checked cofactors dominate for a symmetric
+	// inertia tensor and hid the rest.
 	fixInt128 limit = fixInt128ShiftLeft( fixInt128FromI64( 1 ), 62 );
-	if ( fixInt128Lt( fixInt128Neg( limit ), c00 ) && fixInt128Lt( c00, limit ) &&
-		 fixInt128Lt( fixInt128Neg( limit ), c10 ) && fixInt128Lt( c10, limit ) &&
-		 fixInt128Lt( fixInt128Neg( limit ), c20 ) && fixInt128Lt( c20, limit ) )
+	if ( fixInt128InRange( c00, limit ) && fixInt128InRange( c01, limit ) && fixInt128InRange( c02, limit ) &&
+		 fixInt128InRange( c10, limit ) && fixInt128InRange( c11, limit ) && fixInt128InRange( c12, limit ) &&
+		 fixInt128InRange( c20, limit ) && fixInt128InRange( c21, limit ) && fixInt128InRange( c22, limit ) )
 	{
-		// Exact path: cofactors fit in 64 bits, determinant at Q16.48
+		// Exact path: cofactors fit in 64 bits, determinant at Q16.48. Every product
+		// below is bounded by 2^125 and the sum of three by 2^127, so nothing here can
+		// overflow -- the limit is what buys that.
 		fixInt128 det = fixInt128Add( fixInt128Add( fixInt128MulI64( m.cx.x, fixInt128ToI64( c00 ) ),
 												   fixInt128MulI64( m.cy.x, fixInt128ToI64( c10 ) ) ),
 									  fixInt128MulI64( m.cz.x, fixInt128ToI64( c20 ) ) );
@@ -1090,26 +1227,57 @@ FIX_INLINE fixMatrix3 fixInvertMatrix( fixMatrix3 m )
 		return fixMat3_zero;
 	}
 
-	// Huge matrix path: drop 16 fraction bits from the cofactors to keep the
-	// determinant accumulation in range
-	fixInt128 det = fixInt128Add( fixInt128Add( fixInt128MulI64( m.cx.x, fixInt128ToI64( fixInt128Shr( c00, 16 ) ) ),
-											   fixInt128MulI64( m.cy.x, fixInt128ToI64( fixInt128Shr( c10, 16 ) ) ) ),
-								  fixInt128MulI64( m.cz.x, fixInt128ToI64( fixInt128Shr( c20, 16 ) ) ) ); // ~Q16.32
-	if ( !fixInt128Eq( det, FIX_INT128_ZERO ) )
+	// Anything larger goes wide, where the same ratio is computed at a width that cannot
+	// overflow. The two arms agree exactly wherever both are defined, so which one runs
+	// is a question of cost and never of answer.
+	return fixInvertMatrixWide( m );
+}
+
+/// Internal: the exact solve of a system whose cofactors are too large for 128-bit
+/// arithmetic. The wide counterpart of the direct solve, not of the inverse -- it keeps
+/// the one-division-per-component form all the way out to the top of the range.
+///
+/// Each numerator is a cofactor (126 bits) against a component (64), summed three ways
+/// and then shifted up 16, which reaches 208 bits. The determinant reaches 190. Both are
+/// exact here, so the result is the same truncated rational the 128-bit arm computes and
+/// the two arms differ only in cost.
+FIX_INLINE fixVec3 fixSolve3Wide( fixMatrix3 m, fixVec3 a )
+{
+	fixInt128 c00 = fixCofactor128( m.cy.y, m.cz.z, m.cy.z, m.cz.y );
+	fixInt128 c01 = fixCofactor128( m.cy.z, m.cz.x, m.cy.x, m.cz.z );
+	fixInt128 c02 = fixCofactor128( m.cy.x, m.cz.y, m.cy.y, m.cz.x );
+	fixInt128 c10 = fixCofactor128( m.cz.y, m.cx.z, m.cz.z, m.cx.y );
+	fixInt128 c11 = fixCofactor128( m.cz.z, m.cx.x, m.cz.x, m.cx.z );
+	fixInt128 c12 = fixCofactor128( m.cz.x, m.cx.y, m.cz.y, m.cx.x );
+	fixInt128 c20 = fixCofactor128( m.cx.y, m.cy.z, m.cx.z, m.cy.y );
+	fixInt128 c21 = fixCofactor128( m.cx.z, m.cy.x, m.cx.x, m.cy.z );
+	fixInt128 c22 = fixCofactor128( m.cx.x, m.cy.y, m.cx.y, m.cy.x );
+
+	fixUInt256 det = fixUInt256Add( fixUInt256Add( fixInt256MulI128ByI64( c00, m.cx.x ), fixInt256MulI128ByI64( c10, m.cy.x ) ),
+									fixInt256MulI128ByI64( c20, m.cz.x ) );
+	if ( fixUInt256IsZero( det ) )
 	{
-		// fixInt128ShiftLeft: the raw << the float era used here is UB for the
-		// negative cofactors this path exists for (same bits, defined behavior)
-		fixMatrix3 out;
-		out.cx = FIX_LITERAL( fixVec3 ){ fixDivShifted( c00, 16, det ), fixDivShifted( c10, 16, det ),
-									   fixDivShifted( c20, 16, det ) };
-		out.cy = FIX_LITERAL( fixVec3 ){ fixDivShifted( c01, 16, det ), fixDivShifted( c11, 16, det ),
-									   fixDivShifted( c21, 16, det ) };
-		out.cz = FIX_LITERAL( fixVec3 ){ fixDivShifted( c02, 16, det ), fixDivShifted( c12, 16, det ),
-									   fixDivShifted( c22, 16, det ) };
-		return out;
+		return fixVec3_zero;
 	}
 
-	return fixMat3_zero;
+	bool negative = fixInt256IsNegative( det );
+	fixUInt256 absDet = fixInt256Abs( det );
+
+	// Two's complement sums: a wrapping 256-bit add is the signed add, and nothing here
+	// comes close to the width.
+	fixUInt256 nx = fixUInt256Add( fixUInt256Add( fixInt256MulI128ByI64( c00, a.x ), fixInt256MulI128ByI64( c01, a.y ) ),
+								   fixInt256MulI128ByI64( c02, a.z ) );
+	fixUInt256 ny = fixUInt256Add( fixUInt256Add( fixInt256MulI128ByI64( c10, a.x ), fixInt256MulI128ByI64( c11, a.y ) ),
+								   fixInt256MulI128ByI64( c12, a.z ) );
+	fixUInt256 nz = fixUInt256Add( fixUInt256Add( fixInt256MulI128ByI64( c20, a.x ), fixInt256MulI128ByI64( c21, a.y ) ),
+								   fixInt256MulI128ByI64( c22, a.z ) );
+
+	fixVec3 b = {
+		fixDivShifted256( nx, 16, absDet, negative ),
+		fixDivShifted256( ny, 16, absDet, negative ),
+		fixDivShifted256( nz, 16, absDet, negative ),
+	};
+	return b;
 }
 
 /// Solve a matrix equation.
@@ -1128,13 +1296,15 @@ FIX_INLINE fixVec3 fixSolve3( fixMatrix3 m, fixVec3 a )
 	fixInt128 c21 = fixCofactor128( m.cx.z, m.cy.x, m.cx.x, m.cy.z );
 	fixInt128 c22 = fixCofactor128( m.cx.x, m.cy.y, m.cx.y, m.cy.x );
 
-	// The cofactor range test, spelled out at both call sites rather than factored into a
-	// helper: a helper made the compiler materialize `limit` and cost fixInvertMatrix an
-	// instruction. This shape reproduces the pre-seam instruction stream exactly.
+	// EVERY cofactor inside the limit. The numerators below multiply all nine through
+	// fixInt128ToI64, not just the three the determinant expands along, so the three-way
+	// test this replaces let the other six wrap silently -- and unlike the inverse, this
+	// runs per substep in fixed3d's gyroscopic solve, where a wrapped cofactor becomes an
+	// angular velocity.
 	fixInt128 limit = fixInt128ShiftLeft( fixInt128FromI64( 1 ), 62 );
-	if ( fixInt128Lt( fixInt128Neg( limit ), c00 ) && fixInt128Lt( c00, limit ) &&
-		 fixInt128Lt( fixInt128Neg( limit ), c10 ) && fixInt128Lt( c10, limit ) &&
-		 fixInt128Lt( fixInt128Neg( limit ), c20 ) && fixInt128Lt( c20, limit ) )
+	if ( fixInt128InRange( c00, limit ) && fixInt128InRange( c01, limit ) && fixInt128InRange( c02, limit ) &&
+		 fixInt128InRange( c10, limit ) && fixInt128InRange( c11, limit ) && fixInt128InRange( c12, limit ) &&
+		 fixInt128InRange( c20, limit ) && fixInt128InRange( c21, limit ) && fixInt128InRange( c22, limit ) )
 	{
 		// Exact path: cofactors fit in 64 bits, determinant at Q16.48
 		fixInt128 det = fixInt128Add( fixInt128Add( fixInt128MulI64( m.cx.x, fixInt128ToI64( c00 ) ),
@@ -1153,19 +1323,36 @@ FIX_INLINE fixVec3 fixSolve3( fixMatrix3 m, fixVec3 a )
 													  fixInt128MulI64( fixInt128ToI64( c21 ), a.y ) ),
 										 fixInt128MulI64( fixInt128ToI64( c22 ), a.z ) );
 
-			fixVec3 b = {
-				fixDivShifted( nx, 16, det ),
-				fixDivShifted( ny, 16, det ),
-				fixDivShifted( nz, 16, det ),
-			};
-			return b;
+			// The numerators are about to be shifted left 16 places, so they need room
+			// for it. A cofactor inside the limit bounds each product by 2^125 and each
+			// numerator by 2^127, which is NOT enough -- the shift needs 2^111. Simulation
+			// values land far below this (a in-range angular residual keeps the
+			// numerators near 2^102), so the wide arm is the rare case rather than the
+			// working one, but "rare" and "impossible" are different words.
+			fixInt128 shiftLimit = fixInt128ShiftLeft( fixInt128FromI64( 1 ), 110 );
+			if ( fixInt128InRange( nx, shiftLimit ) && fixInt128InRange( ny, shiftLimit ) &&
+				 fixInt128InRange( nz, shiftLimit ) )
+			{
+				fixVec3 b = {
+					fixDivShifted( nx, 16, det ),
+					fixDivShifted( ny, 16, det ),
+					fixDivShifted( nz, 16, det ),
+				};
+				return b;
+			}
 		}
-		return fixVec3_zero;
+		else
+		{
+			return fixVec3_zero;
+		}
 	}
 
-	// Huge matrix path
-	fixMatrix3 inv = fixInvertMatrix( m );
-	return fixMulMV( inv, a );
+	// Anything larger solves wide, which is still one division per component and still
+	// one rounding. Inverting and multiplying was the old fallback and it is a worse
+	// answer for the same work: the inverse of a large matrix is a handful of quanta or
+	// none at all, so rounding it to Q48.16 and then multiplying rounds twice through the
+	// coarsest value in the calculation.
+	return fixSolve3Wide( m, a );
 }
 
 /// Inverse transpose of a matrix. Identical to the inverse for the symmetric

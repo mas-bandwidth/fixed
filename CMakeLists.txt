@@ -152,6 +152,23 @@ target_compile_definitions(fixed_quantize_negative_control PRIVATE QUANTIZE_NEGA
 add_test(NAME quantize_negative_control COMMAND fixed_quantize_negative_control)
 set_tests_properties(quantize_negative_control PROPERTIES WILL_FAIL TRUE)
 
+# THE SCALE ENVELOPE of the 3x3 inverse and solve. Every other suite here asks whether a
+# function is right; this one asks over what range of inputs it is right, because the
+# inverse is the one operation whose correctness is a function of magnitude. Its oracle is
+# the exact integer 2^32/d, which shares no arithmetic with the implementation.
+add_executable(fixed_inverse_envelope_test test/inverse_envelope_test.c)
+target_link_libraries(fixed_inverse_envelope_test PRIVATE fixed)
+add_test(NAME inverse_envelope COMMAND fixed_inverse_envelope_test)
+
+# Its control is the historical bug rather than an invented perturbation: the wide arm as
+# it was, reducing cofactors by 16 bits and accumulating the determinant through an int64
+# cast. So this proves the suite catches the specific thing it was written for. MUST fail.
+add_executable(fixed_inverse_envelope_negative_control test/inverse_envelope_test.c)
+target_link_libraries(fixed_inverse_envelope_negative_control PRIVATE fixed)
+target_compile_definitions(fixed_inverse_envelope_negative_control PRIVATE INVERSE_NEGATIVE_CONTROL)
+add_test(NAME inverse_envelope_negative_control COMMAND fixed_inverse_envelope_negative_control)
+set_tests_properties(inverse_envelope_negative_control PROPERTIES WILL_FAIL TRUE)
+
 # USAGE.md, asserted. Every number, rounding rule and boundary value the guide states that
 # can be written as an expression is written as one, so the document cannot drift away from
 # the code without CI saying so.
@@ -166,7 +183,10 @@ if (TARGET fixed_emulated)
     # quantize is deliberately absent from this list: fixNarrow, fixWiden and the
     # arbitrary-scale family are pure 64-bit arithmetic with no 128-bit intermediate, so an
     # emulated build of that suite would compile and run identical code.
-    foreach(suite determinism transcendental wide_time exhaustive aabb port_equality int128 geometry)
+    # inverse_envelope is in this list for a specific reason: the 256-bit layer the wide
+    # arm runs on is written entirely in the fixUInt128 vocabulary, so an emulated build
+    # is the only thing that checks the emulated 256-bit arithmetic at all.
+    foreach(suite determinism transcendental wide_time exhaustive aabb port_equality int128 geometry inverse_envelope)
         add_executable(fixed_${suite}_emulated_test test/${suite}_test.c)
         target_link_libraries(fixed_${suite}_emulated_test PRIVATE fixed_emulated)
         if (NOT WIN32)

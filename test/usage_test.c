@@ -204,6 +204,21 @@ int main( void )
 	// "fixCofactor128( a, b, c, d ) is a*b - c*d", "fixDivShifted( n, shift, d ) is ( n << shift ) / d"
 	CLAIM( "Matrices", fixInt128Eq( fixCofactor128( 3, 5, 2, 4 ), fixInt128FromI64( 7 ) ) );
 	CLAIM( "Matrices", fixDivShifted( fixInt128FromI64( 6 ), 16, fixInt128FromI64( 3 ) ) == ( (int64_t)2 << 16 ) );
+	// The representability boundary, written in the guide as two lines of code: 65,536 is
+	// the largest entry with a nonzero inverse, and one quantum past it the answer is zero.
+	{
+		fixMatrix3 atLine = fixMat3_zero;
+		atLine.cx.x = FIX( 65536.0 );
+		atLine.cy.y = FIX( 65536.0 );
+		atLine.cz.z = FIX( 65536.0 );
+		CLAIM( "Matrices", fixInvertMatrix( atLine ).cx.x == 1 );
+
+		fixMatrix3 pastLine = atLine;
+		pastLine.cx.x += 1;
+		pastLine.cy.y += 1;
+		pastLine.cz.z += 1;
+		CLAIM( "Matrices", fixInvertMatrix( pastLine ).cx.x == 0 );
+	}
 
 	// ---- "Transforms and world positions" ----------------------------------------
 	// "fixRoundDownFloat and fixRoundUpFloat are the identity in fixed point"

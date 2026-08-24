@@ -119,10 +119,28 @@ add_executable(fixed_int128_test test/int128_test.c)
 target_link_libraries(fixed_int128_test PRIVATE fixed)
 add_test(NAME int128 COMMAND fixed_int128_test)
 
+# Bit-equality against the delta bodies this family was ported from, since delta is about
+# to depend on this library and delete its own copies. Carries its own always-on negative
+# controls, a frozen cross-platform hash, and the check that the general family really is
+# the general form of the pinned Q48.16 and Q2.30 converters.
+add_executable(fixed_quantize_test test/quantize_test.c)
+target_link_libraries(fixed_quantize_test PRIVATE fixed)
+add_test(NAME quantize COMMAND fixed_quantize_test)
+
+# The control for it, injecting the error on the LIBRARY side. MUST fail.
+add_executable(fixed_quantize_negative_control test/quantize_test.c)
+target_link_libraries(fixed_quantize_negative_control PRIVATE fixed)
+target_compile_definitions(fixed_quantize_negative_control PRIVATE QUANTIZE_NEGATIVE_CONTROL)
+add_test(NAME quantize_negative_control COMMAND fixed_quantize_negative_control)
+set_tests_properties(quantize_negative_control PROPERTIES WILL_FAIL TRUE)
+
 # THE EMULATED ARM OF THE WHOLE SUITE. Same sources, same frozen hashes, 128-bit
 # arithmetic done in software. If the emulation and the compiler's __int128 ever disagree
 # by one bit, these go red on every platform at once instead of only on Windows.
 if (TARGET fixed_emulated)
+    # quantize is deliberately absent from this list: fixNarrow, fixWiden and the
+    # arbitrary-scale family are pure 64-bit arithmetic with no 128-bit intermediate, so an
+    # emulated build of that suite would compile and run identical code.
     foreach(suite determinism transcendental wide_time exhaustive aabb port_equality int128)
         add_executable(fixed_${suite}_emulated_test test/${suite}_test.c)
         target_link_libraries(fixed_${suite}_emulated_test PRIVATE fixed_emulated)

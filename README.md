@@ -58,6 +58,10 @@ differential against native.
       flag that silently changes an ABI.
 - [x] 128-bit arithmetic on every compiler (`fixed_int128.h`): native `__int128` where
       available, an emulated pair on plain MSVC, behind one seam the whole library speaks.
+- [x] Domain crossing (`fixed_quantize.h`): arbitrary-scale `fixQuantize` / `fixDequantize` /
+      `fixQuantizeClamped` / `fixFits`, and the integer-only Q-format pair `fixNarrow` /
+      `fixWiden` — the general form of the pinned Q48.16 and Q2.30 converters, ported from
+      delta and swept bit-for-bit against it.
 - [ ] fixed3d depends on `fixed` for its fixed-point core.
 
 Deliberately **not** here: geometric queries (`b3SegmentDistance`, `b3LineDistance`,

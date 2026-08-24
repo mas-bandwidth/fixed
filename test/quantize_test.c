@@ -157,22 +157,63 @@ static int64_t bump( int64_t v, int perturb )
 // The domain.
 // ================================================================================
 
+// THE DOMAIN IS BUILT AT RUN TIME, not written as a const table, and for two reasons.
+//
+// The first is the reason port_equality_test.c does the same: a const table walked by a
+// constant-bounded loop lets the compiler unroll the sweep and fold the library side of
+// every comparison to a literal. What is left compares a constant against a call, which is
+// not a test of the code -- the pull request #9 failure mode, one step removed. Values the
+// optimizer cannot see through keep the library's own arithmetic executing.
+//
+// The second is that MSVC's C compiler crashed outright on the const-table form: cl.exe
+// exited with an access violation trying to fold 171 double-to-int64 conversions through
+// a __forceinline function. The runtime domain is the right shape anyway; it also happens
+// to be one the compiler survives.
+
 // Scales a real consumer names: raw integers, hundredths, a rotation at 10 fraction bits,
 // this library's own Q48.16 and Q2.30 units, and a couple of wide ones. Capped at 2^40 so
-// that value * scale below cannot leave the int64 range a double-to-int64 conversion is
-// defined for.
-static const int64_t scales[] = {
-	1, 2, 10, 100, 1000, 1024, 65536 /* FIX_ONE */, ( (int64_t)1 << 30 ), ( (int64_t)1 << 40 ),
-};
-#define SCALE_COUNT ( (int)( sizeof( scales ) / sizeof( scales[0] ) ) )
+// that value * scale cannot leave the int64 range a double-to-int64 conversion is defined
+// for.
+#define SCALE_COUNT 9
+static int64_t scales[SCALE_COUNT];
 
 // Values chosen for the tie: half away from zero is only distinguishable from half up, or
 // from truncation, exactly at .5 and exactly at -.5.
-static const double values[] = {
-	0.0, 0.5, -0.5, 1.5, -1.5, 2.5, -2.5, 0.49999999, -0.49999999, 0.50000001, -0.50000001,
-	1.0, -1.0, 3.25, -3.25, 1000.5, -1000.5, 0.0001, -0.0001,
-};
-#define VALUE_COUNT ( (int)( sizeof( values ) / sizeof( values[0] ) ) )
+#define VALUE_COUNT 19
+static double values[VALUE_COUNT];
+
+static void buildDomain( void )
+{
+	scales[0] = 1;
+	scales[1] = 2;
+	scales[2] = 10;
+	scales[3] = 100;
+	scales[4] = 1000;
+	scales[5] = 1024;
+	scales[6] = FIX_ONE;
+	scales[7] = (int64_t)1 << 30;
+	scales[8] = (int64_t)1 << 40;
+
+	values[0] = 0.0;
+	values[1] = 0.5;
+	values[2] = -0.5;
+	values[3] = 1.5;
+	values[4] = -1.5;
+	values[5] = 2.5;
+	values[6] = -2.5;
+	values[7] = 0.49999999;
+	values[8] = -0.49999999;
+	values[9] = 0.50000001;
+	values[10] = -0.50000001;
+	values[11] = 1.0;
+	values[12] = -1.0;
+	values[13] = 3.25;
+	values[14] = -3.25;
+	values[15] = 1000.5;
+	values[16] = -1000.5;
+	values[17] = 0.0001;
+	values[18] = -0.0001;
+}
 
 // ================================================================================
 // The sweeps.
@@ -559,6 +600,8 @@ int main( int argc, char** argv )
 	{
 		if ( strcmp( argv[i], "--counts" ) == 0 ) printCounts = 1;
 	}
+
+	buildDomain();
 
 	clock_t started = clock();
 

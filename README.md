@@ -20,7 +20,14 @@ can be used independently of the physics engine.
 
 `test/determinism_test.c` runs the core ops over a deterministic input stream and
 hashes every result. The hash is identical across arm64 and x86-64 (validated),
-and CI extends that to Linux/libstdc++ and Windows/MSVC.
+and CI extends that to Linux, macOS, and Windows on both of its toolchains.
+
+**Every compiler, including plain MSVC.** The 128-bit intermediates the core needs are
+`__int128` where the compiler has it (gcc, clang, clang-cl) and an emulated pair of
+64-bit lanes where it does not. Both arms assert the same frozen hashes, so the emulation
+is held to bit-identity with native rather than assumed to match it — see
+[USAGE.md](USAGE.md) for the seam and `test/int128_test.c` for the operation-by-operation
+differential against native.
 
 ## Status
 
@@ -49,6 +56,8 @@ and CI extends that to Linux/libstdc++ and Windows/MSVC.
       operations and validity predicates. Both widths are exported unconditionally:
       a consumer selects narrow or wide by which type it names, never by a compile
       flag that silently changes an ABI.
+- [x] 128-bit arithmetic on every compiler (`fixed_int128.h`): native `__int128` where
+      available, an emulated pair on plain MSVC, behind one seam the whole library speaks.
 - [ ] fixed3d depends on `fixed` for its fixed-point core.
 
 Deliberately **not** here: geometric queries (`b3SegmentDistance`, `b3LineDistance`,

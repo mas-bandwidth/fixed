@@ -127,7 +127,7 @@ static int32_t bump32( int32_t v, int perturb )
 
 static REF_NOINLINE int64_t refQ32Mul( int64_t a, int64_t b )
 {
-	return (int64_t)( ( (fixInt128)a * b ) >> 32 );
+	return fixInt128ToI64( fixInt128Shr( fixInt128MulI64( a, b ), 32 ) );
 }
 
 static REF_NOINLINE fixed_t refQ32ToFix( int64_t a )
@@ -150,7 +150,7 @@ static REF_NOINLINE fixed_t refAtan2( fixed_t y, fixed_t x )
 	fixed_t mx = fixMax( ay, ax );
 	fixed_t mn = fixMin( ay, ax );
 
-	int64_t a = (int64_t)fixInt128Div( fixInt128ShiftLeft( (fixInt128)mn, 32 ), mx );
+	int64_t a = fixInt128ToI64( fixInt128Div( fixInt128ShiftLeft( fixInt128FromI64( mn ), 32 ), fixInt128FromI64( mx ) ) );
 
 	int64_t s = refQ32Mul( a, a );
 	int64_t c = refQ32Mul( s, a );
@@ -213,16 +213,16 @@ static REF_NOINLINE fixed_t refLog2( fixed_t a )
 	uint64_t fraction32 = 0;
 	for ( int i = 0; i < 32; ++i )
 	{
-		fixUInt128 sq = (fixUInt128)m * m;
+		fixUInt128 sq = fixUInt128MulU64( m, m );
 		fraction32 <<= 1;
-		if ( sq >= ( (fixUInt128)1 << 125 ) )
+		if ( fixUInt128Ge( sq, fixUInt128Shl( fixUInt128FromU64( 1 ), 125 ) ) )
 		{
 			fraction32 |= 1;
-			m = (uint64_t)( sq >> 63 );
+			m = fixUInt128Lo( fixUInt128Shr( sq, 63 ) );
 		}
 		else
 		{
-			m = (uint64_t)( sq >> 62 );
+			m = fixUInt128Lo( fixUInt128Shr( sq, 62 ) );
 		}
 	}
 
@@ -259,7 +259,7 @@ static REF_NOINLINE fixed_t refExp2( fixed_t a )
 	{
 		if ( f & ( 1ull << ( 15 - k ) ) )
 		{
-			r = (uint64_t)( ( (fixUInt128)r * refExp2Table[k] ) >> 32 );
+			r = fixUInt128Lo( fixUInt128Shr( fixUInt128MulU64( r, refExp2Table[k] ), 32 ) );
 		}
 	}
 
@@ -338,8 +338,9 @@ static REF_NOINLINE int32_t refNormalizeComponent30( int64_t raw, uint64_t lengt
 	// The divide goes through fixInt128Div for the same reason the library's does --
 	// ClangCL has no 128-bit division builtin -- and agrees with / on these operands.
 	uint64_t magnitude = raw < 0 ? -(uint64_t)raw : (uint64_t)raw;
-	fixUInt128 numerator = ( (fixUInt128)magnitude << 30 ) + ( length >> 1 );
-	uint64_t q = (uint64_t)fixInt128Div( (fixInt128)numerator, (fixInt128)length );
+	fixUInt128 numerator =
+		fixUInt128Add( fixUInt128Shl( fixUInt128FromU64( magnitude ), 30 ), fixUInt128FromU64( length >> 1 ) );
+	uint64_t q = (uint64_t)fixInt128ToI64( fixInt128Div( fixInt128FromUnsigned( numerator ), fixInt128FromU64( length ) ) );
 	if ( q > (uint64_t)( (int32_t)1 << 30 ) )
 	{
 		q = (uint64_t)( (int32_t)1 << 30 );
@@ -971,6 +972,21 @@ static uint64_t sweepSmoothUpDown( int perturb, uint64_t samples )
 	return bad;
 }
 
+// The reference min/max, perturbed in place and forced out of line: fixInt128Min is a
+// header-inline conditional and so is this, which is exactly the shape the optimizer
+// folded on pull request #9.
+static REF_NOINLINE fixInt128 refInt128Min( fixInt128 a, fixInt128 b, int perturb )
+{
+	fixInt128 m = fixInt128Lt( a, b ) ? a : b;
+	return fixInt128FromUnsigned( fixUInt128Add( fixInt128ToUnsigned( m ), fixUInt128FromU64( (uint64_t)perturb ) ) );
+}
+
+static REF_NOINLINE fixInt128 refInt128Max( fixInt128 a, fixInt128 b, int perturb )
+{
+	fixInt128 m = fixInt128Gt( a, b ) ? a : b;
+	return fixInt128FromUnsigned( fixUInt128Add( fixInt128ToUnsigned( m ), fixUInt128FromU64( (uint64_t)perturb ) ) );
+}
+
 static uint64_t sweepInt128MinMax( int perturb, uint64_t samples )
 {
 	uint64_t bad = 0;
@@ -986,16 +1002,16 @@ static uint64_t sweepInt128MinMax( int perturb, uint64_t samples )
 			{
 				for ( unsigned bl = 0; bl < sizeof( halves ) / sizeof( halves[0] ); bl++ )
 				{
-					fixInt128 a = (fixInt128)( ( (fixUInt128)halves[ah] << 64 ) | halves[al] );
-					fixInt128 b = (fixInt128)( ( (fixUInt128)halves[bh] << 64 ) | halves[bl] );
+					fixInt128 a = fixInt128Make( halves[ah], halves[al] );
+					fixInt128 b = fixInt128Make( halves[bh], halves[bl] );
 
 					fixInt128 gotMin = fixInt128Min( a, b );
 					fixInt128 gotMax = fixInt128Max( a, b );
-					fixInt128 wantMin = (fixInt128)( (fixUInt128)( a < b ? a : b ) + (fixUInt128)perturb );
-					fixInt128 wantMax = (fixInt128)( (fixUInt128)( a > b ? a : b ) + (fixUInt128)perturb );
+					fixInt128 wantMin = refInt128Min( a, b, perturb );
+					fixInt128 wantMax = refInt128Max( a, b, perturb );
 
-					if ( gotMin != wantMin || gotMax != wantMax ) bad++;
-					if ( !perturb ) { mix( (int64_t)gotMin ); mix( (int64_t)( gotMax >> 64 ) ); }
+					if ( !fixInt128Eq( gotMin, wantMin ) || !fixInt128Eq( gotMax, wantMax ) ) bad++;
+					if ( !perturb ) { mix( fixInt128ToI64( gotMin ) ); mix( (int64_t)fixInt128Hi( gotMax ) ); }
 				}
 			}
 		}
@@ -1005,17 +1021,17 @@ static uint64_t sweepInt128MinMax( int perturb, uint64_t samples )
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		// keep one below the top so the +1 perturbation cannot itself overflow
-		fixInt128 a = (fixInt128)( ( (fixUInt128)( nextRandom() >> 1 ) << 64 ) | nextRandom() );
-		fixInt128 b = (fixInt128)( ( (fixUInt128)( nextRandom() >> 1 ) << 64 ) | nextRandom() );
-		if ( ( i & 1 ) == 0 ) a = -a;
-		if ( ( i & 2 ) == 0 ) b = -b;
+		fixInt128 a = fixInt128Make( nextRandom() >> 1, nextRandom() );
+		fixInt128 b = fixInt128Make( nextRandom() >> 1, nextRandom() );
+		if ( ( i & 1 ) == 0 ) a = fixInt128Neg( a );
+		if ( ( i & 2 ) == 0 ) b = fixInt128Neg( b );
 
 		fixInt128 gotMin = fixInt128Min( a, b );
 		fixInt128 gotMax = fixInt128Max( a, b );
-		fixInt128 wantMin = (fixInt128)( (fixUInt128)( a < b ? a : b ) + (fixUInt128)perturb );
-		fixInt128 wantMax = (fixInt128)( (fixUInt128)( a > b ? a : b ) + (fixUInt128)perturb );
+		fixInt128 wantMin = refInt128Min( a, b, perturb );
+		fixInt128 wantMax = refInt128Max( a, b, perturb );
 
-		if ( gotMin != wantMin || gotMax != wantMax ) bad++;
+		if ( !fixInt128Eq( gotMin, wantMin ) || !fixInt128Eq( gotMax, wantMax ) ) bad++;
 	}
 
 	return bad;

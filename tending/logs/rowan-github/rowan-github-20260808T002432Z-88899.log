@@ -1,0 +1,2 @@
+2026-08-08T00:24:32Z info  log: /Users/glenn/rowan-working/fixed/tending/logs/rowan-github/rowan-github-20260808T002432Z-88899.log
+2026-08-08T00:24:32Z info  argv: api repos/mas-bandwidth/fixed/tags?per_page=10 --jq .[].name

@@ -155,25 +155,26 @@ FIX_INLINE fixVec3 fixVecNeg( fixVec3 a )
 /// raw value are exact even for sub-resolution results.
 FIX_INLINE fixInt128 fixDotRaw( fixVec3 a, fixVec3 b )
 {
-	return (fixInt128)a.x * b.x + (fixInt128)a.y * b.y + (fixInt128)a.z * b.z;
+	return fixInt128Add( fixInt128Add( fixInt128MulI64( a.x, b.x ), fixInt128MulI64( a.y, b.y ) ),
+						 fixInt128MulI64( a.z, b.z ) );
 }
 
 /// Round a raw 128-bit dot product to fixed point with a single round-half-up
 /// step (divide last), matching fixMul rounding and overflow policy.
 FIX_INLINE fixed_t fixFromDotRaw( fixInt128 raw )
 {
-	fixInt128 r = ( raw + FIX_HALF ) >> FIX_FRACTION_BITS;
+	fixInt128 r = fixInt128Shr( fixInt128Add( raw, fixInt128FromI64( FIX_HALF ) ), FIX_FRACTION_BITS );
 #if defined( FIX_SATURATE )
-	if ( r > (fixInt128)INT64_MAX )
+	if ( fixInt128Gt( r, fixInt128FromI64( INT64_MAX ) ) )
 	{
 		return FIX_MAX;
 	}
-	if ( r < -(fixInt128)INT64_MAX )
+	if ( fixInt128Lt( r, fixInt128FromI64( -INT64_MAX ) ) )
 	{
 		return FIX_MIN;
 	}
 #endif
-	return (fixed_t)r;
+	return (fixed_t)fixInt128ToI64( r );
 }
 
 /// Vector dot product. Accumulated at 128 bits with a single rounding (divide last).
@@ -186,8 +187,8 @@ FIX_INLINE fixed_t fixDot( fixVec3 a, fixVec3 b )
 /// it is accurate even for vectors far below unit length.
 FIX_INLINE fixed_t fixLength( fixVec3 v )
 {
-	fixInt128 ls = (fixInt128)v.x * v.x + (fixInt128)v.y * v.y + (fixInt128)v.z * v.z; // Q32.32 in 128 bits
-	return (fixed_t)fixISqrt128High( (uint64_t)( (fixUInt128)ls >> 64 ), (uint64_t)ls );
+	fixInt128 ls = fixDotRaw( v, v ); // Q32.32 in 128 bits
+	return (fixed_t)fixISqrt128High( fixInt128Hi( ls ), fixInt128Lo( ls ) );
 }
 
 /// Vector length squared. One rounding on the exact 128-bit sum of squares.
@@ -215,10 +216,10 @@ FIX_INLINE fixed_t fixDistanceSquared( fixVec3 a, fixVec3 b )
 /// vectors far below unit length normalize to within an ulp of unit length.
 FIX_INLINE fixVec3 fixNormalize( fixVec3 a )
 {
-	fixInt128 ls = (fixInt128)a.x * a.x + (fixInt128)a.y * a.y + (fixInt128)a.z * a.z; // Q32.32 in 128 bits
-	if ( ls > 0 )
+	fixInt128 ls = fixDotRaw( a, a ); // Q32.32 in 128 bits
+	if ( fixInt128Gt( ls, FIX_INT128_ZERO ) )
 	{
-		fixed_t length = (fixed_t)fixISqrt128High( (uint64_t)( (fixUInt128)ls >> 64 ), (uint64_t)ls );
+		fixed_t length = (fixed_t)fixISqrt128High( fixInt128Hi( ls ), fixInt128Lo( ls ) );
 		// fixDiv computes the same truncating 128-bit quotient, with a single
 		// hardware divide when the component fits in 47 bits (the common case)
 		fixVec3 u = {
@@ -424,8 +425,7 @@ FIX_INLINE fixVec3 fixInvRotateVector( fixQuat q, fixVec3 v )
 /// One rounding on the exact 128-bit sum.
 FIX_INLINE fixed_t fixDotQuat( fixQuat a, fixQuat b )
 {
-	return fixFromDotRaw( (fixInt128)a.v.x * b.v.x + (fixInt128)a.v.y * b.v.y + (fixInt128)a.v.z * b.v.z +
-							(fixInt128)a.s * b.s );
+	return fixFromDotRaw( fixInt128Add( fixDotRaw( a.v, b.v ), fixInt128MulI64( a.s, b.s ) ) );
 }
 
 /// Multiply two quaternions. Each component is a fused 128-bit reduction with
@@ -436,15 +436,20 @@ FIX_INLINE fixQuat fixMulQuat( fixQuat q1, fixQuat q2 )
 	// s = q1.s * q2.s - dot(q1.v, q2.v)
 	fixQuat q = {
 		{
-			fixFromDotRaw( (fixInt128)q1.v.y * q2.v.z - (fixInt128)q1.v.z * q2.v.y + (fixInt128)q1.s * q2.v.x +
-							 (fixInt128)q2.s * q1.v.x ),
-			fixFromDotRaw( (fixInt128)q1.v.z * q2.v.x - (fixInt128)q1.v.x * q2.v.z + (fixInt128)q1.s * q2.v.y +
-							 (fixInt128)q2.s * q1.v.y ),
-			fixFromDotRaw( (fixInt128)q1.v.x * q2.v.y - (fixInt128)q1.v.y * q2.v.x + (fixInt128)q1.s * q2.v.z +
-							 (fixInt128)q2.s * q1.v.z ),
+			fixFromDotRaw( fixInt128Add(
+				fixInt128Add( fixInt128Sub( fixInt128MulI64( q1.v.y, q2.v.z ), fixInt128MulI64( q1.v.z, q2.v.y ) ),
+							  fixInt128MulI64( q1.s, q2.v.x ) ),
+				fixInt128MulI64( q2.s, q1.v.x ) ) ),
+			fixFromDotRaw( fixInt128Add(
+				fixInt128Add( fixInt128Sub( fixInt128MulI64( q1.v.z, q2.v.x ), fixInt128MulI64( q1.v.x, q2.v.z ) ),
+							  fixInt128MulI64( q1.s, q2.v.y ) ),
+				fixInt128MulI64( q2.s, q1.v.y ) ) ),
+			fixFromDotRaw( fixInt128Add(
+				fixInt128Add( fixInt128Sub( fixInt128MulI64( q1.v.x, q2.v.y ), fixInt128MulI64( q1.v.y, q2.v.x ) ),
+							  fixInt128MulI64( q1.s, q2.v.z ) ),
+				fixInt128MulI64( q2.s, q1.v.z ) ) ),
 		},
-		fixFromDotRaw( (fixInt128)q1.s * q2.s - (fixInt128)q1.v.x * q2.v.x - (fixInt128)q1.v.y * q2.v.y -
-						 (fixInt128)q1.v.z * q2.v.z ),
+		fixFromDotRaw( fixInt128Sub( fixInt128MulI64( q1.s, q2.s ), fixDotRaw( q1.v, q2.v ) ) ),
 	};
 	return q;
 }
@@ -457,15 +462,20 @@ FIX_INLINE fixQuat fixInvMulQuat( fixQuat q1, fixQuat q2 )
 	// s = q1.s * q2.s + dot(q1.v, q2.v)
 	fixQuat q = {
 		{
-			fixFromDotRaw( (fixInt128)q2.v.y * q1.v.z - (fixInt128)q2.v.z * q1.v.y + (fixInt128)q1.s * q2.v.x -
-							 (fixInt128)q2.s * q1.v.x ),
-			fixFromDotRaw( (fixInt128)q2.v.z * q1.v.x - (fixInt128)q2.v.x * q1.v.z + (fixInt128)q1.s * q2.v.y -
-							 (fixInt128)q2.s * q1.v.y ),
-			fixFromDotRaw( (fixInt128)q2.v.x * q1.v.y - (fixInt128)q2.v.y * q1.v.x + (fixInt128)q1.s * q2.v.z -
-							 (fixInt128)q2.s * q1.v.z ),
+			fixFromDotRaw( fixInt128Sub(
+				fixInt128Add( fixInt128Sub( fixInt128MulI64( q2.v.y, q1.v.z ), fixInt128MulI64( q2.v.z, q1.v.y ) ),
+							  fixInt128MulI64( q1.s, q2.v.x ) ),
+				fixInt128MulI64( q2.s, q1.v.x ) ) ),
+			fixFromDotRaw( fixInt128Sub(
+				fixInt128Add( fixInt128Sub( fixInt128MulI64( q2.v.z, q1.v.x ), fixInt128MulI64( q2.v.x, q1.v.z ) ),
+							  fixInt128MulI64( q1.s, q2.v.y ) ),
+				fixInt128MulI64( q2.s, q1.v.y ) ) ),
+			fixFromDotRaw( fixInt128Sub(
+				fixInt128Add( fixInt128Sub( fixInt128MulI64( q2.v.x, q1.v.y ), fixInt128MulI64( q2.v.y, q1.v.x ) ),
+							  fixInt128MulI64( q1.s, q2.v.z ) ),
+				fixInt128MulI64( q2.s, q1.v.z ) ) ),
 		},
-		fixFromDotRaw( (fixInt128)q1.s * q2.s + (fixInt128)q1.v.x * q2.v.x + (fixInt128)q1.v.y * q2.v.y +
-						 (fixInt128)q1.v.z * q2.v.z ),
+		fixFromDotRaw( fixInt128Add( fixInt128MulI64( q1.s, q2.s ), fixDotRaw( q1.v, q2.v ) ) ),
 	};
 	return q;
 }
@@ -485,10 +495,10 @@ FIX_INLINE fixQuat fixNegateQuat( fixQuat q )
 /// Normalize a quaternion at 128-bit precision, see fixNormalize.
 FIX_INLINE fixQuat fixNormalizeQuat( fixQuat q )
 {
-	fixInt128 ls = (fixInt128)q.v.x * q.v.x + (fixInt128)q.v.y * q.v.y + (fixInt128)q.v.z * q.v.z + (fixInt128)q.s * q.s;
-	if ( ls > 0 )
+	fixInt128 ls = fixInt128Add( fixDotRaw( q.v, q.v ), fixInt128MulI64( q.s, q.s ) );
+	if ( fixInt128Gt( ls, FIX_INT128_ZERO ) )
 	{
-		fixed_t length = (fixed_t)fixISqrt128High( (uint64_t)( (fixUInt128)ls >> 64 ), (uint64_t)ls );
+		fixed_t length = (fixed_t)fixISqrt128High( fixInt128Hi( ls ), fixInt128Lo( ls ) );
 		// fixDiv computes the same truncating quotient, with a single hardware
 		// divide for the near-unit components this always sees
 		fixQuat qn = {
@@ -730,14 +740,21 @@ FIX_INLINE fixed_t fixDet( fixMatrix3 m )
 	return fixDot( m.cx, fixCross( m.cy, m.cz ) );
 }
 
-#if FIX_HAS_INT128
 // Internal: 3x3 cofactors at Q32.32 in 128 bits and the determinant at Q16.48.
 // The Q48.16 determinant of a matrix with small entries (like the inertia of a
 // small body) underflows to zero, so the inverse and solve helpers work at
 // full precision internally.
 FIX_INLINE fixInt128 fixCofactor128( fixed_t a, fixed_t b, fixed_t c, fixed_t d )
 {
-	return (fixInt128)a * b - (fixInt128)c * d; // Q32.32
+	return fixInt128Sub( fixInt128MulI64( a, b ), fixInt128MulI64( c, d ) ); // Q32.32
+}
+
+/// Internal: ( numerator << shift ) / denominator, truncated to Q48.16. The shift routes
+/// through fixInt128ShiftLeft because the numerators here are signed cofactors and a raw
+/// left shift of a negative value is undefined.
+FIX_INLINE fixed_t fixDivShifted( fixInt128 numerator, int shift, fixInt128 denominator )
+{
+	return (fixed_t)fixInt128ToI64( fixInt128Div( fixInt128ShiftLeft( numerator, shift ), denominator ) );
 }
 
 /// Validity predicates for the fixed-point math types.
@@ -953,8 +970,6 @@ FIX_INLINE bool fixIsValidAABB( fixAABB a )
 	return true;
 }
 
-#endif
-
 /// Multiply a matrix times a column vector.
 FIX_INLINE fixVec3 fixMulMV( fixMatrix3 m, fixVec3 a )
 {
@@ -1048,24 +1063,28 @@ FIX_INLINE fixMatrix3 fixInvertMatrix( fixMatrix3 m )
 	fixInt128 c21 = fixCofactor128( m.cx.z, m.cy.x, m.cx.x, m.cy.z );
 	fixInt128 c22 = fixCofactor128( m.cx.x, m.cy.y, m.cx.y, m.cy.x );
 
-	fixInt128 limit = (fixInt128)1 << 62;
-	if ( -limit < c00 && c00 < limit && -limit < c10 && c10 < limit && -limit < c20 && c20 < limit )
+	// The cofactor range test, spelled out at both call sites rather than factored into a
+	// helper: a helper made the compiler materialize `limit` and cost fixInvertMatrix an
+	// instruction. This shape reproduces the pre-seam instruction stream exactly.
+	fixInt128 limit = fixInt128ShiftLeft( fixInt128FromI64( 1 ), 62 );
+	if ( fixInt128Lt( fixInt128Neg( limit ), c00 ) && fixInt128Lt( c00, limit ) &&
+		 fixInt128Lt( fixInt128Neg( limit ), c10 ) && fixInt128Lt( c10, limit ) &&
+		 fixInt128Lt( fixInt128Neg( limit ), c20 ) && fixInt128Lt( c20, limit ) )
 	{
 		// Exact path: cofactors fit in 64 bits, determinant at Q16.48
-		fixInt128 det = (fixInt128)m.cx.x * (int64_t)c00 + (fixInt128)m.cy.x * (int64_t)c10 + (fixInt128)m.cz.x * (int64_t)c20;
-		if ( det != 0 )
+		fixInt128 det = fixInt128Add( fixInt128Add( fixInt128MulI64( m.cx.x, fixInt128ToI64( c00 ) ),
+												   fixInt128MulI64( m.cy.x, fixInt128ToI64( c10 ) ) ),
+									  fixInt128MulI64( m.cz.x, fixInt128ToI64( c20 ) ) );
+		if ( !fixInt128Eq( det, FIX_INT128_ZERO ) )
 		{
 			// inverse_ij = cofactor_ji / det: (Q32.32 << 32) / Q16.48 -> Q48.16
 			fixMatrix3 out;
-			out.cx = FIX_LITERAL( fixVec3 ){ (fixed_t)fixInt128Div( fixInt128ShiftLeft( c00, 32 ), det ),
-										   (fixed_t)fixInt128Div( fixInt128ShiftLeft( c10, 32 ), det ),
-										   (fixed_t)fixInt128Div( fixInt128ShiftLeft( c20, 32 ), det ) };
-			out.cy = FIX_LITERAL( fixVec3 ){ (fixed_t)fixInt128Div( fixInt128ShiftLeft( c01, 32 ), det ),
-										   (fixed_t)fixInt128Div( fixInt128ShiftLeft( c11, 32 ), det ),
-										   (fixed_t)fixInt128Div( fixInt128ShiftLeft( c21, 32 ), det ) };
-			out.cz = FIX_LITERAL( fixVec3 ){ (fixed_t)fixInt128Div( fixInt128ShiftLeft( c02, 32 ), det ),
-										   (fixed_t)fixInt128Div( fixInt128ShiftLeft( c12, 32 ), det ),
-										   (fixed_t)fixInt128Div( fixInt128ShiftLeft( c22, 32 ), det ) };
+			out.cx = FIX_LITERAL( fixVec3 ){ fixDivShifted( c00, 32, det ), fixDivShifted( c10, 32, det ),
+										   fixDivShifted( c20, 32, det ) };
+			out.cy = FIX_LITERAL( fixVec3 ){ fixDivShifted( c01, 32, det ), fixDivShifted( c11, 32, det ),
+										   fixDivShifted( c21, 32, det ) };
+			out.cz = FIX_LITERAL( fixVec3 ){ fixDivShifted( c02, 32, det ), fixDivShifted( c12, 32, det ),
+										   fixDivShifted( c22, 32, det ) };
 			return out;
 		}
 		return fixMat3_zero;
@@ -1073,22 +1092,20 @@ FIX_INLINE fixMatrix3 fixInvertMatrix( fixMatrix3 m )
 
 	// Huge matrix path: drop 16 fraction bits from the cofactors to keep the
 	// determinant accumulation in range
-	fixInt128 det = (fixInt128)m.cx.x * (int64_t)( c00 >> 16 ) + (fixInt128)m.cy.x * (int64_t)( c10 >> 16 ) +
-				   (fixInt128)m.cz.x * (int64_t)( c20 >> 16 ); // ~Q16.32
-	if ( det != 0 )
+	fixInt128 det = fixInt128Add( fixInt128Add( fixInt128MulI64( m.cx.x, fixInt128ToI64( fixInt128Shr( c00, 16 ) ) ),
+											   fixInt128MulI64( m.cy.x, fixInt128ToI64( fixInt128Shr( c10, 16 ) ) ) ),
+								  fixInt128MulI64( m.cz.x, fixInt128ToI64( fixInt128Shr( c20, 16 ) ) ) ); // ~Q16.32
+	if ( !fixInt128Eq( det, FIX_INT128_ZERO ) )
 	{
 		// fixInt128ShiftLeft: the raw << the float era used here is UB for the
 		// negative cofactors this path exists for (same bits, defined behavior)
 		fixMatrix3 out;
-		out.cx = FIX_LITERAL( fixVec3 ){ (fixed_t)fixInt128Div( fixInt128ShiftLeft( c00, 16 ), det ),
-									   (fixed_t)fixInt128Div( fixInt128ShiftLeft( c10, 16 ), det ),
-									   (fixed_t)fixInt128Div( fixInt128ShiftLeft( c20, 16 ), det ) };
-		out.cy = FIX_LITERAL( fixVec3 ){ (fixed_t)fixInt128Div( fixInt128ShiftLeft( c01, 16 ), det ),
-									   (fixed_t)fixInt128Div( fixInt128ShiftLeft( c11, 16 ), det ),
-									   (fixed_t)fixInt128Div( fixInt128ShiftLeft( c21, 16 ), det ) };
-		out.cz = FIX_LITERAL( fixVec3 ){ (fixed_t)fixInt128Div( fixInt128ShiftLeft( c02, 16 ), det ),
-									   (fixed_t)fixInt128Div( fixInt128ShiftLeft( c12, 16 ), det ),
-									   (fixed_t)fixInt128Div( fixInt128ShiftLeft( c22, 16 ), det ) };
+		out.cx = FIX_LITERAL( fixVec3 ){ fixDivShifted( c00, 16, det ), fixDivShifted( c10, 16, det ),
+									   fixDivShifted( c20, 16, det ) };
+		out.cy = FIX_LITERAL( fixVec3 ){ fixDivShifted( c01, 16, det ), fixDivShifted( c11, 16, det ),
+									   fixDivShifted( c21, 16, det ) };
+		out.cz = FIX_LITERAL( fixVec3 ){ fixDivShifted( c02, 16, det ), fixDivShifted( c12, 16, det ),
+									   fixDivShifted( c22, 16, det ) };
 		return out;
 	}
 
@@ -1111,22 +1128,35 @@ FIX_INLINE fixVec3 fixSolve3( fixMatrix3 m, fixVec3 a )
 	fixInt128 c21 = fixCofactor128( m.cx.z, m.cy.x, m.cx.x, m.cy.z );
 	fixInt128 c22 = fixCofactor128( m.cx.x, m.cy.y, m.cx.y, m.cy.x );
 
-	fixInt128 limit = (fixInt128)1 << 62;
-	if ( -limit < c00 && c00 < limit && -limit < c10 && c10 < limit && -limit < c20 && c20 < limit )
+	// The cofactor range test, spelled out at both call sites rather than factored into a
+	// helper: a helper made the compiler materialize `limit` and cost fixInvertMatrix an
+	// instruction. This shape reproduces the pre-seam instruction stream exactly.
+	fixInt128 limit = fixInt128ShiftLeft( fixInt128FromI64( 1 ), 62 );
+	if ( fixInt128Lt( fixInt128Neg( limit ), c00 ) && fixInt128Lt( c00, limit ) &&
+		 fixInt128Lt( fixInt128Neg( limit ), c10 ) && fixInt128Lt( c10, limit ) &&
+		 fixInt128Lt( fixInt128Neg( limit ), c20 ) && fixInt128Lt( c20, limit ) )
 	{
 		// Exact path: cofactors fit in 64 bits, determinant at Q16.48
-		fixInt128 det = (fixInt128)m.cx.x * (int64_t)c00 + (fixInt128)m.cy.x * (int64_t)c10 + (fixInt128)m.cz.x * (int64_t)c20;
-		if ( det != 0 )
+		fixInt128 det = fixInt128Add( fixInt128Add( fixInt128MulI64( m.cx.x, fixInt128ToI64( c00 ) ),
+												   fixInt128MulI64( m.cy.x, fixInt128ToI64( c10 ) ) ),
+									  fixInt128MulI64( m.cz.x, fixInt128ToI64( c20 ) ) );
+		if ( !fixInt128Eq( det, FIX_INT128_ZERO ) )
 		{
 			// x_i = ( sum_j cofactor_ji * a_j ) / det: (Q32.32 * Q48.16 << 16) / Q16.48 -> Q48.16
-			fixInt128 nx = (fixInt128)(int64_t)c00 * a.x + (fixInt128)(int64_t)c01 * a.y + (fixInt128)(int64_t)c02 * a.z;
-			fixInt128 ny = (fixInt128)(int64_t)c10 * a.x + (fixInt128)(int64_t)c11 * a.y + (fixInt128)(int64_t)c12 * a.z;
-			fixInt128 nz = (fixInt128)(int64_t)c20 * a.x + (fixInt128)(int64_t)c21 * a.y + (fixInt128)(int64_t)c22 * a.z;
+			fixInt128 nx = fixInt128Add( fixInt128Add( fixInt128MulI64( fixInt128ToI64( c00 ), a.x ),
+													  fixInt128MulI64( fixInt128ToI64( c01 ), a.y ) ),
+										 fixInt128MulI64( fixInt128ToI64( c02 ), a.z ) );
+			fixInt128 ny = fixInt128Add( fixInt128Add( fixInt128MulI64( fixInt128ToI64( c10 ), a.x ),
+													  fixInt128MulI64( fixInt128ToI64( c11 ), a.y ) ),
+										 fixInt128MulI64( fixInt128ToI64( c12 ), a.z ) );
+			fixInt128 nz = fixInt128Add( fixInt128Add( fixInt128MulI64( fixInt128ToI64( c20 ), a.x ),
+													  fixInt128MulI64( fixInt128ToI64( c21 ), a.y ) ),
+										 fixInt128MulI64( fixInt128ToI64( c22 ), a.z ) );
 
 			fixVec3 b = {
-				(fixed_t)fixInt128Div( fixInt128ShiftLeft( nx, 16 ), det ),
-				(fixed_t)fixInt128Div( fixInt128ShiftLeft( ny, 16 ), det ),
-				(fixed_t)fixInt128Div( fixInt128ShiftLeft( nz, 16 ), det ),
+				fixDivShifted( nx, 16, det ),
+				fixDivShifted( ny, 16, det ),
+				fixDivShifted( nz, 16, det ),
 			};
 			return b;
 		}

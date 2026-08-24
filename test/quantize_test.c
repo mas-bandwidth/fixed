@@ -182,6 +182,19 @@ static int64_t scales[SCALE_COUNT];
 #define VALUE_COUNT 19
 static double values[VALUE_COUNT];
 
+// The raw values the shift sweeps walk. Runtime for the same two reasons as the tables
+// above, and this is the pair that mattered: sweepNarrow walks 63 shifts across these, so
+// a const table made 1071 fixNarrow calls fold to literals -- the largest block of
+// constant folding in the file, and the one cl.exe actually died on.
+#define NARROW_RAW_COUNT 17
+static int64_t narrowRaws[NARROW_RAW_COUNT];
+
+// Widening keeps its own set: the larger magnitudes matter here (a shift that is exact
+// for 3 can still be wrong for 65536), and they have to stay inside the lossless range
+// widen asserts at shifts up to 44.
+#define WIDEN_RAW_COUNT 11
+static int64_t widenRaws[WIDEN_RAW_COUNT];
+
 static void buildDomain( void )
 {
 	scales[0] = 1;
@@ -213,6 +226,23 @@ static void buildDomain( void )
 	values[16] = -1000.5;
 	values[17] = 0.0001;
 	values[18] = -0.0001;
+
+	// Values around zero and around the rounding boundary. The boundary is the whole
+	// point of the function: half toward positive infinity is only distinguishable from
+	// half away from zero on the negative side of it.
+	static const int64_t seed[NARROW_RAW_COUNT] = {
+		0, 1, -1, 2, -2, 3, -3, 7, -7, 8, -8, 12345, -12345, 65536, -65536, 65535, -65535,
+	};
+	for ( int i = 0; i < NARROW_RAW_COUNT; i++ )
+	{
+		narrowRaws[i] = seed[i];
+	}
+
+	static const int64_t widenSeed[WIDEN_RAW_COUNT] = { 0, 1, -1, 2, -2, 3, -3, 12345, -12345, 65536, -65536 };
+	for ( int i = 0; i < WIDEN_RAW_COUNT; i++ )
+	{
+		widenRaws[i] = widenSeed[i];
+	}
 }
 
 // ================================================================================
@@ -396,18 +426,13 @@ static uint64_t sweepNarrow( int perturb, uint64_t samples )
 {
 	uint64_t bad = 0;
 
-	// Every legal shift against values around zero and around the rounding boundary. The
-	// boundary is the whole point of the function: half toward positive infinity is only
-	// distinguishable from half away from zero on the negative side of it.
-	static const int64_t raws[] = { 0, 1, -1, 2, -2, 3, -3, 7, -7, 8, -8, 12345, -12345, 65536, -65536, 65535, -65535 };
-	const int rawCount = (int)( sizeof( raws ) / sizeof( raws[0] ) );
-
+	// Every legal shift against the boundary-adjacent domain built in buildDomain.
 	for ( int shift = 0; shift < 63; shift++ )
 	{
-		for ( int r = 0; r < rawCount; r++ )
+		for ( int r = 0; r < NARROW_RAW_COUNT; r++ )
 		{
-			int64_t got = fixNarrow( raws[r], shift );
-			int64_t want = bump( refNarrow( raws[r], shift ), perturb );
+			int64_t got = fixNarrow( narrowRaws[r], shift );
+			int64_t want = bump( refNarrow( narrowRaws[r], shift ), perturb );
 
 			if ( got != want ) bad++;
 			if ( !perturb ) mix( got );
@@ -454,15 +479,12 @@ static uint64_t sweepWiden( int perturb, uint64_t samples )
 {
 	uint64_t bad = 0;
 
-	static const int64_t raws[] = { 0, 1, -1, 2, -2, 3, -3, 12345, -12345, 65536, -65536 };
-	const int rawCount = (int)( sizeof( raws ) / sizeof( raws[0] ) );
-
 	for ( int shift = 0; shift < 45; shift++ )
 	{
-		for ( int r = 0; r < rawCount; r++ )
+		for ( int r = 0; r < WIDEN_RAW_COUNT; r++ )
 		{
-			int64_t got = fixWiden( raws[r], shift );
-			int64_t want = bump( refWiden( raws[r], shift ), perturb );
+			int64_t got = fixWiden( widenRaws[r], shift );
+			int64_t want = bump( refWiden( widenRaws[r], shift ), perturb );
 
 			if ( got != want ) bad++;
 			if ( !perturb ) mix( got );

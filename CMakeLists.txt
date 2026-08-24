@@ -119,6 +119,24 @@ add_executable(fixed_int128_test test/int128_test.c)
 target_link_libraries(fixed_int128_test PRIVATE fixed)
 add_test(NAME int128 COMMAND fixed_int128_test)
 
+# The geometric layer -- vectors, quaternions, matrices, transforms, world positions and
+# the validity predicates. Most of that surface had no test at all before this target
+# existed: it compiled, so CI was green, which says nothing about a header-only function
+# nobody calls. Exact identities and hand values where fixed point gives them, measured
+# tolerances where it rounds, and a frozen cross-platform hash over the whole sweep.
+add_executable(fixed_geometry_test test/geometry_test.c)
+target_link_libraries(fixed_geometry_test PRIVATE fixed)
+add_test(NAME geometry COMMAND fixed_geometry_test)
+
+# Its control: a one-ulp error injected into fixMul, which nearly everything in that layer
+# runs through. A suite carrying this many tolerances is exactly the kind that can go blind
+# without saying so. MUST fail.
+add_executable(fixed_geometry_negative_control test/geometry_test.c)
+target_link_libraries(fixed_geometry_negative_control PRIVATE fixed)
+target_compile_definitions(fixed_geometry_negative_control PRIVATE GEOMETRY_NEGATIVE_CONTROL)
+add_test(NAME geometry_negative_control COMMAND fixed_geometry_negative_control)
+set_tests_properties(geometry_negative_control PROPERTIES WILL_FAIL TRUE)
+
 # Bit-equality against the delta bodies this family was ported from, since delta is about
 # to depend on this library and delete its own copies. Carries its own always-on negative
 # controls, a frozen cross-platform hash, and the check that the general family really is
@@ -141,7 +159,7 @@ if (TARGET fixed_emulated)
     # quantize is deliberately absent from this list: fixNarrow, fixWiden and the
     # arbitrary-scale family are pure 64-bit arithmetic with no 128-bit intermediate, so an
     # emulated build of that suite would compile and run identical code.
-    foreach(suite determinism transcendental wide_time exhaustive aabb port_equality int128)
+    foreach(suite determinism transcendental wide_time exhaustive aabb port_equality int128 geometry)
         add_executable(fixed_${suite}_emulated_test test/${suite}_test.c)
         target_link_libraries(fixed_${suite}_emulated_test PRIVATE fixed_emulated)
         if (NOT WIN32)

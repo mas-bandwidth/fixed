@@ -41,8 +41,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Configure
         run: ${{ matrix.configure }}
+      # --parallel matters more than it looks: the suite is ~20 small independent
+      # targets, and MSBuild builds them one at a time by default. Measured on the
+      # plain-MSVC arm, that step alone was 121s of a 2m19s job, over Glenn's
+      # one-to-two-minute rule on its own.
       - name: Build
-        run: cmake --build build --config Release
+        run: cmake --build build --config Release --parallel
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
 

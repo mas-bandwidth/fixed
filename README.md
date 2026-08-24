@@ -1,9 +1,17 @@
 # fixed
 
-A small, standalone, deterministic fixed-point math library. The core type is a
+A small, standalone, deterministic fixed-point math library in C. The core type is a
 64-bit `fixed_t` (Q48.16), with pure-integer arithmetic and integer-only
-transcendentals — so results are **bit-identical on every platform and
-architecture**, which floating point is not.
+transcendentals — so results are **bit-identical on every platform, architecture and
+compiler**, which floating point is not.
+
+**[USAGE.md](USAGE.md) is the guide**: every family, every function, by example.
+
+```c
+#include "fixed/fixed.h"
+
+fixed_t area = fixMul( FIX( 2.5 ), fixFromInt( 4 ) );   // exactly 10.0
+```
 
 ## Why
 
@@ -18,51 +26,66 @@ can be used independently of the physics engine.
 
 ## Guarantee, checked in code
 
-`test/determinism_test.c` runs the core ops over a deterministic input stream and
-hashes every result. The hash is identical across arm64 and x86-64 (validated),
-and CI extends that to Linux, macOS, and Windows on both of its toolchains.
+Seven test suites run structured sweeps and hash every result against a constant frozen
+into the source. Any change that alters a single bit fails, on every platform. Five more
+targets build a suite with a deliberate one-ulp error injected and are marked `WILL_FAIL`,
+so a suite that goes blind says so instead of passing quietly.
+
+Every arm of the CI matrix asserts the same frozen hashes:
+
+| arm | 128-bit intermediates |
+|---|---|
+| ubuntu (x86-64) | native `__int128` |
+| macos (arm64) | native `__int128` |
+| windows, ClangCL | native `__int128` |
+| windows, plain MSVC | emulated |
+| every arm, second pass | emulated, via `FIX_FORCE_EMULATED_INT128` |
+
+Plus a UBSan job over every suite on both 128-bit arms, because undefined behaviour is how
+"bit-identical" dies quietly.
 
 **Every compiler, including plain MSVC.** The 128-bit intermediates the core needs are
 `__int128` where the compiler has it (gcc, clang, clang-cl) and an emulated pair of
 64-bit lanes where it does not. Both arms assert the same frozen hashes, so the emulation
 is held to bit-identity with native rather than assumed to match it — see
 [USAGE.md](USAGE.md) for the seam and `test/int128_test.c` for the operation-by-operation
-differential against native.
+differential against native. There is no ClangCL floor and no platform this library
+excludes by design.
 
-## Status
+## What is here
 
-- [x] Core scalar type + arithmetic (`fixed.h`): mul, div, sqrt, abs, floor,
-      ceil, clamp, conversions — extracted and cross-arch determinism-validated.
-- [x] Integer transcendentals (`fixComputeCosSin`, `fixAtan2`, `fixSin`, `fixCos`,
-      `fixUnwindAngle`) — pure fixed-point, cross-arch determinism-validated, and
-      correct vs libm (cos/sin < 0.0017, atan2 < 0.00004 rad).
-- [x] The exponential ladder (`fixLog2`, `fixExp2`, `fixPow`) and scalar interpolation
-      (`fixLerp`) — integer-only, so `pow` is deterministic where libm's is not.
-- [x] Q2.30 packed components (`fixed30_t`): a second raw domain with 32-bit storage and
-      30 fraction bits, for always-normalized quantities like quaternion components, with
-      its converters and `fixNormalizeComponent30`.
-- [x] Critically damped smoothing (`fixSmoothCriticallyDamped`,
-      `fixSmoothCriticallyDampedUpDown`) — deterministic control dynamics on fixed point.
-- [x] Vector / quaternion / matrix / transform / position types on `fixed_t`
-      (`fixed_vec.h`), with their arithmetic, and the validity predicates
-      (`fixIsValidVec3`, `fixIsValidQuat`, `fixIsValidMatrix3`, `fixIsValidTransform`,
-      `fixIsValidFixed`).
-- [x] Fixed-point time (`fixed_time.h`): Q32.32, with exact conversion to and
-      from `fixed_t`.
-- [x] Wide 128-bit primitives (`fixed_wide.h`): the Q112.16 scalar and position
-      types, and the boundary vocabulary that moves values between wide world
-      space and local Q48.16 by exact integer subtract.
-- [x] Bounding volumes and planes (`fixAABB`, `fixAABBWide`, `fixPlane`) with their
-      operations and validity predicates. Both widths are exported unconditionally:
-      a consumer selects narrow or wide by which type it names, never by a compile
-      flag that silently changes an ABI.
-- [x] 128-bit arithmetic on every compiler (`fixed_int128.h`): native `__int128` where
-      available, an emulated pair on plain MSVC, behind one seam the whole library speaks.
-- [x] Domain crossing (`fixed_quantize.h`): arbitrary-scale `fixQuantize` / `fixDequantize` /
-      `fixQuantizeClamped` / `fixFits`, and the integer-only Q-format pair `fixNarrow` /
-      `fixWiden` — the general form of the pinned Q48.16 and Q2.30 converters, ported from
-      delta and swept bit-for-bit against it.
-- [ ] fixed3d depends on `fixed` for its fixed-point core.
+- **Core scalar type and arithmetic** (`fixed.h`): `fixMul`, `fixDiv`, `fixSqrt`,
+  `fixAbs`, `fixFloor`, `fixCeil`, `fixClamp`, `fixMin`, `fixMax` and the conversions.
+- **Integer transcendentals** (`fixed_math.h`): `fixComputeCosSin`, `fixSin`, `fixCos`,
+  `fixAtan2`, `fixUnwindAngle` — pure fixed-point, and correct against libm
+  (cos/sin < 0.0017, atan2 < 0.00004 rad).
+- **The exponential ladder** `fixLog2`, `fixExp2`, `fixPow`, and `fixLerp` — integer-only,
+  so `pow` is deterministic where libm's is not.
+- **Critically damped smoothing** (`fixSmoothCriticallyDamped`,
+  `fixSmoothCriticallyDampedUpDown`) — deterministic control dynamics on fixed point.
+- **Q2.30 packed components** (`fixed30_t`): 32-bit storage, 30 fraction bits, for
+  always-normalized quantities like quaternion components, with its converters and
+  `fixNormalizeComponent30`.
+- **Vectors, quaternions, matrices, transforms and world positions** (`fixed_vec.h`):
+  the arithmetic, `fixNormalize`, `fixRotateVector`, `fixNLerp`, `fixInvertMatrix`,
+  `fixSolve3`, the axis/angle and twist/swing accessors, and the validity predicates.
+- **Fixed-point time** (`fixed_time.h`): Q32.32, exact conversion to and from `fixed_t`,
+  because time accumulates and accumulation must not round.
+- **Wide 128-bit coordinates** (`fixed_wide.h`): the Q112.16 scalar and position types,
+  and the boundary vocabulary that moves values between wide world space and local Q48.16
+  by exact integer subtract — the fraction points align, so there is no rescale.
+- **Bounding volumes and planes** (`fixAABB`, `fixAABBWide`, `fixPlane`) with their
+  operations and validity predicates. Both widths are exported unconditionally: a consumer
+  selects narrow or wide by which type it names, never by a compile flag that silently
+  changes an ABI.
+- **128-bit arithmetic on every compiler** (`fixed_int128.h`): native `__int128` where
+  available, an emulated pair on plain MSVC, behind one seam the whole library speaks —
+  `fixInt128Div`, `fixInt128Min`, `fixInt128Max`, `fixInt128ShiftLeft`, `fixISqrt128High`
+  and the full signed and unsigned operation vocabulary.
+- **Domain crossing** (`fixed_quantize.h`): arbitrary-scale `fixQuantize`, `fixDequantize`,
+  `fixQuantizeClamped` and `fixFits`, and the integer-only Q-format pair `fixNarrow` and
+  `fixWiden` — the general form of the pinned Q48.16 and Q2.30 converters, ported from
+  [delta](https://github.com/mas-bandwidth/delta) and swept bit-for-bit against it.
 
 Deliberately **not** here: geometric queries (`b3SegmentDistance`, `b3LineDistance`,
 `b3PointToSegmentDistance`) and inertia (`b3Steiner`). Those are physics that happens
@@ -83,6 +106,20 @@ Two families that read alike are deliberately distinguished: scalar operations a
 vector forms are `fixVecMin`, `fixVecMax`, `fixVecAbs`, `fixVecClamp`, `fixVecLerp`,
 `fixVecMul`. In fixed3d these were `b3FixMin` and `b3Min`, a one-token difference for
 two different operations.
+
+## Building
+
+```cmake
+add_subdirectory( fixed )
+target_link_libraries( my_game PRIVATE fixed )
+```
+
+Or add `include/` and the two files in `src/`. C11 is required — the vector headers return
+compound literals, which MSVC's C compiler accepts only under `/std:c11` or later.
+
+Consumer hooks (`FIX_API`, `FIX_ASSERT`, `FIX_SATURATE` and the rest) are documented in
+[USAGE.md](USAGE.md); every macro is guarded separately, so overriding one keeps the
+library's definitions for the rest.
 
 ## Provenance & license
 

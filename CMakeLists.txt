@@ -152,6 +152,13 @@ target_compile_definitions(fixed_quantize_negative_control PRIVATE QUANTIZE_NEGA
 add_test(NAME quantize_negative_control COMMAND fixed_quantize_negative_control)
 set_tests_properties(quantize_negative_control PROPERTIES WILL_FAIL TRUE)
 
+# USAGE.md, asserted. Every number, rounding rule and boundary value the guide states that
+# can be written as an expression is written as one, so the document cannot drift away from
+# the code without CI saying so.
+add_executable(fixed_usage_test test/usage_test.c)
+target_link_libraries(fixed_usage_test PRIVATE fixed)
+add_test(NAME usage COMMAND fixed_usage_test)
+
 # THE EMULATED ARM OF THE WHOLE SUITE. Same sources, same frozen hashes, 128-bit
 # arithmetic done in software. If the emulation and the compiler's __int128 ever disagree
 # by one bit, these go red on every platform at once instead of only on Windows.

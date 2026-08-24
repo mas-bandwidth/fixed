@@ -607,6 +607,21 @@ FIX_ALWAYS_INLINE fixUInt128 fixUInt128Sub( fixUInt128 a, fixUInt128 b ) { retur
 FIX_ALWAYS_INLINE fixUInt128 fixUInt128Mul( fixUInt128 a, fixUInt128 b ) { return a * b; }
 FIX_ALWAYS_INLINE fixUInt128 fixUInt128MulU64( uint64_t a, uint64_t b ) { return (fixUInt128)a * b; }
 FIX_ALWAYS_INLINE fixUInt128 fixUInt128Neg( fixUInt128 a ) { return -a; }
+
+/// Divide a 128-bit value by a 64-bit divisor, returning the quotient and, through the
+/// pointer, the remainder.
+///
+/// PRECONDITION: fixUInt128Hi( a ) < d. That is what makes the quotient fit in 64 bits,
+/// and it is the caller's job -- this is the inner primitive of Knuth Algorithm D, whose
+/// normalization step establishes exactly that invariant, rather than a general-purpose
+/// divide. Violating it on the native arm truncates; there is no check, because the one
+/// caller proves the precondition and a branch here would sit inside the division loop.
+FIX_ALWAYS_INLINE uint64_t fixUInt128DivRemBy64( fixUInt128 a, uint64_t d, uint64_t* remainder )
+{
+	fixUInt128 quotient = a / d;
+	*remainder = (uint64_t)( a - quotient * d );
+	return (uint64_t)quotient;
+}
 // The shifts are the plain operators, with no guard on the count. That is deliberate and
 // it is the one place the two arms differ: a shift count outside [0, 127] is undefined
 // behavior for native __int128, so there is no native answer for the emulation to match,
@@ -675,6 +690,22 @@ FIX_ALWAYS_INLINE fixUInt128 fixUInt128Sub( fixUInt128 a, fixUInt128 b ) { retur
 FIX_ALWAYS_INLINE fixUInt128 fixUInt128Mul( fixUInt128 a, fixUInt128 b ) { return fixEmuUInt128Mul( a, b ); }
 FIX_ALWAYS_INLINE fixUInt128 fixUInt128MulU64( uint64_t a, uint64_t b ) { return fixEmuUInt128MulU64( a, b ); }
 FIX_ALWAYS_INLINE fixUInt128 fixUInt128Neg( fixUInt128 a ) { return fixEmuUInt128Neg( a ); }
+
+/// Divide a 128-bit value by a 64-bit divisor, returning the quotient and, through the
+/// pointer, the remainder.
+///
+/// PRECONDITION: fixUInt128Hi( a ) < d. That is what makes the quotient fit in 64 bits,
+/// and it is the caller's job -- this is the inner primitive of Knuth Algorithm D, whose
+/// normalization step establishes exactly that invariant, rather than a general-purpose
+/// divide. Violating it on the native arm truncates; there is no check, because the one
+/// caller proves the precondition and a branch here would sit inside the division loop.
+FIX_ALWAYS_INLINE uint64_t fixUInt128DivRemBy64( fixUInt128 a, uint64_t d, uint64_t* remainder )
+{
+	fixEmuUInt128 quotient, rest;
+	fixEmuUInt128DivMod( a, fixEmuUInt128FromU64( d ), &quotient, &rest );
+	*remainder = fixEmuUInt128Lo( rest );
+	return fixEmuUInt128Lo( quotient );
+}
 FIX_ALWAYS_INLINE fixUInt128 fixUInt128Shl( fixUInt128 a, int shift ) { return fixEmuUInt128Shl( a, shift ); }
 FIX_ALWAYS_INLINE fixUInt128 fixUInt128Shr( fixUInt128 a, int shift ) { return fixEmuUInt128Shr( a, shift ); }
 FIX_ALWAYS_INLINE fixUInt128 fixUInt128Or( fixUInt128 a, fixUInt128 b ) { return fixEmuUInt128Or( a, b ); }

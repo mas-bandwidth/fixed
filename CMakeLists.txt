@@ -152,6 +152,22 @@ target_compile_definitions(fixed_quantize_negative_control PRIVATE QUANTIZE_NEGA
 add_test(NAME quantize_negative_control COMMAND fixed_quantize_negative_control)
 set_tests_properties(quantize_negative_control PROPERTIES WILL_FAIL TRUE)
 
+# THE 256-BIT DIVISION, against the shift-subtract implementation it replaced. That old
+# implementation is kept inside the test as the oracle: known-correct, already shipped, and
+# sharing no code with the limb algorithm that replaced it.
+add_executable(fixed_int256_division_test test/int256_division_test.c)
+target_link_libraries(fixed_int256_division_test PRIVATE fixed)
+add_test(NAME int256_division COMMAND fixed_int256_division_test)
+
+# Its control removes the ADD-BACK, deliberately rather than perturbing something generic:
+# that branch fires for about one input in 2^63, and the first version of the test reached
+# it zero times while looking thorough. MUST fail.
+add_executable(fixed_int256_division_negative_control test/int256_division_test.c)
+target_link_libraries(fixed_int256_division_negative_control PRIVATE fixed)
+target_compile_definitions(fixed_int256_division_negative_control PRIVATE FIX_INT256_NO_ADDBACK)
+add_test(NAME int256_division_negative_control COMMAND fixed_int256_division_negative_control)
+set_tests_properties(int256_division_negative_control PROPERTIES WILL_FAIL TRUE)
+
 # THE SCALE ENVELOPE of the 3x3 inverse and solve. Every other suite here asks whether a
 # function is right; this one asks over what range of inputs it is right, because the
 # inverse is the one operation whose correctness is a function of magnitude. Its oracle is
@@ -186,7 +202,7 @@ if (TARGET fixed_emulated)
     # inverse_envelope is in this list for a specific reason: the 256-bit layer the wide
     # arm runs on is written entirely in the fixUInt128 vocabulary, so an emulated build
     # is the only thing that checks the emulated 256-bit arithmetic at all.
-    foreach(suite determinism transcendental wide_time exhaustive aabb port_equality int128 geometry inverse_envelope)
+    foreach(suite determinism transcendental wide_time exhaustive aabb port_equality int128 geometry inverse_envelope int256_division)
         add_executable(fixed_${suite}_emulated_test test/${suite}_test.c)
         target_link_libraries(fixed_${suite}_emulated_test PRIVATE fixed_emulated)
         if (NOT WIN32)

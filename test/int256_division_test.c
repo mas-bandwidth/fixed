@@ -52,9 +52,17 @@
 //      all get traffic. The hand vectors say the boundaries are right; this says the
 //      middle is.
 //
-// NEGATIVE CONTROL: built a second time with -DINT256_DIVISION_NEGATIVE_CONTROL, which
-// perturbs the library's quotient by one. That build MUST fail (ctest WILL_FAIL). Without
-// it, a suite this size could be comparing something against itself and never say so.
+// NEGATIVE CONTROL: built a second time with -DFIX_INT256_NO_ADDBACK, which removes the
+// add-back correction from the library. That build MUST fail (ctest WILL_FAIL), and it is
+// aimed at the add-back on purpose rather than at some generic perturbation, because the
+// add-back is the branch this suite was in real danger of never reaching.
+//
+// It was in real danger: the first version of this file carried hand-written "add-back
+// vectors" that looked right and hit the branch EXACTLY ZERO TIMES. That was found by
+// instrumenting the implementation and counting, not by reading the test. The vectors
+// below were then searched for, and the control now keeps the coverage honest -- a sweep
+// that stops reaching the branch turns the control green, and a green control is a
+// failure.
 
 #include "fixed/fixed_int256.h"
 
@@ -283,39 +291,76 @@ static void testLimbCounts( void )
 // 3. The add-back vectors.
 // ================================================================================
 
+static fixUInt256 mul256ByLimb( fixUInt256 a, uint64_t b )
+{
+	fixUInt256 low = fixUInt256MulU128ByU64( a.lo, b );
+	fixUInt256 high = fixUInt256MulU128ByU64( a.hi, b );
+	return fixUInt256Add( low, fixUInt256Shl( high, 128 ) );
+}
+
+static uint64_t nextRandom( void );
+
 static void testAddBack( void )
 {
 	int before = fails;
 
-	// Algorithm D estimates each quotient limb from the top two limbs of the running
-	// remainder over the top limb of the divisor. The estimate can exceed the true limb by
-	// at most two, and the rare third case -- where the multiply-subtract goes negative and
-	// the algorithm must add the divisor back -- needs the divisor's low limbs to be large
-	// relative to its top limb. These are constructed for that: a top limb barely over half
-	// the base, and low limbs at the maximum.
-	const uint64_t HALF = 0x8000000000000000ULL;
 	const uint64_t MAX = UINT64_MAX;
+	const uint64_t HALF = 0x8000000000000000ULL;
 
-	checkPair( make256( 0, HALF, 0, 0 ), make256( 0, 0, HALF, MAX ) );
-	checkPair( make256( 0, HALF, 0, 1 ), make256( 0, 0, HALF, MAX ) );
-	checkPair( make256( HALF, 0, 0, 0 ), make256( 0, HALF, MAX, MAX ) );
-	checkPair( make256( HALF, 0, 0, 1 ), make256( 0, HALF, MAX, MAX ) );
-	checkPair( make256( MAX, MAX, MAX, MAX ), make256( 0, HALF, MAX, MAX ) );
-	checkPair( make256( HALF, MAX, MAX, MAX ), make256( 0, HALF, 0, 1 ) );
-	checkPair( make256( 0, 0, HALF, 0 ), make256( 0, 0, HALF, MAX ) );
+	// EIGHT VECTORS THAT ACTUALLY REACH THE ADD-BACK, found by instrumenting the
+	// implementation and searching, not by reasoning about what ought to trigger it. An
+	// earlier version of this file carried hand-written "add-back vectors" that looked
+	// plausible and reached the branch exactly zero times -- which is why the search
+	// happened, and why these are pinned literally rather than only regenerated.
+	static const uint64_t vectors[][8] = {
+		{ 0x80000000000067c1ULL, 0x7fffffffffbc1972ULL, 0x0000000000008e6eULL, 0x0000000000004868ULL,
+		  0x0000000000000000ULL, 0x8000000000006814ULL, 0xffffffffffffff24ULL, 0xffffffffffffff91ULL },
+		{ 0x800000000000d3c2ULL, 0x7fffffffffc39320ULL, 0xffffffffffffffcdULL, 0x0000000000000e8aULL,
+		  0x0000000000000000ULL, 0x800000000000d3e6ULL, 0xffffffffffffffffULL, 0xffffffffffffffcdULL },
+		{ 0x800000000000ee42ULL, 0xffffffffff7615f7ULL, 0x0000000000004ce3ULL, 0x0000000000000093ULL,
+		  0x0000000000000000ULL, 0x800000000000ee8cULL, 0xffffffffffffff7aULL, 0xffffffffffffffffULL },
+		{ 0x8000000000001048ULL, 0xfffffffffff0f717ULL, 0xffffffffffffffffULL, 0x00000000000000e5ULL,
+		  0x0000000000000000ULL, 0x80000000000010bbULL, 0xffffffffffffffffULL, 0xffffffffffffffffULL },
+		{ 0x8000000000009367ULL, 0x7fffffffff91bddeULL, 0x0000000000007dd1ULL, 0x0000000000003439ULL,
+		  0x0000000000000000ULL, 0x80000000000093c6ULL, 0xffffffffffffff56ULL, 0xffffffffffffffbaULL },
+		{ 0x800000000000a893ULL, 0x7fffffffff74b778ULL, 0xffffffffffffff33ULL, 0x000000000000a8f6ULL,
+		  0x0000000000000000ULL, 0x800000000000a8fcULL, 0xffffffffffffffffULL, 0xffffffffffffff33ULL },
+		{ 0x8000000000004e45ULL, 0xffffffffffb769b5ULL, 0x000000000000e763ULL, 0x00000000000000ebULL,
+		  0x0000000000000000ULL, 0x8000000000004ebbULL, 0xffffffffffffff04ULL, 0xffffffffffffffffULL },
+		{ 0x800000000000abcbULL, 0xffffffffff566727ULL, 0xffffffffffffffffULL, 0x00000000000000fbULL,
+		  0x0000000000000000ULL, 0x800000000000ac49ULL, 0xffffffffffffffffULL, 0xffffffffffffffffULL },
+	};
 
-	// The textbook add-back trigger, widened to each limb position: numerator 0x7FFF...
-	// over divisor 0x8000...0001.
-	for ( int shift = 0; shift <= 128; shift += 64 )
+	for ( int i = 0; i < (int)( sizeof( vectors ) / sizeof( vectors[0] ) ); i++ )
 	{
-		fixUInt256 d = fixUInt256Shl( make256( 0, 0, HALF, 1 ), shift );
-		fixUInt256 n = fixUInt256Shl( make256( 0, 0, HALF - 1, MAX ), shift );
-		checkPair( n, d );
-		checkPair( fixUInt256Add( n, fixUInt256FromU64( 1 ) ), d );
-		checkPair( fixUInt256Sub( n, fixUInt256FromU64( 1 ) ), d );
+		checkPair( make256( vectors[i][0], vectors[i][1], vectors[i][2], vectors[i][3] ),
+				   make256( vectors[i][4], vectors[i][5], vectors[i][6], vectors[i][7] ) );
 	}
 
-	if ( fails == before ) section( "add-back: the estimate-overshoot vectors, constructed rather than hoped for" );
+	// AND THE SHAPE THEY CAME FROM, generated, so the path keeps getting traffic if the
+	// implementation changes which inputs land on it. The add-back needs the estimate's
+	// error hidden below the two limbs the correction inspects: a divisor whose top limb
+	// is barely over half the base and whose lower limbs are near the maximum, divided
+	// into q*divisor + (divisor - 1) for a large q.
+	for ( int trial = 0; trial < 4000; trial++ )
+	{
+		uint64_t v2 = HALF + ( nextRandom() & 0xFFFF );
+		uint64_t v1 = ( trial & 1 ) ? MAX : MAX - ( nextRandom() & 0xFF );
+		uint64_t v0 = ( trial & 2 ) ? MAX : MAX - ( nextRandom() & 0xFF );
+		fixUInt256 d = make256( 0, v2, v1, v0 );
+
+		uint64_t q = MAX - ( nextRandom() & 0xFF );
+		fixUInt256 n = fixUInt256Add( mul256ByLimb( d, q ), fixUInt256Sub( d, fixUInt256FromU64( 1 ) ) );
+		checkPair( n, d );
+	}
+
+	// The estimate-overshoot neighbourhood more generally: a top limb just over half the
+	// base with maximal lower limbs, across the whole dividend range.
+	checkPair( make256( 0, HALF, 0, 0 ), make256( 0, 0, HALF, MAX ) );
+	checkPair( make256( MAX, MAX, MAX, MAX ), make256( 0, HALF, MAX, MAX ) );
+	checkPair( make256( HALF, MAX, MAX, MAX ), make256( 0, HALF, 0, 1 ) );
+
+	if ( fails == before ) section( "add-back: eight vectors that reach it, plus the shape they were found in" );
 }
 
 // ================================================================================

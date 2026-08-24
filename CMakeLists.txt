@@ -27,16 +27,29 @@ target_include_directories(fixed PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 # and asserts THE SAME FROZEN HASHES. So the emulated arithmetic is held to bit-identity
 # with native by the entire test suite, on every operating system in the matrix, rather
 # than by one dedicated test on one platform.
-add_library(fixed_emulated STATIC src/fixed_math.c src/fixed_vec.c)
-target_include_directories(fixed_emulated PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_compile_definitions(fixed_emulated PUBLIC FIX_FORCE_EMULATED_INT128)
+#
+# ON A COMPILER WITHOUT __int128 THE DUPLICATE IS SKIPPED, because there the plain library
+# IS the emulated one: FIX_FORCE_EMULATED_INT128 changes nothing, so the second set of
+# targets would compile and run the same code twice and prove nothing. Not a time
+# optimization dressed up as a principle, though it is also that -- building the suite
+# twice under MSBuild was most of the plain-MSVC arm's CI time.
+include(CheckCSourceCompiles)
+check_c_source_compiles("int main(void){ __int128 x = 1; return (int)x; }" FIX_COMPILER_HAS_INT128)
+
+if (FIX_COMPILER_HAS_INT128)
+    add_library(fixed_emulated STATIC src/fixed_math.c src/fixed_vec.c)
+    target_include_directories(fixed_emulated PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_compile_definitions(fixed_emulated PUBLIC FIX_FORCE_EMULATED_INT128)
+endif()
 
 # gcc keeps a libm sqrt() call as the errno fallback for __builtin_sqrt (used
 # by the fixSqrt seed), so consumers need -lm on Linux. PUBLIC propagates it
 # to every test; harmless on macOS.
 if (NOT WIN32)
     target_link_libraries(fixed PUBLIC m)
-    target_link_libraries(fixed_emulated PUBLIC m)
+    if (TARGET fixed_emulated)
+        target_link_libraries(fixed_emulated PUBLIC m)
+    endif()
 endif()
 
 enable_testing()
@@ -109,20 +122,22 @@ add_test(NAME int128 COMMAND fixed_int128_test)
 # THE EMULATED ARM OF THE WHOLE SUITE. Same sources, same frozen hashes, 128-bit
 # arithmetic done in software. If the emulation and the compiler's __int128 ever disagree
 # by one bit, these go red on every platform at once instead of only on Windows.
-foreach(suite determinism transcendental wide_time exhaustive aabb port_equality int128)
-    add_executable(fixed_${suite}_emulated_test test/${suite}_test.c)
-    target_link_libraries(fixed_${suite}_emulated_test PRIVATE fixed_emulated)
-    if (NOT WIN32)
-        target_link_libraries(fixed_${suite}_emulated_test PRIVATE m)
-    endif()
-    add_test(NAME ${suite}_emulated COMMAND fixed_${suite}_emulated_test)
-endforeach()
+if (TARGET fixed_emulated)
+    foreach(suite determinism transcendental wide_time exhaustive aabb port_equality int128)
+        add_executable(fixed_${suite}_emulated_test test/${suite}_test.c)
+        target_link_libraries(fixed_${suite}_emulated_test PRIVATE fixed_emulated)
+        if (NOT WIN32)
+            target_link_libraries(fixed_${suite}_emulated_test PRIVATE m)
+        endif()
+        add_test(NAME ${suite}_emulated COMMAND fixed_${suite}_emulated_test)
+    endforeach()
 
-# And the control for the emulated arm: the exhaustive suite with the same deliberate
-# 1-ulp error, compiled against the emulated library. Without this, an emulated build
-# whose sweeps had gone blind would pass exactly as it does now. MUST fail.
-add_executable(fixed_emulated_negative_control test/exhaustive_test.c)
-target_link_libraries(fixed_emulated_negative_control PRIVATE fixed_emulated)
-target_compile_definitions(fixed_emulated_negative_control PRIVATE FIXED_NEGATIVE_CONTROL)
-add_test(NAME emulated_negative_control COMMAND fixed_emulated_negative_control)
-set_tests_properties(emulated_negative_control PROPERTIES WILL_FAIL TRUE)
+    # And the control for the emulated arm: the exhaustive suite with the same deliberate
+    # 1-ulp error, compiled against the emulated library. Without this, an emulated build
+    # whose sweeps had gone blind would pass exactly as it does now. MUST fail.
+    add_executable(fixed_emulated_negative_control test/exhaustive_test.c)
+    target_link_libraries(fixed_emulated_negative_control PRIVATE fixed_emulated)
+    target_compile_definitions(fixed_emulated_negative_control PRIVATE FIXED_NEGATIVE_CONTROL)
+    add_test(NAME emulated_negative_control COMMAND fixed_emulated_negative_control)
+    set_tests_properties(emulated_negative_control PROPERTIES WILL_FAIL TRUE)
+endif()

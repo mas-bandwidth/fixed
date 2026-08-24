@@ -29,6 +29,13 @@ and CI extends that to Linux/libstdc++ and Windows/MSVC.
 - [x] Integer transcendentals (`fixComputeCosSin`, `fixAtan2`, `fixSin`, `fixCos`,
       `fixUnwindAngle`) — pure fixed-point, cross-arch determinism-validated, and
       correct vs libm (cos/sin < 0.0017, atan2 < 0.00004 rad).
+- [x] The exponential ladder (`fixLog2`, `fixExp2`, `fixPow`) and scalar interpolation
+      (`fixLerp`) — integer-only, so `pow` is deterministic where libm's is not.
+- [x] Q2.30 packed components (`fixed30_t`): a second raw domain with 32-bit storage and
+      30 fraction bits, for always-normalized quantities like quaternion components, with
+      its converters and `fixNormalizeComponent30`.
+- [x] Critically damped smoothing (`fixSmoothCriticallyDamped`,
+      `fixSmoothCriticallyDampedUpDown`) — deterministic control dynamics on fixed point.
 - [x] Vector / quaternion / matrix / transform / position types on `fixed_t`
       (`fixed_vec.h`), with their arithmetic, and the validity predicates
       (`fixIsValidVec3`, `fixIsValidQuat`, `fixIsValidMatrix3`, `fixIsValidTransform`,

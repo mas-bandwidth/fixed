@@ -6,19 +6,11 @@
 
 #include <stdint.h>
 
-// This header is self-contained so that base.h can include it before the rest
-// of the API macros are defined.
-#ifndef FIX_INLINE
-#if defined( _MSC_VER )
-#define FIX_ALWAYS_INLINE static __forceinline
-#elif defined( __GNUC__ ) || defined( __clang__ )
-#define FIX_ALWAYS_INLINE static inline __attribute__( ( always_inline ) )
-#else
-#define FIX_ALWAYS_INLINE static inline
-#endif
-#else
-#define FIX_ALWAYS_INLINE FIX_FORCE_INLINE
-#endif
+// The 128-bit seam: fixInt128/fixUInt128 and their operation vocabulary, native
+// __int128 where the compiler has it and an emulated pair where it does not (plain
+// MSVC). Also carries this library's FIX_ALWAYS_INLINE definition, because the seam is
+// the first thing every other header needs. This header stays self-contained.
+#include "fixed/fixed_int128.h"
 
 /**
  * @defgroup fixed Fixed-point scalar
@@ -65,21 +57,6 @@ typedef int64_t fixed_t;
 #define FIX( x )                                                                                                              \
 	( (fixed_t)( (double)( x ) * (double)FIX_ONE + ( (double)( x ) >= 0.0 ? 0.5 : -0.5 ) ) )
 
-// 128 bit helper layer. The fixed-point core requires the __int128 compiler
-// extension (clang, gcc, or clang-cl on Windows; pure MSVC does not have it).
-// __extension__ keeps -Wpedantic quiet: __int128 is not ISO C.
-#if defined( __SIZEOF_INT128__ )
-
-#define FIX_HAS_INT128 1
-__extension__ typedef __int128 fixInt128;
-__extension__ typedef unsigned __int128 fixUInt128;
-
-#else
-
-#error "Fixed3D fixed point math requires __int128: use clang, gcc, or clang-cl on Windows"
-
-#endif
-
 /// Left shift that is well defined for negative values (two's complement wrap).
 /// C makes shifting a negative value undefined; routing through unsigned keeps
 /// the same bits and keeps UBSan quiet.
@@ -91,19 +68,19 @@ FIX_ALWAYS_INLINE fixed_t fixShiftLeft( fixed_t a, int shift )
 /// 128-bit variant of fixShiftLeft
 FIX_ALWAYS_INLINE fixInt128 fixInt128ShiftLeft( fixInt128 a, int shift )
 {
-	return (fixInt128)( (fixUInt128)a << shift );
+	return fixInt128FromUnsigned( fixUInt128Shl( fixInt128ToUnsigned( a ), shift ) );
 }
 
 /// @return the minimum of two 128-bit values.
 FIX_ALWAYS_INLINE fixInt128 fixInt128Min( fixInt128 a, fixInt128 b )
 {
-	return a < b ? a : b;
+	return fixInt128Lt( a, b ) ? a : b;
 }
 
 /// @return the maximum of two 128-bit values.
 FIX_ALWAYS_INLINE fixInt128 fixInt128Max( fixInt128 a, fixInt128 b )
 {
-	return a > b ? a : b;
+	return fixInt128Gt( a, b ) ? a : b;
 }
 
 /// Exact signed 128-bit division. Bit-identical to the compiler's __divti3 for
@@ -115,8 +92,14 @@ FIX_ALWAYS_INLINE fixInt128 fixInt128Max( fixInt128 a, fixInt128 b )
 /// differential fuzz on both ISAs). Apple silicon's library call is already
 /// within 8% of a hand-written Knuth divide, so non-x86 targets keep the
 /// plain division.
+/// On the emulated arm (plain MSVC, or any build with FIX_FORCE_EMULATED_INT128) the
+/// shift-subtract divide in fixed_int128.h is the whole implementation: the fast paths
+/// below are native-type transformations with nothing to accelerate.
 FIX_ALWAYS_INLINE fixInt128 fixInt128Div( fixInt128 a, fixInt128 b )
 {
+#if FIX_INT128_EMULATED
+	return fixEmuInt128Div( a, b );
+#else
 #if defined( __x86_64__ )
 	fixUInt128 ua = a < 0 ? -(fixUInt128)a : (fixUInt128)a;
 	fixUInt128 ub = b < 0 ? -(fixUInt128)b : (fixUInt128)b;
@@ -182,6 +165,7 @@ FIX_ALWAYS_INLINE fixInt128 fixInt128Div( fixInt128 a, fixInt128 b )
 #else
 	return a / b;
 #endif
+#endif
 }
 
 /// Multiply two fixed-point numbers with round-to-nearest.
@@ -191,20 +175,20 @@ FIX_ALWAYS_INLINE fixInt128 fixInt128Div( fixInt128 a, fixInt128 b )
 /// own BOX3D_FIXED_SATURATE down through its compatibility header.)
 FIX_ALWAYS_INLINE fixed_t fixMul( fixed_t a, fixed_t b )
 {
-	fixInt128 product = (fixInt128)a * b;
+	fixInt128 product = fixInt128MulI64( a, b );
 	// Round half up, then shift out the fraction bits (arithmetic shift)
-	fixInt128 r = ( product + FIX_HALF ) >> FIX_FRACTION_BITS;
+	fixInt128 r = fixInt128Shr( fixInt128Add( product, fixInt128FromI64( FIX_HALF ) ), FIX_FRACTION_BITS );
 #if defined( FIX_SATURATE )
-	if ( r > (fixInt128)INT64_MAX )
+	if ( fixInt128Gt( r, fixInt128FromI64( INT64_MAX ) ) )
 	{
 		return FIX_MAX;
 	}
-	if ( r < -(fixInt128)INT64_MAX )
+	if ( fixInt128Lt( r, fixInt128FromI64( -INT64_MAX ) ) )
 	{
 		return FIX_MIN;
 	}
 #endif
-	return (fixed_t)r;
+	return (fixed_t)fixInt128ToI64( r );
 }
 
 /// Divide two fixed-point numbers with truncation toward zero and saturation.
@@ -223,17 +207,30 @@ FIX_ALWAYS_INLINE fixed_t fixDiv( fixed_t a, fixed_t b )
 		return fixShiftLeft( a, FIX_FRACTION_BITS ) / b;
 	}
 
-	fixInt128 q = fixInt128Div( fixInt128ShiftLeft( a, FIX_FRACTION_BITS ), b );
-	if ( q > (fixInt128)INT64_MAX )
+	fixInt128 q = fixInt128Div( fixInt128ShiftLeft( fixInt128FromI64( a ), FIX_FRACTION_BITS ), fixInt128FromI64( b ) );
+	if ( fixInt128Gt( q, fixInt128FromI64( INT64_MAX ) ) )
 	{
 		return FIX_MAX;
 	}
-	if ( q < -(fixInt128)INT64_MAX )
+	if ( fixInt128Lt( q, fixInt128FromI64( -INT64_MAX ) ) )
 	{
 		return FIX_MIN;
 	}
-	return (fixed_t)q;
+	return (fixed_t)fixInt128ToI64( q );
 }
+
+// The seed for the exact integer square root below. gcc and clang compile
+// __builtin_sqrt to the hardware instruction; plain MSVC has no such builtin and uses
+// <math.h>'s sqrt. Either spelling is only a STARTING POINT -- the repair loops that
+// follow drive the result to the exact integer floor from any nearby seed -- so the
+// choice cannot move a bit of output, and the frozen determinism hashes hold that.
+// Internal to this header; not part of the overridable macro set in base.h.
+#if defined( _MSC_VER ) && !defined( __clang__ )
+	#include <math.h>
+	#define FIX_SQRT_SEED( x ) sqrt( x )
+#else
+	#define FIX_SQRT_SEED( x ) __builtin_sqrt( x )
+#endif
 
 /// Exact integer square root of an unsigned 128 bit value (helper for fixSqrt).
 FIX_ALWAYS_INLINE uint64_t fixISqrt128High( uint64_t hi, uint64_t lo )
@@ -248,16 +245,16 @@ FIX_ALWAYS_INLINE uint64_t fixISqrt128High( uint64_t hi, uint64_t lo )
 			return 0;
 		}
 
-		uint64_t r = (uint64_t)__builtin_sqrt( (double)lo );
+		uint64_t r = (uint64_t)FIX_SQRT_SEED( (double)lo );
 		if ( r > 0xFFFFFFFFu )
 		{
 			r = 0xFFFFFFFFu;
 		}
-		while ( r > 0 && (fixUInt128)r * r > lo )
+		while ( r > 0 && fixUInt128Gt( fixUInt128MulU64( r, r ), fixUInt128FromU64( lo ) ) )
 		{
 			r -= 1;
 		}
-		while ( (fixUInt128)( r + 1 ) * ( r + 1 ) <= lo )
+		while ( fixUInt128Le( fixUInt128MulU64( r + 1, r + 1 ), fixUInt128FromU64( lo ) ) )
 		{
 			r += 1;
 		}
@@ -265,30 +262,31 @@ FIX_ALWAYS_INLINE uint64_t fixISqrt128High( uint64_t hi, uint64_t lo )
 	}
 
 	// Rare 128 bit case: restoring shift-subtract square root
-	fixUInt128 n = ( (fixUInt128)hi << 64 ) | lo;
+	fixUInt128 n = fixUInt128Make( hi, lo );
 	fixUInt128 x = n;
-	fixUInt128 c = 0;
-	fixUInt128 d = (fixUInt128)1 << 126;
-	while ( d > n )
+	fixUInt128 c = FIX_UINT128_ZERO;
+	fixUInt128 d = fixUInt128Shl( fixUInt128FromU64( 1 ), 126 );
+	while ( fixUInt128Gt( d, n ) )
 	{
-		d >>= 2;
+		d = fixUInt128Shr( d, 2 );
 	}
 
-	while ( d != 0 )
+	while ( !fixUInt128Eq( d, FIX_UINT128_ZERO ) )
 	{
-		if ( x >= c + d )
+		fixUInt128 cd = fixUInt128Add( c, d );
+		if ( fixUInt128Ge( x, cd ) )
 		{
-			x -= c + d;
-			c = ( c >> 1 ) + d;
+			x = fixUInt128Sub( x, cd );
+			c = fixUInt128Add( fixUInt128Shr( c, 1 ), d );
 		}
 		else
 		{
-			c >>= 1;
+			c = fixUInt128Shr( c, 1 );
 		}
-		d >>= 2;
+		d = fixUInt128Shr( d, 2 );
 	}
 
-	return (uint64_t)c;
+	return fixUInt128Lo( c );
 }
 
 /// Fixed-point square root. Exact (round toward zero). Negative inputs return 0.

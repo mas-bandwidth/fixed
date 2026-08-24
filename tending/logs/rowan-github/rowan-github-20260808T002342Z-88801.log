@@ -1,0 +1,2 @@
+2026-08-08T00:23:42Z info  log: /Users/glenn/rowan-working/fixed/tending/logs/rowan-github/rowan-github-20260808T002342Z-88801.log
+2026-08-08T00:23:42Z info  argv: api repos/mas-bandwidth/fixed/actions/runs?branch=main&per_page=5 --jq .workflow_runs[] | {name, head_sha, status, conclusion, created_at}

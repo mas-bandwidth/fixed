@@ -28,7 +28,7 @@ FIX_INLINE fixed_t fixUnwindAngle( fixed_t radians )
 {
 	const fixed_t twoPi = FIX( 6.28318530718 );
 	int64_t n = ( fixDiv( radians, twoPi ) + FIX_HALF ) >> FIX_FRACTION_BITS;
-	return (fixed_t)( radians - (fixInt128)n * twoPi );
+	return (fixed_t)fixInt128ToI64( fixInt128Sub( fixInt128FromI64( radians ), fixInt128MulI64( n, twoPi ) ) );
 }
 
 /// Interpolate a scalar.

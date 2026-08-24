@@ -6,14 +6,32 @@
 // includes this one, so the dependency only exists in this translation unit.
 #include "fixed/fixed_vec.h"
 
+// Index of the highest set bit of a NON-ZERO 64-bit value. gcc and clang have
+// __builtin_clzll; plain MSVC has _BitScanReverse64. Both compile to one instruction, and
+// the callers below all guard against zero, where the answer is undefined for either.
+#if defined( _MSC_VER ) && !defined( __clang__ )
+	#include <intrin.h>
+static inline int fixMostSignificantBit64( uint64_t v )
+{
+	unsigned long index;
+	_BitScanReverse64( &index, v );
+	return (int)index;
+}
+#else
+static inline int fixMostSignificantBit64( uint64_t v )
+{
+	return 63 - __builtin_clzll( v );
+}
+#endif
+
 static inline int64_t fixQ32Mul( int64_t a, int64_t b )
 {
-	return (int64_t)( ( (fixInt128)a * b ) >> 32 );
+	return fixInt128ToI64( fixInt128Shr( fixInt128MulI64( a, b ), 32 ) );
 }
 
 static inline int64_t fixQ32Div( int64_t a, int64_t b )
 {
-	return (int64_t)fixInt128Div( fixInt128ShiftLeft( a, 32 ), b );
+	return fixInt128ToI64( fixInt128Div( fixInt128ShiftLeft( fixInt128FromI64( a ), 32 ), fixInt128FromI64( b ) ) );
 }
 
 
@@ -52,7 +70,7 @@ fixed_t fixAtan2( fixed_t y, fixed_t x )
 
 	// a = mn / mx in [0, 1], evaluated in Q32.32. mn >= 0 so the raw shift
 	// would be fine, but the helper is the convention for signed shifts.
-	int64_t a = (int64_t)fixInt128Div( fixInt128ShiftLeft( (fixInt128)mn, 32 ), mx );
+	int64_t a = fixQ32Div( mn, mx );
 
 	// Minimax polynomial approximation to atan(a) on [0,1]
 	int64_t s = fixQ32Mul( a, a );
@@ -174,7 +192,7 @@ fixed_t fixLog2( fixed_t a )
 	}
 
 	// integer part: position of the leading bit relative to the fraction point
-	int msb = 63 - __builtin_clzll( (uint64_t)a );
+	int msb = fixMostSignificantBit64( (uint64_t)a );
 	int64_t integerPart = (int64_t)( msb - FIX_FRACTION_BITS );
 
 	// mantissa m in [1, 2), carried in Q2.62 (fits u64: raw in [2^62, 2^63)): the exact binary
@@ -190,19 +208,20 @@ fixed_t fixLog2( fixed_t a )
 		m = (uint64_t)a >> ( msb - 62 );
 	}
 
+	const fixUInt128 half4 = fixUInt128Shl( fixUInt128FromU64( 1 ), 125 );
 	uint64_t fraction32 = 0;
 	for ( int i = 0; i < 32; ++i )
 	{
-		fixUInt128 sq = (fixUInt128)m * m; // Q4.124, value in [1, 4)
+		fixUInt128 sq = fixUInt128MulU64( m, m ); // Q4.124, value in [1, 4)
 		fraction32 <<= 1;
-		if ( sq >= ( (fixUInt128)1 << 125 ) )
+		if ( fixUInt128Ge( sq, half4 ) )
 		{
 			fraction32 |= 1;
-			m = (uint64_t)( sq >> 63 ); // halve back into [1, 2) at Q2.62
+			m = fixUInt128Lo( fixUInt128Shr( sq, 63 ) ); // halve back into [1, 2) at Q2.62
 		}
 		else
 		{
-			m = (uint64_t)( sq >> 62 ); // renormalize to Q2.62
+			m = fixUInt128Lo( fixUInt128Shr( sq, 62 ) ); // renormalize to Q2.62
 		}
 	}
 
@@ -242,7 +261,7 @@ fixed_t fixExp2( fixed_t a )
 		// bit for 2^-( k + 1 ) is fraction bit ( 15 - k )
 		if ( f & ( 1ull << ( 15 - k ) ) )
 		{
-			r = (uint64_t)( ( (fixUInt128)r * fixExp2Table[k] ) >> 32 );
+			r = fixUInt128Lo( fixUInt128Shr( fixUInt128MulU64( r, fixExp2Table[k] ), 32 ) );
 		}
 	}
 
@@ -286,13 +305,14 @@ int32_t fixNormalizeComponent30( int64_t raw, uint64_t length )
 	// Unsigned negation rather than -raw: the magnitude is identical for every input and
 	// stays defined at INT64_MIN, where negating the signed value is not.
 	uint64_t magnitude = raw < 0 ? -(uint64_t)raw : (uint64_t)raw;
-	fixUInt128 numerator = ( (fixUInt128)magnitude << FIX30_FRACTION_BITS ) + ( length >> 1 );
+	fixUInt128 numerator = fixUInt128Add( fixUInt128Shl( fixUInt128FromU64( magnitude ), FIX30_FRACTION_BITS ),
+										  fixUInt128FromU64( length >> 1 ) );
 
 	// Through fixInt128Div rather than the native 128-bit divide. Both operands are
 	// non-negative and well inside the signed 128-bit range, so the truncated quotient is
 	// the same; the library's own divide is the one that works on ClangCL, which does not
 	// link the compiler-rt 128-bit division builtins.
-	uint64_t q = (uint64_t)fixInt128Div( (fixInt128)numerator, (fixInt128)length );
+	uint64_t q = (uint64_t)fixInt128ToI64( fixInt128Div( fixInt128FromUnsigned( numerator ), fixInt128FromU64( length ) ) );
 	if ( q > (uint64_t)FIX30_ONE )
 	{
 		q = (uint64_t)FIX30_ONE; // the rounded divide can overshoot one by an ulp

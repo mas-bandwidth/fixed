@@ -49,14 +49,40 @@ static bool VecEq( fixVec3 a, fixVec3 b )
 	return a.x == b.x && a.y == b.y && a.z == b.z;
 }
 
+// 128-bit values and comparisons spelled through the seam rather than with bare
+// operators, so this suite compiles on the emulated arm as well as the native one. See
+// the same note in wide_time_test.c: the test suite is a consumer, and a consumer on
+// plain MSVC cannot write `(fixedWide_t)1 << 90` either.
+static fixedWide_t W( int64_t v )
+{
+	return fixWideFromFixed( v );
+}
+
+static fixedWide_t WSHL( int64_t v, int shift )
+{
+	return fixInt128ShiftLeft( fixWideFromFixed( v ), shift );
+}
+
+#define WEQ( a, b ) fixWideEq( ( a ), ( b ) )
+
+static fixPosWide PosWide( fixedWide_t x, fixedWide_t y, fixedWide_t z )
+{
+	fixPosWide p = { x, y, z };
+	return p;
+}
+
 // widen a narrow box, optionally re-based at a wide origin
 static fixAABBWide Widen( fixAABB a, fixedWide_t base )
 {
 	fixAABBWide w;
 	w.lowerBound = fixPosWideFromVec3( a.lowerBound );
 	w.upperBound = fixPosWideFromVec3( a.upperBound );
-	w.lowerBound.x += base; w.lowerBound.y += base; w.lowerBound.z += base;
-	w.upperBound.x += base; w.upperBound.y += base; w.upperBound.z += base;
+	w.lowerBound.x = fixWideAdd( w.lowerBound.x, base );
+	w.lowerBound.y = fixWideAdd( w.lowerBound.y, base );
+	w.lowerBound.z = fixWideAdd( w.lowerBound.z, base );
+	w.upperBound.x = fixWideAdd( w.upperBound.x, base );
+	w.upperBound.y = fixWideAdd( w.upperBound.y, base );
+	w.upperBound.z = fixWideAdd( w.upperBound.z, base );
 	return w;
 }
 
@@ -172,14 +198,14 @@ int main( void )
 
 	// ---- wide: position and transform validators ----
 	{
-		fixPosWide p = { (fixedWide_t)1 << 90, 0, -( (fixedWide_t)1 << 95 ) };
+		fixPosWide p = PosWide( WSHL( 1, 90 ), W( 0 ), fixWideNeg( WSHL( 1, 95 ) ) );
 		CHECK( fixIsValidPosWide( p ) );
-		CHECK( fixIsValidWideCoord( (fixedWide_t)0 ) );
+		CHECK( fixIsValidWideCoord( W( 0 ) ) );
 
 		// the reserved 128-bit minimum: negating it would overflow, so it is not a value
-		fixedWide_t reserved = (fixedWide_t)( (fixUInt128)1 << 127 );
+		fixedWide_t reserved = fixInt128Make( UINT64_C( 0x8000000000000000 ), 0 );
 		CHECK( fixIsValidWideCoord( reserved ) == false );
-		fixPosWide bad = { reserved, 0, 0 };
+		fixPosWide bad = PosWide( reserved, W( 0 ), W( 0 ) );
 		CHECK( fixIsValidPosWide( bad ) == false );
 
 		fixWorldTransformWide t = { p, fixMakeQuatFromAxisAngle( V( 0.0f, 1.0f, 0.0f ), FIX( 0.25f ) ) };
@@ -204,7 +230,7 @@ int main( void )
 		for ( int i = 0; i < 5; ++i )
 		{
 			fixAABB n = cases[i];
-			fixAABBWide w = Widen( n, 0 );
+			fixAABBWide w = Widen( n, W( 0 ) );
 
 			CHECK( fixIsValidAABBWide( w ) == fixIsValidAABB( n ) );
 			CHECK( VecEq( fixAABBWide_Center( w ), fixAABB_Center( n ) ) );
@@ -213,7 +239,7 @@ int main( void )
 
 			for ( int j = 0; j < 5; ++j )
 			{
-				fixAABBWide wj = Widen( cases[j], 0 );
+				fixAABBWide wj = Widen( cases[j], W( 0 ) );
 				CHECK( fixAABBWide_Contains( w, wj ) == fixAABB_Contains( n, cases[j] ) );
 				CHECK( fixAABBWide_Overlaps( w, wj ) == fixAABB_Overlaps( n, cases[j] ) );
 
@@ -237,8 +263,8 @@ int main( void )
 	// Ordering, union, containment and overlap past Q48.16 range, where every narrow
 	// coordinate would have saturated to INT64_MAX and compared equal.
 	{
-		fixedWide_t farBase = (fixedWide_t)1 << 90;   // far past local range
-		fixedWide_t farther = (fixedWide_t)1 << 100;
+		fixedWide_t farBase = WSHL( 1, 90 ); // far past local range
+		fixedWide_t farther = WSHL( 1, 100 );
 
 		fixAABB unit = Box( 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f );
 		fixAABBWide at90 = Widen( unit, farBase );
@@ -255,8 +281,8 @@ int main( void )
 		fixAABBWide u = fixAABBWide_Union( at90, at100 );
 		CHECK( fixAABBWide_Contains( u, at90 ) );
 		CHECK( fixAABBWide_Contains( u, at100 ) );
-		CHECK( u.lowerBound.x == farBase );
-		CHECK( u.upperBound.x == farther + FIX( 1.0f ) );
+		CHECK( WEQ( u.lowerBound.x, farBase ) );
+		CHECK( WEQ( u.upperBound.x, fixWideOffset( farther, FIX( 1.0f ) ) ) );
 
 		// a box is its own container and overlaps itself, at any distance
 		CHECK( fixAABBWide_Contains( at100, at100 ) );
@@ -266,27 +292,28 @@ int main( void )
 		CHECK( VecEq( fixAABBWide_Extents( at100 ), fixAABB_Extents( unit ) ) );
 
 		// placing a local box at a wide origin is exact, and round-trips
-		fixPosWide origin = { farther, farther, farther };
+		fixPosWide origin = PosWide( farther, farther, farther );
 		fixAABBWide placed = fixOffsetAABBWide( unit, origin );
-		CHECK( placed.lowerBound.x == farther );
-		CHECK( placed.upperBound.x == farther + FIX( 1.0f ) );
+		CHECK( WEQ( placed.lowerBound.x, farther ) );
+		CHECK( WEQ( placed.upperBound.x, fixWideOffset( farther, FIX( 1.0f ) ) ) );
 		CHECK( fixAABBWide_Contains( placed, placed ) );
 		CHECK( VecEq( fixAABBWide_Extents( placed ), fixAABB_Extents( unit ) ) );
 	}
 
 	// ---- wide AABB: point cloud ----
 	{
-		fixedWide_t base = (fixedWide_t)1 << 80;
+		fixedWide_t base = WSHL( 1, 80 );
 		fixPosWide pts[3];
-		pts[0] = (fixPosWide){ base, base, base };
-		pts[1] = (fixPosWide){ base + FIX( 4.0f ), base - FIX( 2.0f ), base + FIX( 1.0f ) };
-		pts[2] = (fixPosWide){ base - FIX( 1.0f ), base + FIX( 8.0f ), base };
+		pts[0] = PosWide( base, base, base );
+		pts[1] = PosWide( fixWideOffset( base, FIX( 4.0f ) ), fixWideOffset( base, -FIX( 2.0f ) ),
+						  fixWideOffset( base, FIX( 1.0f ) ) );
+		pts[2] = PosWide( fixWideOffset( base, -FIX( 1.0f ) ), fixWideOffset( base, FIX( 8.0f ) ), base );
 
 		fixAABBWide a = fixMakeAABBWide( pts, 3, FIX( 0.0f ) );
-		CHECK( a.lowerBound.x == base - FIX( 1.0f ) );
-		CHECK( a.lowerBound.y == base - FIX( 2.0f ) );
-		CHECK( a.upperBound.x == base + FIX( 4.0f ) );
-		CHECK( a.upperBound.y == base + FIX( 8.0f ) );
+		CHECK( WEQ( a.lowerBound.x, fixWideOffset( base, -FIX( 1.0f ) ) ) );
+		CHECK( WEQ( a.lowerBound.y, fixWideOffset( base, -FIX( 2.0f ) ) ) );
+		CHECK( WEQ( a.upperBound.x, fixWideOffset( base, FIX( 4.0f ) ) ) );
+		CHECK( WEQ( a.upperBound.y, fixWideOffset( base, FIX( 8.0f ) ) ) );
 		CHECK( fixIsValidAABBWide( a ) );
 
 		// every source point lies inside the box built from it
@@ -297,7 +324,7 @@ int main( void )
 		}
 
 		fixAABBWide r = fixMakeAABBWide( pts, 3, FIX( 1.0f ) );
-		CHECK( r.lowerBound.x == base - FIX( 2.0f ) );
+		CHECK( WEQ( r.lowerBound.x, fixWideOffset( base, -FIX( 2.0f ) ) ) );
 		CHECK( fixAABBWide_Contains( r, a ) );
 	}
 
@@ -306,8 +333,8 @@ int main( void )
 	// vertices at a wide origin -- a different function, and its absence is why the
 	// ludicrous build could not be wired to this library.
 	{
-		fixedWide_t base = (fixedWide_t)1 << 95;
-		fixPosWide origin = { base, base, base };
+		fixedWide_t base = WSHL( 1, 95 );
+		fixPosWide origin = PosWide( base, base, base );
 		fixVec3 pts[3] = { V( 0.0f, 0.0f, 0.0f ), V( 2.0f, -1.0f, 3.0f ), V( -4.0f, 5.0f, 1.0f ) };
 
 		fixAABBWide w = fixMakeAABBWideAt( pts, 3, FIX( 0.0f ), origin );
@@ -315,20 +342,20 @@ int main( void )
 
 		// same box, just placed: extents match the local build exactly, at any distance
 		CHECK( VecEq( fixAABBWide_Extents( w ), fixAABB_Extents( n ) ) );
-		CHECK( w.lowerBound.x == base + n.lowerBound.x );
-		CHECK( w.upperBound.z == base + n.upperBound.z );
+		CHECK( WEQ( w.lowerBound.x, fixWideOffset( base, n.lowerBound.x ) ) );
+		CHECK( WEQ( w.upperBound.z, fixWideOffset( base, n.upperBound.z ) ) );
 		CHECK( fixIsValidAABBWide( w ) );
 
 		// and it agrees with widening the narrow box by hand
 		fixAABBWide viaOffset = fixOffsetAABBWide( n, origin );
-		CHECK( viaOffset.lowerBound.x == w.lowerBound.x );
-		CHECK( viaOffset.upperBound.y == w.upperBound.y );
+		CHECK( WEQ( viaOffset.lowerBound.x, w.lowerBound.x ) );
+		CHECK( WEQ( viaOffset.upperBound.y, w.upperBound.y ) );
 	}
 
 	// fixAABBWide_Transform: conservative-bound property must hold in the wide build too
 	{
 		fixAABB unit = Box( -1.0f, -1.0f, -1.0f, 1.0f, 1.0f, 1.0f );
-		fixAABBWide w = Widen( unit, 0 );
+		fixAABBWide w = Widen( unit, W( 0 ) );
 
 		fixTransform id = { V( 0.0f, 0.0f, 0.0f ), fixMakeQuatFromAxisAngle( V( 0.0f, 1.0f, 0.0f ), FIX( 0.0f ) ) };
 		fixAABBWide t0 = fixAABBWide_Transform( id, w );
@@ -353,7 +380,7 @@ int main( void )
 	// library. Each one is called here; the correspondence with narrow is checked where
 	// it must hold, and the ONE place it deliberately does not is checked as a difference.
 	{
-		fixedWide_t base = (fixedWide_t)1 << 95;
+		fixedWide_t base = WSHL( 1, 95 );
 		fixVec3 lp = V( 3.0f, -2.0f, 0.5f );
 		fixQuat q = fixMakeQuatFromAxisAngle( V( 0.0f, 0.0f, 1.0f ), FIX( 0.7f ) );
 
@@ -376,7 +403,7 @@ int main( void )
 		// and it agrees with the narrow transform once the base is subtracted off
 		fixTransform T = { V( 0.0f, 0.0f, 0.0f ), q };
 		fixVec3 rotated = fixTransformPoint( T, lp );
-		fixPosWide origin = { base, base, base };
+		fixPosWide origin = PosWide( base, base, base );
 		CHECK( VecEq( fixPosWideSub( wp, origin ), rotated ) );
 
 		// promoting a local transform is lossless
@@ -406,13 +433,13 @@ int main( void )
 
 	// ---- wide lerp: endpoints exact, and the deliberate divergence from narrow ----
 	{
-		fixedWide_t base = (fixedWide_t)1 << 95;
-		fixPosWide a = { base, base, base };
+		fixedWide_t base = WSHL( 1, 95 );
+		fixPosWide a = PosWide( base, base, base );
 		fixPosWide b = fixPosWideOffset( a, V( 4.0f, 8.0f, -2.0f ) );
 
 		// endpoints are exact at any distance
-		CHECK( fixLerpPositionWide( a, b, FIX( 0.0f ) ).x == a.x );
-		CHECK( fixLerpPositionWide( a, b, FIX( 1.0f ) ).x == b.x );
+		CHECK( WEQ( fixLerpPositionWide( a, b, FIX( 0.0f ) ).x, a.x ) );
+		CHECK( WEQ( fixLerpPositionWide( a, b, FIX( 1.0f ) ).x, b.x ) );
 
 		// halfway is halfway, measured as an offset from the base
 		fixPosWide mid = fixLerpPositionWide( a, b, FIX( 0.5f ) );
@@ -421,14 +448,15 @@ int main( void )
 		// monotone along the segment
 		fixPosWide q1 = fixLerpPositionWide( a, b, FIX( 0.25f ) );
 		fixPosWide q3 = fixLerpPositionWide( a, b, FIX( 0.75f ) );
-		CHECK( a.x <= q1.x && q1.x <= mid.x && mid.x <= q3.x && q3.x <= b.x );
+		CHECK( fixWideLe( a.x, q1.x ) && fixWideLe( q1.x, mid.x ) && fixWideLe( mid.x, q3.x ) &&
+			   fixWideLe( q3.x, b.x ) );
 
 		// The one-rounding reformulation is exact for a representable midpoint, where
 		// the narrow two-rounding form need not be. This is the divergence being
 		// deliberate rather than tolerated: nothing here should be "fixed" to match.
 		fixPosWide na = fixPosWideFromVec3( V( 0.0f, 0.0f, 0.0f ) );
 		fixPosWide nb = fixPosWideFromVec3( V( 1.0f, 1.0f, 1.0f ) );
-		CHECK( fixLerpPositionWide( na, nb, FIX( 0.5f ) ).x == FIX( 0.5f ) );
+		CHECK( WEQ( fixLerpPositionWide( na, nb, FIX( 0.5f ) ).x, W( FIX( 0.5f ) ) ) );
 	}
 
 	if ( fails > 0 )

@@ -65,7 +65,10 @@ int main( void )
 	fixTime t = fixTimeFromFixed( FIX_ONE );
 	fixAABB box = { a, b };
 
-	if ( d == 0 || c.x == 0 || s != FIX( 2.0f ) || w == 0 || t == 0 || fixAABB_Area( box ) == 0 )
+	// fixWideEq rather than ==: fixedWide_t is a struct on the compilers with no
+	// __int128, and this file exists to be a REAL consumer of every header.
+	if ( d == 0 || c.x == 0 || s != FIX( 2.0f ) || fixWideEq( w, fixWideFromFixed( 0 ) ) || t == 0 ||
+		 fixAABB_Area( box ) == 0 )
 	{
 		printf( "override_api: unexpected value\n" );
 		return 1;

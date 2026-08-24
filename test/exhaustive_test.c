@@ -40,26 +40,46 @@ static fixed_t MUL( fixed_t a, fixed_t b )
 #define EXPECTED_SWEEP_HASH 0x5a4aac80ad1b6c5dULL
 #endif
 
-// Independent truncating 128-bit division reference: shift-subtract on
-// magnitudes, no native / (which needs compiler-rt on Windows ClangCL) and no
-// dependence on the library's own fixInt128Div.
-static fixInt128 ref_div_128( fixInt128 a, fixInt128 b )
+// THE 128-BIT REFERENCES IN THIS FILE ARE WRITTEN ON THE COMPILER'S OWN __int128, NOT ON
+// THIS LIBRARY'S SEAM, and that is deliberate.
+//
+// fixInt128 is native __int128 on most compilers but an emulated pair of 64-bit lanes on
+// plain MSVC (and on any build with FIX_FORCE_EMULATED_INT128). An oracle spelled in the
+// seam's vocabulary would share the implementation's transformation: an emulated add with
+// a broken carry would break the reference and the implementation in exactly the same
+// way, and the comparison would keep passing. So where the compiler has a native 128-bit
+// type these references use it, which makes them genuinely independent -- including, and
+// especially, on the FIX_FORCE_EMULATED_INT128 build, where native is present and the
+// library is not using it. Where the compiler has no native type there is no independent
+// oracle to write, and the frozen sweep hash at the end of this file is what holds these
+// results instead.
+#if defined( __SIZEOF_INT128__ )
+	#define HAS_NATIVE_INT128 1
+__extension__ typedef __int128 refInt128;
+__extension__ typedef unsigned __int128 refUInt128;
+
+// Truncating 128-bit division: shift-subtract on the magnitudes, avoiding native `/`
+// (which needs compiler-rt on Windows ClangCL) and avoiding the library's fixInt128Div.
+static refInt128 ref_div_128( refInt128 a, refInt128 b )
 {
-	fixUInt128 un = a < 0 ? -(fixUInt128)a : (fixUInt128)a;
-	fixUInt128 ud = b < 0 ? -(fixUInt128)b : (fixUInt128)b;
-	fixUInt128 q = 0;
-	fixUInt128 r = 0;
+	refUInt128 un = a < 0 ? -(refUInt128)a : (refUInt128)a;
+	refUInt128 ud = b < 0 ? -(refUInt128)b : (refUInt128)b;
+	refUInt128 q = 0;
+	refUInt128 r = 0;
 	for ( int i = 127; i >= 0; i-- )
 	{
 		r = ( r << 1 ) | ( ( un >> i ) & 1 );
 		if ( r >= ud )
 		{
 			r -= ud;
-			q |= (fixUInt128)1 << i;
+			q |= (refUInt128)1 << i;
 		}
 	}
-	return ( a < 0 ) != ( b < 0 ) ? -(fixInt128)q : (fixInt128)q;
+	return ( a < 0 ) != ( b < 0 ) ? -(refInt128)q : (refInt128)q;
 }
+#else
+	#define HAS_NATIVE_INT128 0
+#endif
 
 int main( void )
 {
@@ -101,11 +121,13 @@ int main( void )
 			for ( unsigned j = 0; j < sizeof( bs ) / sizeof( bs[0] ); j++ )
 			{
 				fixed_t a = as[i], b = bs[j];
-				// unsigned shift: left-shifting a negative value is UB
-				fixInt128 num = (fixInt128)( (fixUInt128)(fixInt128)a << FIX_FRACTION_BITS );
-				fixInt128 ref128 = ref_div_128( num, b ); // trunc-toward-zero
 				fixed_t got = fixDiv( a, b );
+#if HAS_NATIVE_INT128
+				// unsigned shift: left-shifting a negative value is UB
+				refInt128 num = (refInt128)( (refUInt128)(refInt128)a << FIX_FRACTION_BITS );
+				refInt128 ref128 = ref_div_128( num, b ); // trunc-toward-zero
 				CHECK( got == (fixed_t)ref128 );
+#endif
 				mix( got );
 			}
 		}
@@ -165,8 +187,8 @@ int main( void )
 			fixed_t ab = MUL( a, b );
 			CHECK( ab == MUL( b, a ) );
 			{
-				fixInt128 ref = ( (fixInt128)a * b + FIX_HALF ) >> FIX_FRACTION_BITS;
-#ifndef FIXED_NEGATIVE_CONTROL
+#if HAS_NATIVE_INT128 && !defined( FIXED_NEGATIVE_CONTROL )
+				refInt128 ref = ( (refInt128)a * b + FIX_HALF ) >> FIX_FRACTION_BITS;
 				CHECK( ab == (fixed_t)ref );
 #endif
 			}

@@ -618,9 +618,41 @@ FIX_ALWAYS_INLINE fixUInt128 fixUInt128Neg( fixUInt128 a ) { return -a; }
 /// caller proves the precondition and a branch here would sit inside the division loop.
 FIX_ALWAYS_INLINE uint64_t fixUInt128DivRemBy64( fixUInt128 a, uint64_t d, uint64_t* remainder )
 {
+#if defined( __x86_64__ )
+	// The hardware 128/64 divide, which is exactly this operation. divq traps when the
+	// quotient overflows 64 bits, and the precondition above -- high half below the
+	// divisor -- is precisely what rules that out, so it cannot fault here. volatile for
+	// the same reason fixInt128Div needs it: a non-volatile asm is assumed side-effect
+	// free and can be hoisted above the guard that makes it safe.
+	uint64_t quotient, rest;
+	uint64_t high = (uint64_t)( a >> 64 );
+	uint64_t low = (uint64_t)a;
+	__asm__ volatile( "divq %[v]" : "=a"( quotient ), "=d"( rest ) : [v] "r"( d ), "a"( low ), "d"( high ) );
+	*remainder = rest;
+	return quotient;
+#elif defined( _WIN32 )
+	// ClangCL does not link compiler-rt builtins, so native 128-bit division (__udivti3)
+	// is unavailable and this arm restores shift-subtract. Bit-identical, and reached only
+	// on Windows targets without the instruction above -- arm64 clang-cl today. The same
+	// reasoning and the same fallback as fixInt128Div.
+	fixUInt128 quotient = 0;
+	fixUInt128 rest = 0;
+	for ( int i = 127; i >= 0; i-- )
+	{
+		rest = ( rest << 1 ) | ( ( a >> i ) & 1 );
+		if ( rest >= (fixUInt128)d )
+		{
+			rest -= (fixUInt128)d;
+			quotient |= ( (fixUInt128)1 ) << i;
+		}
+	}
+	*remainder = (uint64_t)rest;
+	return (uint64_t)quotient;
+#else
 	fixUInt128 quotient = a / d;
 	*remainder = (uint64_t)( a - quotient * d );
 	return (uint64_t)quotient;
+#endif
 }
 // The shifts are the plain operators, with no guard on the count. That is deliberate and
 // it is the one place the two arms differ: a shift count outside [0, 127] is undefined

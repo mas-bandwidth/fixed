@@ -449,6 +449,25 @@ underflow to zero. `fixCofactor128( a, b, c, d )` is `a*b - c*d` at Q32.32 in 12
 `fixDivShifted( n, shift, d )` is `( n << shift ) / d` truncated to Q48.16; both are
 exposed because a consumer building its own solver needs the same pieces.
 
+**The inverse has a representability boundary, and you have to know where it is.** The
+result is Q48.16, which holds no value between zero and 1/65536. So the inverse of a
+matrix whose entries exceed 65,536 is not a small number in this format — it is no number
+at all, and the exact truncated answer is zero:
+
+```c
+fixInvertMatrix( diag( FIX( 65536.0f ) ) ).cx.x       // 1 — one quantum, the last one
+fixInvertMatrix( diag( FIX( 65536.0f ) + 1 ) ).cx.x   // 0 — and that is the exact answer
+```
+
+For an inertia tensor that line falls at about 13.1 units on a side for a uniform solid
+cube of density 1, because inertia grows as the fifth power of size. Past it the honest
+report is a zero inverse, and **zero from this function means unrepresentable, never
+singular-versus-static** — a consumer that needs to tell those apart tests the input.
+Nothing here wraps or changes sign: past 128 bits both `fixInvertMatrix` and `fixSolve3`
+move the whole calculation to 256, and a ratio that overflows Q48.16 in the other
+direction saturates to `FIX_MAX`/`FIX_MIN` with the true sign. `inverse_envelope_test.c`
+walks that whole range and pins it as an equality at every size.
+
 ### Transforms and world positions
 
 ```c
@@ -718,6 +737,7 @@ Build-time switches:
 |---|---|
 | `fixed/fixed.h` | `fixed_t`, `fixed30_t`, scalar arithmetic, conversions; pulls in the seam |
 | `fixed/fixed_int128.h` | `fixInt128`/`fixUInt128`, the vocabulary, the emulated pair |
+| `fixed/fixed_int256.h` | the 256-bit intermediates the wide arm of the 3x3 inverse needs |
 | `fixed/fixed_math.h` | transcendentals, the exp/log ladder, smoothing, `fixLerp` |
 | `fixed/fixed_vec.h` | vectors, quaternions, matrices, transforms, AABBs, planes, validators |
 | `fixed/fixed_wide.h` | Q112.16 scalars, wide positions, wide transforms and boxes |

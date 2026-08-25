@@ -163,8 +163,15 @@ static void mixTransform( fixTransform t ) { mixVec( t.p ); mixQuat( t.q ); }
 // matrix above: the inverse of it and the solve through it. Every other value in this
 // sweep is bit-identical, which was checked directly rather than assumed -- the sweep's
 // matrices are of order 5, so they take the 128-bit arm, which did not change.
+//
+// RE-CAPTURED 2026-08-25, from 0x660211d75929bade, when fixNormalize gained the lift
+// that spends the 128-bit square's precision honestly (short vectors used to come back
+// non-unit). Everything downstream of a normalize moved -- fixPerp, the axis-angle
+// quaternions, the normalize entries of the sweeps, and the new lattice sweep that now
+// also feeds this hash. Captured on the native arm and confirmed identical on the
+// emulated arm.
 #ifndef EXPECTED_GEOMETRY_HASH
-	#define EXPECTED_GEOMETRY_HASH 0x660211d75929badeULL
+	#define EXPECTED_GEOMETRY_HASH 0x30bfb494f2a5297bULL
 #endif
 
 // Deterministic sampling. splitmix64: pure integer, identical on every platform.
@@ -335,6 +342,48 @@ static void testVectors( void )
 			CHECK( fixIsNormalized( p ) );
 			CHECK( Near( fixDot( p, axes[i] ), 0, 4 ) );
 			mixVec( p );
+		}
+	}
+
+	// Normalization precision across the whole magnitude range: every nonzero direction
+	// on the [-2,2]^3 lattice, at raw scales from single quanta up to 2^61. fixNormalize
+	// lifts a short vector until its widest component fills the range before dividing,
+	// so the result is unit within fixIsNormalized's tolerance at EVERY magnitude, down
+	// to a raw length of 1 -- and across power-of-two scales inside the lift range the
+	// result is bit-identical, because the lift lands the same bits in the same place.
+	{
+		const fixed_t scales[] = { 1, 4, 91, 362, 23170, (fixed_t)1 << 16, (fixed_t)1 << 30,
+								   (fixed_t)1 << 44, (fixed_t)1 << 46, (fixed_t)1 << 61 };
+		const int scaleCount = (int)( sizeof( scales ) / sizeof( scales[0] ) );
+		for ( int i = -2; i <= 2; i++ )
+		{
+			for ( int j = -2; j <= 2; j++ )
+			{
+				for ( int k = -2; k <= 2; k++ )
+				{
+					if ( i == 0 && j == 0 && k == 0 )
+					{
+						continue;
+					}
+					for ( int s = 0; s < scaleCount; s++ )
+					{
+						fixVec3 v = { i * scales[s], j * scales[s], k * scales[s] };
+						fixVec3 u = fixNormalize( v );
+						CHECK( fixIsNormalized( u ) );
+						// direction preserved: every component keeps its sign
+						CHECK( ( v.x > 0 ) == ( u.x > 0 ) && ( v.x < 0 ) == ( u.x < 0 ) );
+						CHECK( ( v.y > 0 ) == ( u.y > 0 ) && ( v.y < 0 ) == ( u.y < 0 ) );
+						CHECK( ( v.z > 0 ) == ( u.z > 0 ) && ( v.z < 0 ) == ( u.z < 0 ) );
+						// exact scale invariance across a power-of-two lift
+						if ( scales[s] <= ( (fixed_t)1 << 30 ) )
+						{
+							fixVec3 v10 = { fixShiftLeft( v.x, 10 ), fixShiftLeft( v.y, 10 ), fixShiftLeft( v.z, 10 ) };
+							CHECK( VecEq( u, fixNormalize( v10 ) ) );
+						}
+						mixVec( u );
+					}
+				}
+			}
 		}
 	}
 

@@ -20,8 +20,8 @@
 //
 // THE NATIVE REFERENCES ARE FORCED OUT OF LINE. Both sides of this comparison are
 // FIX_ALWAYS_INLINE header code operating on values the optimizer can track, which is
-// exactly the shape that let a 200-million-comparison sweep fold to nothing and pass in
-// 0.00s on pull request #9. REF_NOINLINE keeps the native side opaque, and main() prints
+// exactly the shape that lets a 200-million-comparison sweep fold to nothing and pass in
+// 0.00s while reporting zero mismatches. REF_NOINLINE keeps the native side opaque, and main() prints
 // the elapsed time of the whole suite so a suspiciously instant run is visible.
 //
 // WHAT IS DELIBERATELY NOT COMPARED, because native has no answer to compare to:

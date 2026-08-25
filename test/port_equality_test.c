@@ -992,8 +992,8 @@ static uint64_t sweepSmoothUpDown( int perturb, uint64_t samples )
 }
 
 // The reference min/max, perturbed in place and forced out of line: fixInt128Min is a
-// header-inline conditional and so is this, which is exactly the shape the optimizer
-// folded on pull request #9.
+// header-inline conditional and so is this, which is exactly the shape the folded-sweep
+// failure mode preys on.
 static REF_NOINLINE fixInt128 refInt128Min( fixInt128 a, fixInt128 b, int perturb )
 {
 	fixInt128 m = fixInt128Lt( a, b ) ? a : b;

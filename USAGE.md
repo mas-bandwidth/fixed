@@ -399,7 +399,11 @@ bool      sameSide = fixInt128Gt( raw, FIX_INT128_ZERO );   // exact sign test
 fixed_t   rounded  = fixFromDotRaw( raw );  // one rounding, matching fixMul
 ```
 
-`fixGetLengthAndNormalize( &length, a )` returns both in one pass.
+`fixNormalize` is unit within `fixIsNormalized`'s tolerance at every input magnitude,
+down to a raw length of 1: it lifts a short vector until its widest component fills the
+range before dividing, which is exact (a left shift preserves the direction bit for bit)
+and keeps the divisor's precision. `fixGetLengthAndNormalize( &length, a )` returns both
+in one pass.
 
 The `fix`/`fixVec` distinction is deliberate and load-bearing: `fixMin` is scalar,
 `fixVecMin` is componentwise. In fixed3d these were `b3FixMin` and `b3Min`, a one-token

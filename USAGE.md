@@ -119,9 +119,16 @@ pair of two 64-bit lanes defined in `include/fixed/fixed_int128.h`. Both arms as
 same frozen determinism hashes in CI, so "the emulation is bit-identical to native" is a
 checked guarantee rather than a claim.
 
-The consequence for your code: **there is no bare 128-bit operator anywhere in this
-library, and portable consumer code should not write one either.** Every 128-bit operation
-has a named function.
+The consequence for your code: **every 128-bit operation has a named function, and
+portable consumer code should not write a bare 128-bit operator.**
+
+The library writes one itself, in exactly one place: `fixMul` spells its rounding
+expression a second time in native operators under `#if FIX_INT128_EMULATED`, because at
+`-O0` each inlined seam call materializes its operands to the stack and that costs a
+consumer's debug test run about 40%. It is a transcription of the seam's own native
+bodies, not a second algorithm, and the emulated build of the whole suite asserts the same
+frozen hashes. Nothing in the public surface changes: `fixMul` returns the same bits on
+both arms at every optimization level.
 
 ```c
 fixInt128 product = fixInt128MulI64( a, b );                   // widening 64x64 -> 128

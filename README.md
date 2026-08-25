@@ -26,9 +26,9 @@ can be used independently of the physics engine.
 
 ## Guarantee, checked in code
 
-Seven test suites run structured sweeps and hash every result against a constant frozen
-into the source. Any change that alters a single bit fails, on every platform. Five more
-targets build a suite with a deliberate one-ulp error injected and are marked `WILL_FAIL`,
+Eight test suites run structured sweeps and hash every result against a constant frozen
+into the source. Any change that alters a single bit fails, on every platform. Seven more
+targets build a suite with a deliberate error injected and are marked `WILL_FAIL`,
 so a suite that goes blind says so instead of passing quietly.
 
 Every arm of the CI matrix asserts the same frozen hashes:

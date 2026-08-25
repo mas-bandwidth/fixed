@@ -182,6 +182,12 @@ int main( void )
 		CLAIM( "Vectors", fixDot( tiny, tiny ) == 0 );
 		CLAIM( "Vectors", fixInt128Gt( fixDotRaw( tiny, tiny ), FIX_INT128_ZERO ) );
 	}
+	// "unit within fixIsNormalized's tolerance at every input magnitude, down to a raw
+	// length of 1"
+	{
+		fixVec3 rawUnit = { 1, 1, 0 };
+		CLAIM( "Vectors", fixIsNormalized( fixNormalize( rawUnit ) ) );
+	}
 
 	// ---- "Quaternions" and "Matrices" --------------------------------------------
 	// "zero quaternion in, identity out"

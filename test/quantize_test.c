@@ -20,7 +20,7 @@
 //
 // REF_NOINLINE IS LOAD-BEARING. These references are transcriptions of code that is
 // header-inline in this library, so the compiler can see both sides, prove them
-// equivalent and delete the sweep -- measured on pull request #9, where 200 million
+// equivalent and delete the sweep -- measured: 200 million
 // comparisons folded to nothing and ran in 0.00s while reporting zero mismatches. The
 // negative control did NOT catch it, because a folded comparison folds identically on the
 // perturbed arm. Keeping the references out of line forces both sides to execute, and
@@ -150,7 +150,7 @@ static REF_NOINLINE int64_t refWiden( int64_t raw, int shift )
 // The checks below compare two header-inline functions that are supposed to BE the same
 // function -- fixFromFix30 against fixNarrow, fixFromDouble against fixQuantize. That is
 // precisely the shape an optimizer can prove equivalent and fold to a constant false: the
-// check would then pass without either side running, which is the pull request #9 failure
+// check would then pass without either side running, which is the folded-sweep failure
 // mode aimed at the equivalence test itself. Routing one side through an opaque call
 // forces both to execute.
 //
@@ -195,7 +195,7 @@ static int64_t bump( int64_t v, int perturb )
 // The first is the reason port_equality_test.c does the same: a const table walked by a
 // constant-bounded loop lets the compiler unroll the sweep and fold the library side of
 // every comparison to a literal. What is left compares a constant against a call, which is
-// not a test of the code -- the pull request #9 failure mode, one step removed. Values the
+// not a test of the code -- the folded-sweep failure mode, one step removed. Values the
 // optimizer cannot see through keep the library's own arithmetic executing.
 //
 // The second is that MSVC's C compiler crashed outright on the const-table form: cl.exe

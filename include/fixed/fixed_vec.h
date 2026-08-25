@@ -151,20 +151,38 @@ FIX_INLINE fixVec3 fixVecNeg( fixVec3 a )
 	return FIX_LITERAL( fixVec3 ){ -a.x, -a.y, -a.z };
 }
 
+// THE 128-BIT REDUCTIONS BELOW ARE SPELLED TWICE, exactly as fixMul is and for the same
+// reason (see the note on fixMul in fixed.h): at -O0 every inlined seam call materializes
+// its operands to stack slots, and these functions -- the dot family and the quaternion
+// products -- are the solver-rate reductions a consumer's debug build runs constantly.
+// Each native spelling is a transcription of the seam's own native bodies, including the
+// unsigned round trips that keep the overflow behavior defined; the emulated build of the
+// entire suite asserts the same frozen hashes, so the arms cannot drift in silence. The
+// exempt set is enumerated in fixed_int128.h next to the no-bare-operator rule.
+
 /// Exact dot product accumulated at 128 bits, scaled by 2^(2*FIX_FRACTION_BITS).
 /// No per-component rounding or saturation, so sign tests and comparisons on the
 /// raw value are exact even for sub-resolution results.
 FIX_INLINE fixInt128 fixDotRaw( fixVec3 a, fixVec3 b )
 {
+#if FIX_INT128_EMULATED
 	return fixInt128Add( fixInt128Add( fixInt128MulI64( a.x, b.x ), fixInt128MulI64( a.y, b.y ) ),
 						 fixInt128MulI64( a.z, b.z ) );
+#else
+	return (fixInt128)( (fixUInt128)( (fixInt128)a.x * b.x ) + (fixUInt128)( (fixInt128)a.y * b.y ) +
+						(fixUInt128)( (fixInt128)a.z * b.z ) );
+#endif
 }
 
 /// Round a raw 128-bit dot product to fixed point with a single round-half-up
 /// step (divide last), matching fixMul rounding and overflow policy.
 FIX_INLINE fixed_t fixFromDotRaw( fixInt128 raw )
 {
+#if FIX_INT128_EMULATED
 	fixInt128 r = fixInt128Shr( fixInt128Add( raw, fixInt128FromI64( FIX_HALF ) ), FIX_FRACTION_BITS );
+#else
+	fixInt128 r = (fixInt128)( (fixUInt128)raw + (fixUInt128)(fixInt128)FIX_HALF ) >> FIX_FRACTION_BITS;
+#endif
 #if defined( FIX_SATURATE )
 	if ( fixInt128Gt( r, fixInt128FromI64( INT64_MAX ) ) )
 	{
@@ -462,7 +480,11 @@ FIX_INLINE fixVec3 fixInvRotateVector( fixQuat q, fixVec3 v )
 /// One rounding on the exact 128-bit sum.
 FIX_INLINE fixed_t fixDotQuat( fixQuat a, fixQuat b )
 {
+#if FIX_INT128_EMULATED
 	return fixFromDotRaw( fixInt128Add( fixDotRaw( a.v, b.v ), fixInt128MulI64( a.s, b.s ) ) );
+#else
+	return fixFromDotRaw( (fixInt128)( (fixUInt128)fixDotRaw( a.v, b.v ) + (fixUInt128)( (fixInt128)a.s * b.s ) ) );
+#endif
 }
 
 /// Multiply two quaternions. Each component is a fused 128-bit reduction with
@@ -471,6 +493,7 @@ FIX_INLINE fixQuat fixMulQuat( fixQuat q1, fixQuat q2 )
 {
 	// v = cross(q1.v, q2.v) + q1.s * q2.v + q2.s * q1.v
 	// s = q1.s * q2.s - dot(q1.v, q2.v)
+#if FIX_INT128_EMULATED
 	fixQuat q = {
 		{
 			fixFromDotRaw( fixInt128Add(
@@ -488,6 +511,19 @@ FIX_INLINE fixQuat fixMulQuat( fixQuat q1, fixQuat q2 )
 		},
 		fixFromDotRaw( fixInt128Sub( fixInt128MulI64( q1.s, q2.s ), fixDotRaw( q1.v, q2.v ) ) ),
 	};
+#else
+	fixQuat q = {
+		{
+			fixFromDotRaw( (fixInt128)( (fixUInt128)( (fixInt128)q1.v.y * q2.v.z ) - (fixUInt128)( (fixInt128)q1.v.z * q2.v.y ) +
+										(fixUInt128)( (fixInt128)q1.s * q2.v.x ) + (fixUInt128)( (fixInt128)q2.s * q1.v.x ) ) ),
+			fixFromDotRaw( (fixInt128)( (fixUInt128)( (fixInt128)q1.v.z * q2.v.x ) - (fixUInt128)( (fixInt128)q1.v.x * q2.v.z ) +
+										(fixUInt128)( (fixInt128)q1.s * q2.v.y ) + (fixUInt128)( (fixInt128)q2.s * q1.v.y ) ) ),
+			fixFromDotRaw( (fixInt128)( (fixUInt128)( (fixInt128)q1.v.x * q2.v.y ) - (fixUInt128)( (fixInt128)q1.v.y * q2.v.x ) +
+										(fixUInt128)( (fixInt128)q1.s * q2.v.z ) + (fixUInt128)( (fixInt128)q2.s * q1.v.z ) ) ),
+		},
+		fixFromDotRaw( (fixInt128)( (fixUInt128)( (fixInt128)q1.s * q2.s ) - (fixUInt128)fixDotRaw( q1.v, q2.v ) ) ),
+	};
+#endif
 	return q;
 }
 
@@ -497,6 +533,7 @@ FIX_INLINE fixQuat fixInvMulQuat( fixQuat q1, fixQuat q2 )
 {
 	// v = cross(q2.v, q1.v) + q1.s * q2.v - q2.s * q1.v
 	// s = q1.s * q2.s + dot(q1.v, q2.v)
+#if FIX_INT128_EMULATED
 	fixQuat q = {
 		{
 			fixFromDotRaw( fixInt128Sub(
@@ -514,6 +551,19 @@ FIX_INLINE fixQuat fixInvMulQuat( fixQuat q1, fixQuat q2 )
 		},
 		fixFromDotRaw( fixInt128Add( fixInt128MulI64( q1.s, q2.s ), fixDotRaw( q1.v, q2.v ) ) ),
 	};
+#else
+	fixQuat q = {
+		{
+			fixFromDotRaw( (fixInt128)( (fixUInt128)( (fixInt128)q2.v.y * q1.v.z ) - (fixUInt128)( (fixInt128)q2.v.z * q1.v.y ) +
+										(fixUInt128)( (fixInt128)q1.s * q2.v.x ) - (fixUInt128)( (fixInt128)q2.s * q1.v.x ) ) ),
+			fixFromDotRaw( (fixInt128)( (fixUInt128)( (fixInt128)q2.v.z * q1.v.x ) - (fixUInt128)( (fixInt128)q2.v.x * q1.v.z ) +
+										(fixUInt128)( (fixInt128)q1.s * q2.v.y ) - (fixUInt128)( (fixInt128)q2.s * q1.v.y ) ) ),
+			fixFromDotRaw( (fixInt128)( (fixUInt128)( (fixInt128)q2.v.x * q1.v.y ) - (fixUInt128)( (fixInt128)q2.v.y * q1.v.x ) +
+										(fixUInt128)( (fixInt128)q1.s * q2.v.z ) - (fixUInt128)( (fixInt128)q2.s * q1.v.z ) ) ),
+		},
+		fixFromDotRaw( (fixInt128)( (fixUInt128)( (fixInt128)q1.s * q2.s ) + (fixUInt128)fixDotRaw( q1.v, q2.v ) ) ),
+	};
+#endif
 	return q;
 }
 

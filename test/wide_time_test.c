@@ -89,11 +89,9 @@ int main( void )
 	}
 
 	// ---- wide: min/max ----
-	// These exist to be CALLED. Their first version compiled fine and shipped green
-	// while being unreachable — they sat inside the `#if !FIX_HAS_INT128` block, which
-	// is the block that #errors, so on every real platform they did not exist. Nothing
-	// referenced them, so CI had nothing to say. A header-only helper with no caller is
-	// not covered by a passing build; it is invisible to it.
+	// These exist to be CALLED. A header-only helper with no caller is not covered by a
+	// passing build; it is invisible to it, and a helper that compiles but sits inside a
+	// block no real platform reaches will sail through CI without existing.
 	{
 		CHECK( WEQ( fixWideMin( W( 3 ), W( 7 ) ), W( 3 ) ) );
 		CHECK( WEQ( fixWideMax( W( 3 ), W( 7 ) ), W( 7 ) ) );

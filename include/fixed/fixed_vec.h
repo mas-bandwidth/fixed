@@ -212,11 +212,47 @@ FIX_INLINE fixed_t fixDistanceSquared( fixVec3 a, fixVec3 b )
 	return fixFromDotRaw( fixDotRaw( dv, dv ) );
 }
 
+/// The exponent fixNormalize lifts a short vector to before dividing. Chosen so
+/// the squares stay far inside 128 bits: components reach ~2^46, squares ~2^92,
+/// and the three-term sum ~2^94.
+#define FIX_NORMALIZE_LIFT_BITS 46
+
 /// Normalize a vector. Returns a zero vector if the input vector is zero.
-/// The squared length and the division run at 128-bit precision, so even
-/// vectors far below unit length normalize to within an ulp of unit length.
+///
+/// PRECISION: the squared length is exact in 128 bits, but the length is a fixed_t --
+/// a whole raw unit -- with a relative truncation error of ~0.5/L at raw length L,
+/// which would land in the result's squared length as ~1/L. Normalization is
+/// scale-invariant and a left shift is EXACT, so the vector is lifted until its
+/// widest component fills the range before the same math runs: the direction is
+/// unchanged bit for bit, only the divisor's precision improves. The result is unit
+/// length within fixIsNormalized's tolerance at every input magnitude, down to a raw
+/// length of 1, and normalize is exactly scale-invariant across power-of-two scales
+/// inside the lift range. Inputs whose widest component already fills the range lift
+/// by zero and are untouched.
 FIX_INLINE fixVec3 fixNormalize( fixVec3 a )
 {
+	// magnitude of the widest component, as an unsigned value so the negation is
+	// defined for every input
+	uint64_t ux = a.x < 0 ? ( 0u - (uint64_t)a.x ) : (uint64_t)a.x;
+	uint64_t uy = a.y < 0 ? ( 0u - (uint64_t)a.y ) : (uint64_t)a.y;
+	uint64_t uz = a.z < 0 ? ( 0u - (uint64_t)a.z ) : (uint64_t)a.z;
+	uint64_t widest = ux | uy | uz;
+	if ( widest != 0 )
+	{
+		int bits = 0;
+		while ( ( widest >> bits ) != 0 )
+		{
+			bits++;
+		}
+		if ( bits < FIX_NORMALIZE_LIFT_BITS )
+		{
+			const int lift = FIX_NORMALIZE_LIFT_BITS - bits;
+			a.x = fixShiftLeft( a.x, lift ); // exact: shifts preserve direction
+			a.y = fixShiftLeft( a.y, lift );
+			a.z = fixShiftLeft( a.z, lift );
+		}
+	}
+
 	fixInt128 ls = fixDotRaw( a, a ); // Q32.32 in 128 bits
 	if ( fixInt128Gt( ls, FIX_INT128_ZERO ) )
 	{

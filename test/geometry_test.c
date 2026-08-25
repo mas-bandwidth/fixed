@@ -595,9 +595,8 @@ static void testMatrices( void )
 		// to 256. Reached only by entries far outside ordinary simulation scale, so it is
 		// dark code unless named. Every true entry of this inverse is of order 1e-10 to
 		// 1e-12, which is far below one Q48.16 quantum, so the exact truncated answer is
-		// the zero matrix -- and saying so is the fix. This same input used to come back
-		// with entries of both signs. inverse_envelope_test.c is where that boundary is
-		// walked properly; this case is here so the hash covers the wide arm.
+		// the zero matrix, and saying so is the contract. inverse_envelope_test.c is where
+		// that boundary is walked properly; this case is here so the hash covers the wide arm.
 		fixMatrix3 huge = { V( 1e9f, 2e9f, 3e8f ), V( 4e8f, 5e9f, 6e9f ), V( 7e9f, 8e8f, 1e9f ) };
 		fixMatrix3 hugeInverse = fixInvertMatrix( huge );
 		CHECK( fixIsValidMatrix3( hugeInverse ) );

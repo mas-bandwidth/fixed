@@ -1,5 +1,7 @@
 # fixed
 
+[![CI](https://github.com/mas-bandwidth/fixed/actions/workflows/test.yml/badge.svg)](https://github.com/mas-bandwidth/fixed/actions/workflows/test.yml)
+
 A small, standalone, deterministic fixed-point math library in C. The core type is a
 64-bit `fixed_t` (Q48.16), with pure-integer arithmetic and integer-only
 transcendentals — so results are **bit-identical on every platform, architecture and

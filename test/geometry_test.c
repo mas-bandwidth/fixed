@@ -170,8 +170,14 @@ static void mixTransform( fixTransform t ) { mixVec( t.p ); mixQuat( t.q ); }
 // quaternions, the normalize entries of the sweeps, and the new lattice sweep that now
 // also feeds this hash. Captured on the native arm and confirmed identical on the
 // emulated arm.
+// RE-CAPTURED 2026-09-07 from 0x30bfb494f2a5297b: quaternion angle/swing
+// extraction now keeps squared components wide through the root. A value trace
+// of all 191273 hashed values identified exactly 482 changes, all from
+// fixGetQuatAngle or fixGetSwingAngle; every other value was unchanged.
+// Both integer arms produce the new hash. Small-angle tests independently
+// check the corrected result against atan2 and require a nonzero unit axis.
 #ifndef EXPECTED_GEOMETRY_HASH
-	#define EXPECTED_GEOMETRY_HASH 0x30bfb494f2a5297bULL
+	#define EXPECTED_GEOMETRY_HASH 0xa39cc22c209adedeULL
 #endif
 
 // Deterministic sampling. splitmix64: pure integer, identical on every platform.

@@ -192,6 +192,25 @@ add_executable(fixed_usage_test test/usage_test.c)
 target_link_libraries(fixed_usage_test PRIVATE fixed)
 add_test(NAME usage COMMAND fixed_usage_test)
 
+add_executable(fixed_numerical_regression_test test/numerical_regression_test.c)
+target_link_libraries(fixed_numerical_regression_test PRIVATE fixed)
+add_test(NAME numerical_regression COMMAND fixed_numerical_regression_test)
+
+# Validators and bounds must also be safe with the optional saturation policy.
+add_executable(fixed_numerical_saturated_test test/numerical_regression_test.c src/fixed_math.c src/fixed_vec.c)
+target_include_directories(fixed_numerical_saturated_test PRIVATE include)
+target_compile_definitions(fixed_numerical_saturated_test PRIVATE FIX_SATURATE)
+if (NOT WIN32)
+    target_link_libraries(fixed_numerical_saturated_test PRIVATE m)
+endif()
+add_test(NAME numerical_saturated COMMAND fixed_numerical_saturated_test)
+
+option(FIX_BUILD_BENCHMARKS "Build the numerical public-API microbenchmarks" OFF)
+if (FIX_BUILD_BENCHMARKS)
+    add_executable(fixed_numerical_bench benchmark/numerical_bench.c)
+    target_link_libraries(fixed_numerical_bench PRIVATE fixed)
+endif()
+
 # THE EMULATED ARM OF THE WHOLE SUITE. Same sources, same frozen hashes, 128-bit
 # arithmetic done in software. If the emulation and the compiler's __int128 ever disagree
 # by one bit, these go red on every platform at once instead of only on Windows.
@@ -202,7 +221,7 @@ if (TARGET fixed_emulated)
     # inverse_envelope is in this list for a specific reason: the 256-bit layer the wide
     # arm runs on is written entirely in the fixUInt128 vocabulary, so an emulated build
     # is the only thing that checks the emulated 256-bit arithmetic at all.
-    foreach(suite determinism transcendental wide_time exhaustive aabb port_equality int128 geometry inverse_envelope int256_division)
+    foreach(suite determinism transcendental wide_time exhaustive aabb port_equality int128 geometry inverse_envelope int256_division numerical_regression)
         add_executable(fixed_${suite}_emulated_test test/${suite}_test.c)
         target_link_libraries(fixed_${suite}_emulated_test PRIVATE fixed_emulated)
         if (NOT WIN32)
@@ -210,6 +229,14 @@ if (TARGET fixed_emulated)
         endif()
         add_test(NAME ${suite}_emulated COMMAND fixed_${suite}_emulated_test)
     endforeach()
+
+    add_executable(fixed_numerical_saturated_emulated_test test/numerical_regression_test.c src/fixed_math.c src/fixed_vec.c)
+    target_include_directories(fixed_numerical_saturated_emulated_test PRIVATE include)
+    target_compile_definitions(fixed_numerical_saturated_emulated_test PRIVATE FIX_SATURATE FIX_FORCE_EMULATED_INT128)
+    if (NOT WIN32)
+        target_link_libraries(fixed_numerical_saturated_emulated_test PRIVATE m)
+    endif()
+    add_test(NAME numerical_saturated_emulated COMMAND fixed_numerical_saturated_emulated_test)
 
     # And the control for the emulated arm: the exhaustive suite with the same deliberate
     # 1-ulp error, compiled against the emulated library. Without this, an emulated build

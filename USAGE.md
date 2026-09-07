@@ -382,7 +382,7 @@ fixVecLerp( a, b, alpha )
 
 fixDot( a, b )                      // 128-bit accumulation, ONE rounding
 fixCross( a, b )
-fixLength( a )                      // exact 128-bit sum of squares, then integer sqrt
+fixLength( a )                      // unsigned sum of squares, then sqrt; saturates
 fixLengthSquared( a )
 fixDistance( a, b )                 fixDistanceSquared( a, b )
 fixNormalize( a )                   // zero vector in, zero vector out
@@ -402,8 +402,11 @@ fixed_t   rounded  = fixFromDotRaw( raw );  // one rounding, matching fixMul
 `fixNormalize` is unit within `fixIsNormalized`'s tolerance at every input magnitude,
 down to a raw length of 1: it lifts a short vector until its widest component fills the
 range before dividing, which is exact (a left shift preserves the direction bit for bit)
-and keeps the divisor's precision. `fixGetLengthAndNormalize( &length, a )` returns both
-in one pass.
+and keeps the divisor's precision. `fixGetLengthAndNormalize( &length, a )` returns both,
+lifting short inputs so the direction remains unit within the same tolerance. Its common
+path preserves the existing rounding; it need not be bit-identical to `fixNormalize`.
+A length beyond the scalar range saturates to `FIX_MAX`; the direction still normalizes
+correctly.
 
 The `fix`/`fixVec` distinction is deliberate and load-bearing: `fixMin` is scalar,
 `fixVecMin` is componentwise. In fixed3d these were `b3FixMin` and `b3Min`, a one-token
@@ -442,6 +445,10 @@ fixQuat fromMat = fixMakeQuatFromMatrix( &m );
 of it, `fixVecLerp`, `fixMulMV` and `fixCross` perturb knife-edge equilibria — mesh-drop
 sleep and convex pile SAT caching — so the extra rounding is a deliberate choice, not an
 oversight.
+
+Angle and swing extraction keep squared components at full precision until the square
+root, so small representable rotations retain their angle. `fixGetAxisAngle` normalizes
+its nonzero axis with the same precision lift as `fixNormalize`.
 
 ### Matrices
 
@@ -539,6 +546,13 @@ fixClosestPointToAABB( point, a )
 
 `fixPlane` is a unit normal plus an offset along it.
 
+Transformed boxes use unrounded rotation coefficients, outward rounding, and a bound on
+the public point transform's integer rounding error (at most seven raw units per affected
+axis). Thus they enclose transformed points instead of relying on approximate agreement
+between matrix and two-cross rotation. The quaternion must be normalized, and point
+rotation intermediates must remain representable. Bounds outside the scalar domain
+saturate. Centers and half-widths halve before narrowing, avoiding intermediate overflow.
+
 ### Time — `fixed/fixed_time.h`
 
 ```c
@@ -559,6 +573,11 @@ bool    inside  = fixFits( raw, minRaw, maxRaw );       // the clamp's predicate
 int64_t coarse = fixNarrow( raw, 20 );   // 30 fraction bits -> 10, half toward +inf
 int64_t fine   = fixWiden( coarse, 20 ); // exact and lossless
 ```
+
+For finite inputs, `fixQuantizeClamped` checks storage overflow before casting to an
+integer, including when a large finite input overflows the floating-point scaled value.
+The exact int64 domain bounds are applied after that check; they are not rounded through
+double. The bare `fixQuantize` still requires a representable scaled result.
 
 `fixNarrow( fixWiden( v, n ), n )` is the identity. The other order is not, and that is the
 whole point — narrowing is where the bits go.
@@ -605,10 +624,11 @@ fixClosestPointToAABBWide( localPoint, a )
 fixIsValidAABBWide( a )
 ```
 
-`fixAABBWide_Extents` differences in 128 bits and then narrows, which is a **deliberate bug
-fix** relative to box3d: narrowing both bounds first makes a perfectly ordinary distant box
-report zero extents, at exactly the distances the wide mode exists to serve. For any box
-whose bounds both fit local range the two forms agree bit-for-bit.
+`fixAABBWide_Extents` subtracts in 128 bits and halves before narrowing, so a
+representable half-width survives even when the full width is outside the local range.
+Narrowing each endpoint first would make a distant box report zero extents. Centers
+likewise average at full width before clamping. Both widths agree for locally
+representable boxes, including their half-up rounding.
 
 `fixAABBWide_Center` and `fixAABBWide_Transform` keep box3d's inherited limitation: a box
 whose *centre* exceeds Q48.16 range saturates. Extents survive at any distance.

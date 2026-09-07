@@ -55,11 +55,11 @@ rounding. This fixes containment and removes enough repeated fixed-point
 multiplication to outperform the old calculation. Overflow-free half sums and
 differences also make center/extents calculation cheaper.
 
-## September 7, 2026 results
+## September 7, 2026 initial repair
 
 Apple M3 Ultra, arm64 macOS 26.6.2, Apple Clang 21.0.0
 (`clang-2100.1.1.101`), using the flags above. Baseline is `d0884f2a`; after is
-the numerical-correctness repair accompanying this benchmark. Each cell is the
+the numerical-correctness repair at `28a8bc0`. Each cell is the
 median of five alternating before/after runs with seed 42: five million calls
 per operation for native arithmetic, 500,000 for emulated arithmetic. Lower is
 better. [All trial measurements and checksums](2026-09-07-m3-ultra.csv) are retained.
@@ -84,6 +84,48 @@ quantization here. Emulated angle extraction costs about 2.55 ns more for the pa
 of calls. Those costs remain visible instead of being hidden in an aggregate
 score; correctness requires retaining the full squared components and checking
 the conversion range.
+
+## Follow-up: cheaper exact square-root correction
+
+For a 64-bit input, the integer root is at most `UINT32_MAX`. Correcting the
+hardware seed therefore needs only 64-bit arithmetic, even on the emulated
+backend. After adjusting the seed downward so that `r*r <= n`, the next root
+is admissible exactly when `n-r*r > 2*r`. This avoids a 128-bit product and also
+avoids overflow from forming `(r+1)*(r+1)` at the largest root. The seed is still
+repaired to the exact floor; output bits and frozen hashes do not change.
+
+The benchmark now includes scalar square root, vector length, and the raw
+64-bit-input root. These inputs are prepared after the original workload so
+existing inputs stay unchanged. Scalar square roots use magnitudes up to eight
+units; raw integer roots use the full unsigned 64-bit distribution.
+
+The following medians compare **`28a8bc0` against the follow-up**, using the same
+machine, compiler, flags, seed, five paired runs and iteration counts as above.
+Compile the current benchmark source against both revisions and substitute
+`28a8bc0` for the baseline worktree revision to reproduce this comparison.
+[All follow-up trials](2026-09-07-sqrt-m3-ultra.csv) include checksums, which
+agree across every before/after run for both backends.
+
+| Operation | Native before -> after (ns) | Change | Emulated before -> after (ns) | Change |
+| --- | ---: | ---: | ---: | ---: |
+| Multiply control | 0.735 -> 0.738 | +0.4% | 2.010 -> 1.998 | -0.6% |
+| Normalize vector | 5.960 -> 5.928 | -0.5% | 14.446 -> 14.558 | +0.8% |
+| Length and normalize | 3.325 -> 3.088 | -7.1% | 7.726 -> 5.292 | -31.5% |
+| Normalize quaternion | 4.081 -> 3.836 | -6.0% | 9.344 -> 6.942 | -25.7% |
+| Quaternion and swing angles | 27.362 -> 26.901 | -1.7% | 62.132 -> 60.236 | -3.1% |
+| Quaternion validity | 2.191 -> 2.188 | -0.1% | 5.026 -> 5.008 | -0.4% |
+| Transform AABB | 12.080 -> 12.109 | +0.2% | 42.556 -> 42.762 | +0.5% |
+| AABB center and extents | 1.633 -> 1.632 | -0.1% | 1.620 -> 1.614 | -0.4% |
+| Clamped quantization | 0.789 -> 0.789 | 0.0% | 0.778 -> 0.778 | 0.0% |
+| Narrow time | 0.584 -> 0.583 | -0.2% | 0.580 -> 0.580 | 0.0% |
+| Scalar square root | 1.768 -> 1.577 | -10.8% | 3.886 -> 1.586 | -59.2% |
+| Vector length | 2.341 -> 2.126 | -9.2% | 6.832 -> 3.986 | -41.7% |
+| Raw 64-bit-input root | 1.195 -> 1.076 | -10.0% | 2.934 -> 1.064 | -63.7% |
+
+Regression coverage includes 65,536 consecutive inputs near `UINT64_MAX`,
+perfect-square neighbors around every root-bit boundary, 16,384 random inputs
+compared to an independent integer binary-search oracle, and random square
+neighbors. All existing frozen hashes remain unchanged by this follow-up.
 
 ## Measurement limits
 

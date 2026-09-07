@@ -210,6 +210,51 @@ static void timeConversion(void)
 	}
 }
 
+// Independent integer oracle: binary search, with no floating seed or residual
+// repair. Every candidate is <= UINT32_MAX, so its square is representable.
+static uint64_t referenceRoot64(uint64_t n)
+{
+	uint64_t low = 0, high = UINT32_MAX;
+	while (low < high)
+	{
+		uint64_t mid = low + (high - low + 1) / 2;
+		if (mid * mid <= n) low = mid;
+		else high = mid - 1;
+	}
+	return low;
+}
+
+static void squareRoots64(void)
+{
+	// Consecutive values near the storage ceiling exercise a double seed
+	// rounded to 2^32, whose square itself cannot be formed in uint64_t.
+	for (uint64_t i = 0; i < 65536; ++i)
+		CHECK(fixISqrt128High(0, UINT64_MAX - i) == UINT32_MAX);
+	// Perfect squares and adjacent integers at each root-bit boundary.
+	for (int bit = 1; bit <= 32; ++bit)
+		for (int offset = -2; offset <= 2; ++offset)
+		{
+			uint64_t root = (UINT64_C(1) << bit) + offset;
+			if (root == 0 || root > UINT32_MAX) continue;
+			uint64_t sq = root * root;
+			CHECK(fixISqrt128High(0, sq-1) == root-1);
+			CHECK(fixISqrt128High(0, sq) == root);
+			CHECK(fixISqrt128High(0, sq+1) == root);
+		}
+	uint64_t seed = UINT64_C(0x74937cdea32805b1);
+	for (int i = 0; i < 16384; ++i)
+	{
+		seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17;
+		// Both arbitrary 64-bit inputs and adversarial square neighbors.
+		CHECK(fixISqrt128High(0, seed) == referenceRoot64(seed));
+		uint64_t root = seed & UINT32_MAX;
+		uint64_t sq = root * root;
+		CHECK(fixISqrt128High(0, sq) == root);
+		if (root != 0) CHECK(fixISqrt128High(0, sq-1) == root-1);
+		CHECK(fixISqrt128High(0, sq+1) == (root == 0 ? 1 : root));
+	}
+}
+
 static void squareRoots(void)
 {
 	const uint64_t highs[] = { 0, 1, (UINT64_C(1) << 30), (UINT64_C(1) << 40) - 1,
@@ -240,7 +285,8 @@ int main(int argc, char** argv)
 	struct { const char* name; void (*run)(void); } tests[] = {
 		{ "normalization", normalization }, { "angles", angles }, { "validators", validators },
 		{ "bounds", bounds }, { "transformed_bounds", transformedBounds },
-		{ "quantize", quantize }, { "time", timeConversion }, { "square_roots", squareRoots }
+		{ "quantize", quantize }, { "time", timeConversion }, { "square_roots", squareRoots },
+		{ "square_roots_64", squareRoots64 }
 	};
 	for (size_t i = 0; i < sizeof(tests)/sizeof(tests[0]); ++i)
 	{

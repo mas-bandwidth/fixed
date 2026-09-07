@@ -290,11 +290,16 @@ FIX_ALWAYS_INLINE uint64_t fixISqrt128High( uint64_t hi, uint64_t lo )
 		{
 			r = 0xFFFFFFFFu;
 		}
-		while ( r > 0 && fixUInt128Gt( fixUInt128MulU64( r, r ), fixUInt128FromU64( lo ) ) )
+		// r <= UINT32_MAX, so its square fits uint64_t. After the downward
+		// repair, lo-r*r is nonnegative. The next square is <= lo exactly
+		// when that remainder exceeds 2*r; this avoids forming (r+1)^2,
+		// which would overflow at r == UINT32_MAX. At that endpoint the
+		// remainder is at most 2*r, so the upward repair cannot overflow r.
+		while ( r * r > lo )
 		{
 			r -= 1;
 		}
-		while ( fixUInt128Le( fixUInt128MulU64( r + 1, r + 1 ), fixUInt128FromU64( lo ) ) )
+		while ( lo - r * r > 2 * r )
 		{
 			r += 1;
 		}

@@ -22,6 +22,7 @@ static fixVec3 vectors[COUNT];
 static fixQuat quats[COUNT];
 static fixAABB boxes[COUNT];
 static double values[COUNT];
+static uint64_t rootInputs[COUNT];
 static volatile uint64_t sink;
 static uint64_t state;
 static uint64_t randomBits(void)
@@ -46,6 +47,8 @@ static void initialize(uint64_t seed)
 		boxes[i] = (fixAABB){ fixVecSub(vectors[i], e), fixVecAdd(vectors[i], e) };
 		values[i] = (double)vectors[i].x / FIX_ONE;
 	}
+	// Separate setup keeps every existing workload's input stream unchanged.
+	for (int i = 0; i < COUNT; ++i) rootInputs[i] = randomBits();
 }
 
 #define KERNEL(name, ...) \
@@ -68,6 +71,9 @@ KERNEL(aabb_center_extents, fixVec3 c = fixAABB_Center(boxes[i]); fixVec3 e = fi
 	sum += (uint64_t)c.x + (uint64_t)c.y + (uint64_t)c.z + (uint64_t)e.x + (uint64_t)e.y + (uint64_t)e.z)
 KERNEL(quantize_clamped, sum += (uint64_t)fixQuantizeClamped(values[i], FIX_ONE, -4 * FIX_ONE, 4 * FIX_ONE))
 KERNEL(time_narrow, sum += (uint64_t)fixTimeToFixed(fixShiftLeft(vectors[i].x, 24)))
+KERNEL(scalar_sqrt, sum += (uint64_t)fixSqrt(fixAbs(vectors[i].x)))
+KERNEL(vector_length, sum += (uint64_t)fixLength(vectors[i]))
+KERNEL(isqrt_u64, sum += fixISqrt128High(0, rootInputs[i]))
 
 int main(int argc, char** argv)
 {
@@ -78,7 +84,8 @@ int main(int argc, char** argv)
 		{ "multiply", multiply }, { "normalize", normalize }, { "length_normalize", length_normalize },
 		{ "quaternion_normalize", quaternion_normalize }, { "angles", angles }, { "validity", validity },
 		{ "aabb_transform", aabb_transform }, { "aabb_center_extents", aabb_center_extents },
-		{ "quantize_clamped", quantize_clamped }, { "time_narrow", time_narrow }
+		{ "quantize_clamped", quantize_clamped }, { "time_narrow", time_narrow },
+		{ "scalar_sqrt", scalar_sqrt }, { "vector_length", vector_length }, { "isqrt_u64", isqrt_u64 }
 	};
 	printf("operation,ns_per_call,checksum\n");
 	for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i)

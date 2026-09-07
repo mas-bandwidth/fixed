@@ -42,12 +42,15 @@ compiler, and architecture. That constraint decides most questions here:
 
    ```bash
    cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-   cmake --build build
-   ctest --test-dir build --output-on-failure
+   cmake --build build --config Release
+   ctest --test-dir build -C Release --output-on-failure
    ```
 
-   On Windows, configure with `-T ClangCL`: the core needs `__int128`, so clang, gcc, or
-   clang-cl are supported and plain MSVC is not, by design.
+   On Windows, the default Visual Studio toolchain uses plain MSVC and the emulated
+   128-bit backend. Add `-T ClangCL` when configuring a separate build directory to
+   use clang-cl's native `__int128` backend. Both toolchains are supported and tested
+   in CI. The configuration flags above select Release for Visual Studio's
+   multi-configuration builds as well as the single-configuration builds.
 
    Then make sure CI is green on the pull request. It runs the suite on Linux, macOS, and
    Windows, and every platform has to produce identical hashes, plus a UBSan job.

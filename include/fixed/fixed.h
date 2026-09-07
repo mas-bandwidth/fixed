@@ -263,6 +263,18 @@ FIX_ALWAYS_INLINE fixed_t fixDiv( fixed_t a, fixed_t b )
 /// Exact integer square root of an unsigned 128 bit value (helper for fixSqrt).
 FIX_ALWAYS_INLINE uint64_t fixISqrt128High( uint64_t hi, uint64_t lo )
 {
+	// Up to 104 input bits the double seed has at most a few raw units of
+	// error and fits uint64_t. Repair against the full integer input, exactly
+	// as in the 64-bit arm. Lifted vector/quaternion norms land in this range.
+	if ( hi != 0 && hi < ( UINT64_C( 1 ) << 40 ) )
+	{
+		fixUInt128 n = fixUInt128Make( hi, lo );
+		uint64_t r = (uint64_t)FIX_SQRT_SEED( (double)hi * 18446744073709551616.0 + (double)lo );
+		while ( fixUInt128Gt( fixUInt128MulU64( r, r ), n ) ) { --r; }
+		while ( fixUInt128Le( fixUInt128MulU64( r + 1, r + 1 ), n ) ) { ++r; }
+		return r;
+	}
+
 	if ( hi == 0 )
 	{
 		// Common case: 64 bit input. Seed with the hardware double sqrt (an exact,

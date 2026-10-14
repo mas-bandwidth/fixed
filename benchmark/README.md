@@ -142,3 +142,94 @@ There is no claim of a whole-simulation speedup or zero regression on every
 compiler, CPU, and input distribution. Measure a consuming application's workload
 before choosing a frame-time budget from these numbers. CI compiles the benchmark
 on all supported toolchains but does not enforce timing thresholds.
+
+## The op benchmark, oracle, and A/B harness
+
+This is the spike protocol for `fixed`. One page, for another AI to run cold.
+
+### 1. Measure one operation: `benchmark/op_bench.c` (target `fixed_op_bench`)
+
+`op_bench.c` measures ns/op for every public hot operation in two modes:
+
+- **SCALAR** — a dependent chain (each result feeds the next call): the *latency*.
+- **BATCH** — independent operations over arrays of 4096 inputs: the *throughput*.
+  This is also the baseline the SIMD batch spikes must beat.
+
+Inputs are prepared outside the timed loop; every result is folded into a checksum
+so the work is not elided. Output CSV: `op,mode,ns_min,ns_median,ns_max,checksum`.
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DFIX_BUILD_BENCHMARKS=ON
+cmake --build build --parallel
+./build/fixed_op_bench 5000000 42          # n, seed; 7 repeats, all ops
+./build/fixed_op_bench 5000000 42 7 fixMul # one op
+```
+
+Operations covered: `fixMul`; `fixDivBelow`/`fixDivAbove` (numerator below/above
+2^47, the two tiers); `fixSqrtSmall`/`fixSqrtU64`/`fixSqrtWide` (small, 64-bit,
+and the >104-bit arm); `fixISqrt128High`; `fixComputeCosSin`/`fixSin`/`fixCos`;
+`fixAtan2`; `fixLog2`/`fixExp2`/`fixPow`; `fixLerp`; `fixDot`/`fixCross`/
+`fixLength`/`fixNormalize`; `fixMulQuat`/`fixNormalizeQuat`/`fixRotateVector`/
+`fixInvRotateVector`/`fixNLerp`; `fixInvertMatrix`/`fixSolve3`; the AABB transform;
+`fixQuantize`/`fixDequantize`; and the seams `fixInt128Div`/`fixUInt256DivMod`.
+
+**Operations that do not exist** (there is no `fixRsqrt`, `fixExp`, `fixLog`,
+`fixTan`, `fixASin`, `fixACos`, `fixMod`, or a wide/narrow SIMD batch): rsqrt-shaped
+work is measured as `fixNormalize` and `fixLength`. A vectorised `fixed` that matches
+scalar bit-for-bit is the open spike; there is no SIMD path in the tree today.
+
+### 2. Prove the same bits: the output oracle
+
+`benchmark/oracle.c` computes, per operation, a 64-bit hash of the outputs over a
+defined, deterministic input set (all order-dependent, one-bit changes move the hash):
+
+- the structured edge grid `0, +-1, +-2^k, +-(2^k-1)` for every `k`, `INT64_MAX`,
+  and the saturation values (`FIX_MIN`/`FIX_MAX`), crossed with itself for binary ops;
+- exhaustive sweeps where feasible: `fixSqrt` for every raw input below 2^32; the
+  trig for every raw angle in `[-2pi, 2pi]` (about 800k values); a dense log2/exp2 grid;
+- a seeded pseudo-random stream (xoshiro256**, seed fixed in the source — 50M inputs
+  per operation) plus seeded random vectors/quaternions/matrices/AABBs for the
+  composite ops.
+
+`benchmark/oracle-baseline.txt` freezes the hashes from the current tree. The unit
+tier (`test/oracle_unit_test.c`, `OracleHashStableTest`) checks a 1,000-input prefix
+against hashes baked into the test (no files, no clock), built once against `fixed`
+and once against `fixed_emulated`, so the emulated 128-bit arm must agree.
+
+`benchmark/oracle_check.c` re-runs the oracle and diffs against the baseline file;
+it exits non-zero on any difference, printing the first differing operation:
+
+```sh
+./build/fixed_oracle > benchmark/oracle-baseline.txt        # regenerate (after a review)
+./build/fixed_oracle_check benchmark/oracle-baseline.txt    # native
+./build/fixed_oracle_check_emulated benchmark/oracle-baseline.txt   # software 128-bit
+```
+
+Both arms must pass against the one baseline. `-DFIX_FORCE_EMULATED_INT128` must
+produce the same hashes; a native/emulated split is a FAIL.
+
+### 3. A/B two trees: `benchmark/ab.sh`
+
+```sh
+benchmark/ab.sh <baseline-src-dir> <candidate-src-dir> [op ...]
+```
+
+Compiles the **same** `op_bench.c` against both trees with `-O3 -g -DNDEBUG
+-ffp-contract=off`, runs them **interleaved** for `AB_REPEATS` (default 7) repeats,
+refuses to run while another benchmark process is on the box (`pgrep -af`, never
+kills), prints `op,mode,ns_before,ns_after,speedup`, and runs `oracle_check` on the
+candidate. Environment: `AB_REPEATS`, `AB_ITERS` (default 5000000), `AB_SEED` (42).
+
+`benchmark/ab.sh . .` (A against A) must print speedups within the spread — that is
+the noise floor any spike has to beat.
+
+### 4. The header every finding pastes
+
+`benchmark/cpu_info.sh` prints the CPU model, ISA flags (`avx2`, `avx512f/dq/vl/ifma`,
+`bmi2`, `adx`, `neon`, `sme`), affinity, load average, and compiler versions.
+
+### Flags, everywhere
+
+`-O3 -DNDEBUG -ffp-contract=off`, native and emulated (`-DFIX_FORCE_EMULATED_INT128`),
+same source for before and after. No floating point in the arithmetic; a hardware
+double may only seed an integer computation that is then exactly repaired (fixSqrt).

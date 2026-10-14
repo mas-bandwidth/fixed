@@ -209,7 +209,25 @@ option(FIX_BUILD_BENCHMARKS "Build the numerical public-API microbenchmarks" OFF
 if (FIX_BUILD_BENCHMARKS)
     add_executable(fixed_numerical_bench benchmark/numerical_bench.c)
     target_link_libraries(fixed_numerical_bench PRIVATE fixed)
+
+    # ns/op for every public hot operation, SCALAR (latency) and BATCH (throughput).
+    add_executable(fixed_op_bench benchmark/op_bench.c)
+    target_link_libraries(fixed_op_bench PRIVATE fixed)
 endif()
+
+# The output oracle and its checker. Built unconditionally: oracle_check is part of the
+# release gate (it must pass native AND emulated), independent of the benchmark option.
+add_executable(fixed_oracle benchmark/oracle.c)
+target_link_libraries(fixed_oracle PRIVATE fixed)
+
+add_executable(fixed_oracle_check benchmark/oracle_check.c)
+target_link_libraries(fixed_oracle_check PRIVATE fixed)
+
+# Unit tier: the 1,000-input-prefix oracle hashes, frozen into the test. Built twice, once
+# against the native library and once against the emulated one, so both arms must agree.
+add_executable(fixed_oracle_unit_test test/oracle_unit_test.c)
+target_link_libraries(fixed_oracle_unit_test PRIVATE fixed)
+add_test(NAME oracle_unit COMMAND fixed_oracle_unit_test)
 
 # THE EMULATED ARM OF THE WHOLE SUITE. Same sources, same frozen hashes, 128-bit
 # arithmetic done in software. If the emulation and the compiler's __int128 ever disagree
@@ -237,6 +255,14 @@ if (TARGET fixed_emulated)
         target_link_libraries(fixed_numerical_saturated_emulated_test PRIVATE m)
     endif()
     add_test(NAME numerical_saturated_emulated COMMAND fixed_numerical_saturated_emulated_test)
+
+    # The emulated arm of the oracle: the same hashes must come out on software 128-bit.
+    add_executable(fixed_oracle_check_emulated benchmark/oracle_check.c)
+    target_link_libraries(fixed_oracle_check_emulated PRIVATE fixed_emulated)
+
+    add_executable(fixed_oracle_unit_test_emulated test/oracle_unit_test.c)
+    target_link_libraries(fixed_oracle_unit_test_emulated PRIVATE fixed_emulated)
+    add_test(NAME oracle_unit_emulated COMMAND fixed_oracle_unit_test_emulated)
 
     # And the control for the emulated arm: the exhaustive suite with the same deliberate
     # 1-ulp error, compiled against the emulated library. Without this, an emulated build

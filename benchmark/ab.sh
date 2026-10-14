@@ -9,6 +9,11 @@
 # for N repeats rather than all of A then all of B: drift in clock, thermals or background
 # load then lands on both trees instead of on one of them.
 #
+# The output oracle is compiled the same way against the CANDIDATE, not taken from a
+# prebuilt build/fixed_oracle_check (that binary is the tree this script was launched
+# from). benchmark/oracle_check.c is linked with $CAND_DIR/benchmark/oracle.c and the
+# candidate's include/ and src/. If that compile fails, ab.sh fails.
+#
 # REFUSES TO RUN WHILE ANOTHER BENCHMARK IS ON THE BOX. It looks with pgrep -af and exits
 # non-zero. It never kills anything: a number measured next to another benchmark is not a
 # number, and the process belongs to whoever started it.
@@ -71,6 +76,16 @@ build() {
 build "$BASE_DIR" "$WORK/bench-a"
 build "$CAND_DIR" "$WORK/bench-b"
 
+# Same shape as build(), but the engine is the candidate's oracle.c and the driver is
+# this tree's oracle_check.c. Fail loud if the candidate cannot be checked.
+build_oracle() {
+    dir=$1
+    out=$2
+    # shellcheck disable=SC2086
+    $CC $FLAGS -I "$dir/include" benchmark/oracle_check.c "$dir/benchmark/oracle.c" \
+        "$dir/src/fixed_math.c" "$dir/src/fixed_vec.c" -lm -o "$out" || return 1
+}
+
 i=1
 while [ "$i" -le "$REPEATS" ]; do
     # shellcheck disable=SC2086
@@ -81,11 +96,13 @@ while [ "$i" -le "$REPEATS" ]; do
 done
 
 # The candidate must also be bit-identical: a faster tree that moved an output is a FAIL,
-# not a speedup.
-if [ -x build/fixed_oracle_check ]; then
-    echo "# oracle_check on the candidate tree:"
-    build/fixed_oracle_check || { echo "ab.sh: candidate FAILED the output oracle; the table below is moot" >&2; exit 1; }
+# not a speedup. This binary is the one just compiled against $CAND_DIR.
+echo "# oracle_check compiled against $CAND_DIR:"
+if ! build_oracle "$CAND_DIR" "$WORK/oracle_check"; then
+    echo "ab.sh: cannot build oracle_check against $CAND_DIR" >&2
+    exit 1
 fi
+"$WORK/oracle_check" || { echo "ab.sh: candidate FAILED the output oracle; the table below is moot" >&2; exit 1; }
 
 awk -v reps="$REPEATS" -v work="$WORK" '
 function median(a, n,   b, i, j, t) {

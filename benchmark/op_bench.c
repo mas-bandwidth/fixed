@@ -23,7 +23,9 @@
 // a difference in the operation.
 //
 // Usage:
-//   fixed_op_bench [repeats] [iterations] [operation]
+//   fixed_op_bench [repeats] [iterations] [operation ...]
+// Every name after the iteration count is kept. An unknown name fails, rather than
+// being dropped. Passing no names runs the whole table.
 // Output CSV: op,mode,ns_per_op_min,ns_per_op_median,ns_per_op_max,checksum
 #include "oracle.c"
 
@@ -112,21 +114,41 @@ static int opBenchCompare( const void* a, const void* b )
 	return ( x > y ) - ( x < y );
 }
 
+// True when this operation is in the caller's set. No names means every operation.
+// Names that are not operations are rejected in main, so a set cannot silently shrink.
+static int opBenchSelected( const char* name, int argc, char** argv )
+{
+	if ( argc <= 3 ) return 1;
+	for ( int a = 3; a < argc; ++a )
+	{
+		if ( strcmp( argv[a], name ) == 0 ) return 1;
+	}
+	return 0;
+}
+
 int main( int argc, char** argv )
 {
 	int repeats = argc > 1 ? atoi( argv[1] ) : 7;
 	uint64_t iterations = argc > 2 ? strtoull( argv[2], NULL, 10 ) : 200000;
-	const char* only = argc > 3 ? argv[3] : NULL;
 	if ( repeats < 1 ) repeats = 1;
 	if ( iterations < 1 ) iterations = 1;
 	const uint64_t passes = ( iterations + OP_BENCH_BATCH - 1 ) / OP_BENCH_BATCH;
 	const int ops = fixOracleOpCount();
 
+	for ( int a = 3; a < argc; ++a )
+	{
+		if ( fixOracleFindOp( argv[a] ) < 0 )
+		{
+			fprintf( stderr, "fixed_op_bench: unknown operation \"%s\"\n", argv[a] );
+			return 2;
+		}
+	}
+
 	printf( "op,mode,ns_per_op_min,ns_per_op_median,ns_per_op_max,checksum\n" );
 	for ( int i = 0; i < ops; ++i )
 	{
 		const char* name = oracleOps[i].name;
-		if ( only != NULL && strcmp( only, name ) != 0 ) continue;
+		if ( !opBenchSelected( name, argc, argv ) ) continue;
 		opBenchPrepare( i );
 
 		double scalar[64];

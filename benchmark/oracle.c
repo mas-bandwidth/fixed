@@ -28,10 +28,11 @@
 //           AABBs from the same stream.
 //
 // RANDOM COUNT. The base count is a parameter of every run and is RECORDED IN THE
-// BASELINE FILE, so a hash is reproducible rather than merely frozen. Each operation
-// divides the base by its own cost weight (in the table), because 50 million 256-bit
-// divides and 50 million multiplies are not the same amount of machine time and a single
-// flat count would make the oracle's runtime a property of its most expensive row.
+// BASELINE FILE, so a hash is reproducible rather than merely frozen. The committed
+// base is 50000000 seeded xoshiro256** draws per operation, BEFORE the weight divisor.
+// Each operation divides that base by its own cost weight (in the table): weight 100
+// (fixUInt256DivMod) is 500,000 draws, not 50,000,000. A flat 50 million on every row
+// would make the oracle's runtime a property of its most expensive row.
 //
 // ASSERT SAFETY. The oracle runs under ctest, where NDEBUG is NOT defined and FIX_ASSERT
 // is live, and under -DNDEBUG for the benchmark build. Every fill below therefore
@@ -219,8 +220,8 @@ static fixVec3 oracleVec( int64_t a, int64_t b, int64_t c )
 // --------------------------------------------------------------------------------------
 // THE OPERATION TABLE.
 //   arity    slots the operation reads
-//   weight   the base random count is divided by this: one flat count would make the
-//            oracle's runtime a property of its most expensive row
+//   weight   divides the committed base (50000000) : weight 100 is 500,000 draws.
+//            A flat count would make the runtime a property of the most expensive row.
 //   exhaustive  0 none, 1 every raw input below 2^32, 2 every raw angle in [-2 pi, 2 pi],
 //               3 the dense log2/exp2 grid
 // --------------------------------------------------------------------------------------

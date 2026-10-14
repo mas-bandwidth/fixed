@@ -152,7 +152,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DFIX_BUILD_BENCHMARKS=ON
 cmake --build build --parallel 2
 ctest --test-dir build --output-on-failure        # includes oracle_unit and its emulated twin
 ./build/fixed_op_bench 7 200000                    # CSV: op,mode,ns_per_op min/median/max,checksum
-./build/fixed_op_bench 7 200000 fixNormalize       # one operation
+./build/fixed_op_bench 7 200000 fixMul fixSqrt_small   # a set; an unknown name fails
 ./build/fixed_oracle_check                         # diff a full oracle pass against the baseline
 ./build/fixed_oracle_check_emulated                # the same baseline, FIX_FORCE_EMULATED_INT128
 benchmark/cpu_info.sh                              # the header every finding pastes
@@ -165,6 +165,9 @@ the number is latency. **BATCH** runs independent operations over an array of 40
 inputs; that is throughput, and it is the baseline the SIMD batch spikes have to beat. Every
 output word is consumed into a checksum, and the printed checksum is the same number for
 both trees in an A/B -- a differing checksum means output bits moved, and the row is void.
+Names after the iteration count are a set, intersected with the operation table. Every
+named operation is measured; an unknown name exits non-zero instead of being dropped.
+Passing no names runs every operation.
 
 Each row dispatches through the operation's apply function and stores its output words, so
 every row carries the same small constant overhead (about a nanosecond). Absolute numbers
@@ -186,10 +189,11 @@ in the source, including seeded random vectors, quaternions, matrices and AABBs 
 composite operations. The base random count is recorded in the baseline file's header
 (`base_random:`) and each operation divides it by its own cost weight (minimum one
 draw), so a hash is reproducible rather than merely frozen. The committed baseline
-was written with `base_random = 100000`. That is not a flat 50 million draws per
-operation: a flat count would make the oracle's runtime a property of its slowest
-row. The weights live in the operation table in `oracle.c`. Raising the base
-invalidates every full-set hash in the baseline.
+is `base_random = 50000000`: fifty million seeded xoshiro256** inputs per operation
+before the weight divisor. The weights live in the operation table in `oracle.c`.
+`fixUInt256DivMod`'s weight of 100 is 500,000 draws, not 50,000,000. A flat count on
+every row would make the oracle's runtime a property of its slowest row. Changing
+the base invalidates every full-set hash in the baseline.
 
 `fixAtan2` is hashed after mapping each operand `INT64_MIN` to `INT64_MIN + 1`.
 `fixAbs(INT64_MIN)` is undefined: on x86-64 it wraps, the following min/max treats
@@ -216,9 +220,12 @@ command that names the first differing input exactly:
 `benchmark/ab.sh A B [op ...]` compiles the SAME `benchmark/op_bench.c` against each tree
 with the flags above, runs the two binaries INTERLEAVED for `AB_REPEATS` (default 7) repeats
 of `AB_ITERS` (default 200000) iterations, prints min/median/spread per operation and mode
-with `speedup = a_median / b_median`, and runs `oracle_check` on the candidate. It refuses
-to start while another benchmark process is on the box (`pgrep -af`) and never kills
-anything. `benchmark/ab.sh . .` is the A/A control: both columns are the same tree.
+with `speedup = a_median / b_median`, and compiles `benchmark/oracle_check.c` together
+with the candidate's `benchmark/oracle.c`, `include/` and `src/`, then runs that binary.
+It does not consult a prebuilt `build/fixed_oracle_check`. Failing to compile the
+oracle is a failure. It refuses to start while another benchmark process is on the
+box (`pgrep -af`) and never kills anything. `benchmark/ab.sh . .` is the A/A control:
+both columns are the same tree.
 A row is inside the noise when `|speedup - 1|` is no larger than the greater of
 that row's two spreads. That greater spread is the floor any spike must beat.
 
@@ -235,6 +242,7 @@ rsqrt-shaped work is measured as `fixLength` and `fixNormalize`; a spike that ad
 
 Five runs of `benchmark/ab.sh . .` on `space`, 2026-10-14 07:57:21Z through 08:09:00Z.
 Each exited 0. Each printed `ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=100000)`.
+That line is the previous budget. The committed base is now `50000000`.
 Compiler `cc (Ubuntu 15.2.0-16ubuntu1) 15.2.0`, flags `-O3 -g -DNDEBUG -ffp-contract=off`,
 7 repeats, 200000 iterations. CPU from `benchmark/cpu_info.sh` on the first run:
 AMD EPYC 9124 16-Core Processor, 32 logical CPUs, affinity 0-31, avx2 yes, avx512f yes,

@@ -30,7 +30,10 @@ extern void fixOracleDumpOp( int opIndex, uint64_t baseRandom, uint64_t limit, u
 							 FILE* out );
 
 #define ORACLE_SEGMENTS 16
-#define ORACLE_DEFAULT_BASE_RANDOM UINT64_C( 2000000 )
+// 50 million seeded draws per operation, before the weight divisor. -n overrides this.
+// Otherwise the baseline file's base_random line wins, and this constant is only the
+// fallback when that line is absent (and the value --write records in that case).
+#define ORACLE_DEFAULT_BASE_RANDOM UINT64_C( 50000000 )
 
 typedef struct OracleRow
 {

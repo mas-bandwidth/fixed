@@ -205,10 +205,32 @@ if (NOT WIN32)
 endif()
 add_test(NAME numerical_saturated COMMAND fixed_numerical_saturated_test)
 
+# THE BIT-EXACT OUTPUT ORACLE, unit tier: the oracle of benchmark/oracle.c on a 1,000-input
+# prefix of every hot operation, against hashes baked into the test. The full oracle is
+# benchmark/oracle_check, below, in the bench tier. This one is also in the emulated list.
+add_executable(fixed_oracle_unit_test test/oracle_unit_test.c)
+target_link_libraries(fixed_oracle_unit_test PRIVATE fixed)
+add_test(NAME oracle_unit COMMAND fixed_oracle_unit_test)
+
 option(FIX_BUILD_BENCHMARKS "Build the numerical public-API microbenchmarks" OFF)
 if (FIX_BUILD_BENCHMARKS)
     add_executable(fixed_numerical_bench benchmark/numerical_bench.c)
     target_link_libraries(fixed_numerical_bench PRIVATE fixed)
+
+    # ns per operation, scalar (latency) and batch (throughput), for every hot operation.
+    add_executable(fixed_op_bench benchmark/op_bench.c)
+    target_link_libraries(fixed_op_bench PRIVATE fixed)
+
+    # The full oracle, diffed against the frozen baseline; also on the emulated arm, which
+    # must produce the same hashes.
+    add_executable(fixed_oracle_check benchmark/oracle_check.c)
+    target_link_libraries(fixed_oracle_check PRIVATE fixed)
+    target_compile_definitions(fixed_oracle_check PRIVATE FIX_ORACLE_BASELINE="${CMAKE_CURRENT_SOURCE_DIR}/benchmark/oracle-baseline.txt")
+    if (TARGET fixed_emulated)
+        add_executable(fixed_oracle_check_emulated benchmark/oracle_check.c)
+        target_link_libraries(fixed_oracle_check_emulated PRIVATE fixed_emulated)
+        target_compile_definitions(fixed_oracle_check_emulated PRIVATE FIX_ORACLE_BASELINE="${CMAKE_CURRENT_SOURCE_DIR}/benchmark/oracle-baseline.txt")
+    endif()
 endif()
 
 # THE EMULATED ARM OF THE WHOLE SUITE. Same sources, same frozen hashes, 128-bit
@@ -221,7 +243,7 @@ if (TARGET fixed_emulated)
     # inverse_envelope is in this list for a specific reason: the 256-bit layer the wide
     # arm runs on is written entirely in the fixUInt128 vocabulary, so an emulated build
     # is the only thing that checks the emulated 256-bit arithmetic at all.
-    foreach(suite determinism transcendental wide_time exhaustive aabb port_equality int128 geometry inverse_envelope int256_division numerical_regression)
+    foreach(suite determinism transcendental wide_time exhaustive aabb port_equality int128 geometry inverse_envelope int256_division numerical_regression oracle_unit)
         add_executable(fixed_${suite}_emulated_test test/${suite}_test.c)
         target_link_libraries(fixed_${suite}_emulated_test PRIVATE fixed_emulated)
         if (NOT WIN32)

@@ -142,3 +142,94 @@ There is no claim of a whole-simulation speedup or zero regression on every
 compiler, CPU, and input distribution. Measure a consuming application's workload
 before choosing a frame-time budget from these numbers. CI compiles the benchmark
 on all supported toolchains but does not enforce timing thresholds.
+
+## The operation bench and the output oracle
+
+Two programs extend this file's protocol. Neither changes anything in `include/` or `src/`.
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DFIX_BUILD_BENCHMARKS=ON
+cmake --build build --parallel 2
+ctest --test-dir build --output-on-failure        # includes oracle_unit and its emulated twin
+./build/fixed_op_bench 7 200000                    # CSV: op,mode,ns_per_op min/median/max,checksum
+./build/fixed_op_bench 7 200000 fixNormalize       # one operation
+./build/fixed_oracle_check                         # diff a full oracle pass against the baseline
+./build/fixed_oracle_check_emulated                # the same baseline, FIX_FORCE_EMULATED_INT128
+benchmark/cpu_info.sh                              # the header every finding pastes
+benchmark/ab.sh <baseline-src-dir> <candidate-src-dir> [op ...]
+```
+
+`op_bench` measures every public hot operation twice. **SCALAR** is a dependent chain: each
+call's first output word becomes the next call's first input word, so nothing overlaps and
+the number is latency. **BATCH** runs independent operations over an array of 4096 prepared
+inputs; that is throughput, and it is the baseline the SIMD batch spikes have to beat. Every
+output word is consumed into a checksum, and the printed checksum is the same number for
+both trees in an A/B -- a differing checksum means output bits moved, and the row is void.
+
+Each row dispatches through the operation's apply function and stores its output words, so
+every row carries the same small constant overhead (about a nanosecond). Absolute numbers
+are therefore an upper bound on the operation's own cost; A/B differences are unaffected,
+because both trees pay it identically.
+
+### The oracle
+
+`benchmark/oracle.c` is one engine, no `main()`. `oracle_check` runs it over the full input
+set and diffs against `benchmark/oracle-baseline.txt`; `test/oracle_unit_test.c`
+(`OracleHashStableTest`) runs it over a 1,000-input prefix of every operation against hashes
+baked into the test, with no files and no clock. Per operation the input set is: the
+structured edge grid (`0`, `+-1`, `+-2^k`, `+-(2^k-1)` for every `k`, `INT64_MIN`,
+`INT64_MAX`, the saturation values), crossed with itself for binary operations; exhaustive
+where feasible (`fixSqrt` for every raw input below `2^32`, `fixSin`/`fixCos`/
+`fixComputeCosSin` for every raw angle in `[-2 pi, 2 pi]`, `fixLog2`/`fixExp2` over a dense
+grid); and seeded pseudo-random draws from the xoshiro256\*\* stream whose seed is a constant
+in the source, including seeded random vectors, quaternions, matrices and AABBs for the
+composite operations. The base random count is recorded in the baseline file's header
+(`base_random:`) and each operation divides it by its own cost weight, so a hash is
+reproducible rather than merely frozen; the committed baseline was written with
+`base_random = 100000`.
+
+The same baseline file must match BOTH 128-bit arms. `fixed_oracle_check` and
+`fixed_oracle_check_emulated` are the same source linked against `fixed` and
+`fixed_emulated`, so their agreement is itself a cross-check of the emulation. A moved hash
+IS the failure: regenerate nothing to make a change pass.
+
+When a hash moves, `oracle_check` names the operation, narrows the difference to the segment
+whose running hash first diverges, prints the input at the head of that range, and gives the
+command that names the first differing input exactly:
+
+```sh
+./build/fixed_oracle_check --dump fixMul <start> <end>   # index/input/output triples
+# run it in both trees and diff: the first differing line is the first differing input
+```
+
+### A/B protocol
+
+`benchmark/ab.sh A B [op ...]` compiles the SAME `benchmark/op_bench.c` against each tree
+with the flags above, runs the two binaries INTERLEAVED for `AB_REPEATS` (default 7) repeats
+of `AB_ITERS` (default 200000) iterations, prints min/median/spread per operation and mode
+with `speedup = a_median / b_median`, and runs `oracle_check` on the candidate. It refuses
+to start while another benchmark process is on the box (`pgrep -af`) and never kills
+anything. `benchmark/ab.sh . .` is the A/A control: both columns are the same tree, so every
+speedup must land inside the spread. That spread is the floor any spike must beat.
+
+### Operations that do not exist in this library today
+
+There is no `rsqrt`, no fused `fixMulAdd`-style scalar op beyond the vector ones, no
+`fixSin`/`fixCos` pair cheaper than `fixComputeCosSin` (both call it), no wide (Q112.16)
+transcendental, and no batch/SIMD entry point of any kind: every operation here is scalar,
+which is why BATCH is a measurement shape the harness supplies rather than an API. The
+rsqrt-shaped work is measured as `fixLength` and `fixNormalize`; a spike that adds an
+`fixRsqrt` must add its oracle row and freeze its hashes before it can claim a number.
+
+### A/A noise
+
+NOT MEASURED IN THE ATTEMPT THAT ADDED THIS SECTION, and that is stated rather than filled
+with a placeholder table: it needs a quiet bench and five interleaved runs, and this card's
+wall ran out before one was available. Produce it with:
+
+```sh
+benchmark/ab.sh . . > build/aa-1.txt   # five times, then read the spread column
+```
+
+Until that table exists, no spike may claim a speedup smaller than the spread `ab.sh` prints
+for the operation it touches.

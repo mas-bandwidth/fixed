@@ -205,10 +205,35 @@ if (NOT WIN32)
 endif()
 add_test(NAME numerical_saturated COMMAND fixed_numerical_saturated_test)
 
+# THE OUTPUT ORACLE'S UNIT TIER. test/oracle_unit_test.c freezes the oracle's hashes over a
+# 1,000-input prefix of every operation, with no files and no clock, and the same numbers are
+# asserted on the emulated arm below. benchmark/oracle.c is the engine both this test and
+# oracle_check drive, so it is compiled into each executable rather than into the library:
+# nothing in include/ or src/ changes for the benchmark harness.
+add_executable(fixed_oracle_unit_test test/oracle_unit_test.c benchmark/oracle.c)
+target_link_libraries(fixed_oracle_unit_test PRIVATE fixed)
+add_test(NAME oracle_unit COMMAND fixed_oracle_unit_test)
+
 option(FIX_BUILD_BENCHMARKS "Build the numerical public-API microbenchmarks" OFF)
 if (FIX_BUILD_BENCHMARKS)
     add_executable(fixed_numerical_bench benchmark/numerical_bench.c)
     target_link_libraries(fixed_numerical_bench PRIVATE fixed)
+
+    # ns per operation, scalar (dependent chain: latency) and batch (independent: throughput).
+    # op_bench.c #includes oracle.c so the timed inputs and the hashed inputs are one
+    # definition of an input and cannot drift apart.
+    add_executable(fixed_op_bench benchmark/op_bench.c)
+    target_link_libraries(fixed_op_bench PRIVATE fixed)
+
+    # The oracle runner: diffs a full oracle pass against benchmark/oracle-baseline.txt and
+    # exits non-zero on any difference. Built twice, against both 128-bit arms, because the
+    # SAME baseline file has to match both.
+    add_executable(fixed_oracle_check benchmark/oracle_check.c benchmark/oracle.c)
+    target_link_libraries(fixed_oracle_check PRIVATE fixed)
+    if (TARGET fixed_emulated)
+        add_executable(fixed_oracle_check_emulated benchmark/oracle_check.c benchmark/oracle.c)
+        target_link_libraries(fixed_oracle_check_emulated PRIVATE fixed_emulated)
+    endif()
 endif()
 
 # THE EMULATED ARM OF THE WHOLE SUITE. Same sources, same frozen hashes, 128-bit
@@ -229,6 +254,10 @@ if (TARGET fixed_emulated)
         endif()
         add_test(NAME ${suite}_emulated COMMAND fixed_${suite}_emulated_test)
     endforeach()
+
+    add_executable(fixed_oracle_unit_emulated_test test/oracle_unit_test.c benchmark/oracle.c)
+    target_link_libraries(fixed_oracle_unit_emulated_test PRIVATE fixed_emulated)
+    add_test(NAME oracle_unit_emulated COMMAND fixed_oracle_unit_emulated_test)
 
     add_executable(fixed_numerical_saturated_emulated_test test/numerical_regression_test.c src/fixed_math.c src/fixed_vec.c)
     target_include_directories(fixed_numerical_saturated_emulated_test PRIVATE include)

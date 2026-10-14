@@ -6,7 +6,18 @@ Planned work for fixed. Each item below was an open sprint card, moved out of th
 
 ## Contents
 
+- [Moved from GitHub issues on 2026-10-14](#moved-from-github-issues-on-2026-10-14) (1)
 - [Moved out of the sprint on 2026-10-14: fixed-perf](#moved-out-of-the-sprint-on-2026-10-14-fixed-perf) (11)
+
+## Moved from GitHub issues on 2026-10-14
+
+Open GitHub issues of mas-bandwidth/fixed, recorded here on 2026-10-14 when roadmaps became the standard for future work (Glenn, 2026-10-14). Each item names its issue; the issue is closed with a pointer here.
+
+### AVX-512 / Zen 5 paths for the hot fixed-point loops: measure scalar vs AVX2 vs AVX-512 on hetzner (Zen 4) and space (Zen 4) first, then vectorize what wins
+
+Glenn, 2026-09-22 4:40 PM: 'We can probably make fixed and fixed3d a lot faster by using future cpu instruction sets.' Source: Lemire, 'How did AMD Ryzen get 50% faster in two years' (2026-09-18): 5800X3D -> 9800X3D is 47% faster single-core on Geekbench 6 with only 15% more clock; Zen 5 widened dispatch 6 -> 8, ALUs 4 -> 6, L2 to 1 MB, ROB to 448, and ...
+
+From: mas-bandwidth/fixed issue #29, opened 2026-09-22 by rowan-claude; moved here 2026-10-14
 
 ## Moved out of the sprint on 2026-10-14: fixed-perf
 

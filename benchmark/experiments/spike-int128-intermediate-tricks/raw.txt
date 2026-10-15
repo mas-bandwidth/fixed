@@ -151,5 +151,81 @@ fixMul,batch,8.6208,8.6208,8.6208,2701586523624746469
 fixDot,scalar,17.6323,17.6323,17.6323,1491924509133835468
 fixDot,batch,17.8007,17.8007,17.8007,8015697193
 
-# ==== ctest summary (candidate tree) ====
-100% tests passed, 0 tests failed out of 36 (native + emulated arms, oracle_unit + oracle_unit_emulated + determinism hashes unchanged)
+# ==== ctest --test-dir build --output-on-failure (candidate tree) ====
+# Test project .../repo/build
+#       Start  1: determinism
+#  1/36 Test  #1: determinism .........................   Passed    0.02 sec
+#       Start  2: transcendental
+#  2/36 Test  #2: transcendental ......................   Passed    0.01 sec
+#       Start  3: wide_time
+#  3/36 Test  #3: wide_time ...........................   Passed    0.00 sec
+#       Start  4: exhaustive
+#  4/36 Test  #4: exhaustive ..........................   Passed    0.02 sec
+#       Start  5: aabb
+#  5/36 Test  #5: aabb ................................   Passed    0.00 sec
+#       Start  6: override_api
+#  6/36 Test  #6: override_api ........................   Passed    0.00 sec
+#       Start  7: port_equality
+#  7/36 Test  #7: port_equality .......................   Passed    0.28 sec
+#       Start  8: negative_control
+#  8/36 Test  #8: negative_control ....................   Passed    0.02 sec
+#       Start  9: port_negative_control
+#  9/36 Test  #9: port_negative_control ...............   Passed    0.22 sec
+#       Start 10: int128
+# 10/36 Test #10: int128 ..............................   Passed    0.14 sec
+#       Start 11: geometry
+# 11/36 Test #11: geometry ............................   Passed    0.00 sec
+#       Start 12: geometry_negative_control
+# 12/36 Test #12: geometry_negative_control ...........   Passed    0.00 sec
+#       Start 13: quantize
+# 13/36 Test #13: quantize ............................   Passed    0.03 sec
+#       Start 14: quantize_negative_control
+# 14/36 Test #14: quantize_negative_control ...........   Passed    0.03 sec
+#       Start 15: int256_division
+# 15/36 Test #15: int256_division .....................   Passed    0.04 sec
+#       Start 16: int256_division_negative_control
+# 16/36 Test #16: int256_division_negative_control ....   Passed    0.05 sec
+#       Start 17: inverse_envelope
+# 17/36 Test #17: inverse_envelope ....................   Passed    0.00 sec
+#       Start 18: inverse_envelope_negative_control
+# 18/36 Test #18: inverse_envelope_negative_control ...   Passed    0.00 sec
+#       Start 19: usage
+# 19/36 Test #19: usage ...............................   Passed    0.00 sec
+#       Start 20: numerical_regression
+# 20/36 Test #20: numerical_regression ................   Passed    0.00 sec
+#       Start 21: numerical_saturated
+# 21/36 Test #21: numerical_saturated .................   Passed    0.00 sec
+#       Start 22: oracle_unit
+# 22/36 Test #22: oracle_unit .........................   Passed    0.01 sec
+#       Start 23: determinism_emulated
+# 23/36 Test #23: determinism_emulated ................   Passed    0.02 sec
+#       Start 24: transcendental_emulated
+# 24/36 Test #24: transcendental_emulated .............   Passed    0.08 sec
+#       Start 25: wide_time_emulated
+# 25/36 Test #25: wide_time_emulated ..................   Passed    0.00 sec
+#       Start 26: exhaustive_emulated
+# 26/36 Test #26: exhaustive_emulated .................   Passed    0.03 sec
+#       Start 27: aabb_emulated
+# 27/36 Test #27: aabb_emulated .......................   Passed    0.00 sec
+#       Start 28: port_equality_emulated
+# 28/36 Test #28: port_equality_emulated ..............   Passed    0.74 sec
+#       Start 29: int128_emulated
+# 29/36 Test #29: int128_emulated .....................   Passed    0.13 sec
+#       Start 30: geometry_emulated
+# 30/36 Test #30: geometry_emulated ...................   Passed    0.01 sec
+#       Start 31: inverse_envelope_emulated
+# 31/36 Test #31: inverse_envelope_emulated ...........   Passed    0.00 sec
+#       Start 32: int256_division_emulated
+# 32/36 Test #32: int256_division_emulated ............   Passed    0.04 sec
+#       Start 33: numerical_regression_emulated
+# 33/36 Test #33: numerical_regression_emulated .......   Passed    0.01 sec
+#       Start 34: oracle_unit_emulated
+# 34/36 Test #34: oracle_unit_emulated ................   Passed    0.01 sec
+#       Start 35: numerical_saturated_emulated
+# 35/36 Test #35: numerical_saturated_emulated ........   Passed    0.01 sec
+#       Start 36: emulated_negative_control
+# 36/36 Test #36: emulated_negative_control ...........   Passed    0.03 sec
+#
+# 100% tests passed, 0 tests failed out of 36
+#
+# Total Test time (real) =   1.99 sec

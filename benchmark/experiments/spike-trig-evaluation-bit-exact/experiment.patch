@@ -1,0 +1,314 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 1dcaf67..c58ded2 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -65,6 +65,12 @@ if (NOT WIN32)
+ endif()
+ add_test(NAME transcendental COMMAND fixed_transcendental_test)
+ 
++# Bit-exactness guard for the trig-evaluation spike: the candidate fixComputeCosSin /
++# fixAtan2 against the baseline bodies copied into the test as the reference.
++add_executable(fixed_trig_evaluation_exhaustive_test test/trig_evaluation_exhaustive_test.c)
++target_link_libraries(fixed_trig_evaluation_exhaustive_test PRIVATE fixed)
++add_test(NAME trig_evaluation_exhaustive COMMAND fixed_trig_evaluation_exhaustive_test)
++
+ add_executable(fixed_wide_time_test test/wide_time_test.c)
+ target_link_libraries(fixed_wide_time_test PRIVATE fixed)
+ add_test(NAME wide_time COMMAND fixed_wide_time_test)
+diff --git a/src/fixed_math.c b/src/fixed_math.c
+index 768f161..ad2605e 100644
+--- a/src/fixed_math.c
++++ b/src/fixed_math.c
+@@ -81,21 +81,11 @@ fixed_t fixAtan2( fixed_t y, fixed_t x )
+ 	r = fixQ32Mul( r, s ) + t;
+ 	r = fixQ32Mul( r, c ) + a;
+ 
+-	// Map to full circle
+-	if ( ay > ax )
+-	{
+-		r = FIX_Q32_HALF_PI - r;
+-	}
+-
+-	if ( x < 0 )
+-	{
+-		r = FIX_Q32_PI - r;
+-	}
+-
+-	if ( y < 0 )
+-	{
+-		r = -r;
+-	}
++	// Map to full circle. Branchless: the same three arithmetic steps, selected
++	// rather than branched, so the octant mapping cannot mispredict. Bit-identical.
++	r = ( ay > ax ) ? ( FIX_Q32_HALF_PI - r ) : r;
++	r = ( x < 0 ) ? ( FIX_Q32_PI - r ) : r;
++	r = ( y < 0 ) ? -r : r;
+ 
+ 	return fixQ32ToFix( r );
+ }
+@@ -113,38 +103,25 @@ fixCosSin fixComputeCosSin( fixed_t radians )
+ 	int64_t x = fixShiftLeft( fixUnwindAngle( radians ), 16 );
+ 	x = x < -pi ? -pi : ( x > pi ? pi : x );
+ 
+-	// cosine needs angle in [-pi/2, pi/2]
+-	int64_t c;
+-	if ( x < -halfPi )
+-	{
+-		int64_t y = x + pi;
+-		int64_t y2 = fixQ32Mul( y, y );
+-		c = -fixQ32Div( pi2 - 4 * y2, pi2 + y2 );
+-	}
+-	else if ( x > halfPi )
+-	{
+-		int64_t y = x - pi;
+-		int64_t y2 = fixQ32Mul( y, y );
+-		c = -fixQ32Div( pi2 - 4 * y2, pi2 + y2 );
+-	}
+-	else
+-	{
+-		int64_t y2 = fixQ32Mul( x, x );
+-		c = fixQ32Div( pi2 - 4 * y2, pi2 + y2 );
+-	}
++	// cosine needs angle in [-pi/2, pi/2]; sine needs angle in [0, pi]. The two
++	// reductions are computed together so the independent Q32.32 multiplies and the
++	// two divisions can overlap. Every rounding point is unchanged.
++	int64_t yc = ( x < -halfPi ) ? ( x + pi ) : ( ( x > halfPi ) ? ( x - pi ) : x );
++	int64_t ys = ( x < 0 ) ? ( x + pi ) : x;
+ 
+-	// sine needs angle in [0, pi]
+-	int64_t s;
+-	if ( x < 0 )
++	int64_t y2 = fixQ32Mul( yc, yc );
++	int64_t u = fixQ32Mul( ys, pi - ys );
++
++	int64_t c = fixQ32Div( pi2 - 4 * y2, pi2 + y2 );
++	int64_t s = fixQ32Div( 16 * u, fivePi2 - 4 * u );
++
++	if ( x < -halfPi || x > halfPi )
+ 	{
+-		int64_t y = x + pi;
+-		int64_t u = fixQ32Mul( y, pi - y );
+-		s = -fixQ32Div( 16 * u, fivePi2 - 4 * u );
++		c = -c;
+ 	}
+-	else
++	if ( x < 0 )
+ 	{
+-		int64_t u = fixQ32Mul( x, pi - x );
+-		s = fixQ32Div( 16 * u, fivePi2 - 4 * u );
++		s = -s;
+ 	}
+ 
+ 	// Normalize so the pair lies on the unit circle
+diff --git a/test/trig_evaluation_exhaustive_test.c b/test/trig_evaluation_exhaustive_test.c
+new file mode 100644
+index 0000000..ea796fa
+--- /dev/null
++++ b/test/trig_evaluation_exhaustive_test.c
+@@ -0,0 +1,206 @@
++// SPDX-License-Identifier: MIT
++// Bit-exactness guard for the trig-evaluation spike. The OLD fixComputeCosSin and
++// fixAtan2 bodies are copied here verbatim as the reference; the library's (candidate)
++// implementations must produce the SAME output bits for every input in the exhaustive
++// grids below. No clock, no files, no network.
++#include "fixed/fixed_math.h"
++#include <stdint.h>
++#include <stdio.h>
++
++// ---- reference helpers (copied from the baseline src/fixed_math.c) ----
++static inline int64_t refQ32Mul( int64_t a, int64_t b )
++{
++	return fixInt128ToI64( fixInt128Shr( fixInt128MulI64( a, b ), 32 ) );
++}
++
++static inline int64_t refQ32Div( int64_t a, int64_t b )
++{
++	return fixInt128ToI64( fixInt128Div( fixInt128ShiftLeft( fixInt128FromI64( a ), 32 ), fixInt128FromI64( b ) ) );
++}
++
++static inline int64_t refQ32Sqrt( int64_t a )
++{
++	if ( a <= 0 )
++	{
++		return 0;
++	}
++	uint64_t hi = (uint64_t)a >> 32;
++	uint64_t lo = (uint64_t)a << 32;
++	return (int64_t)fixISqrt128High( hi, lo );
++}
++
++static inline fixed_t refQ32ToFix( int64_t a )
++{
++	return ( a + ( (int64_t)1 << 15 ) ) >> 16;
++}
++
++#define REF_Q32_PI 13493037705LL
++#define REF_Q32_HALF_PI 6746518852LL
++
++static fixed_t refAtan2( fixed_t y, fixed_t x )
++{
++	if ( x == 0 && y == 0 )
++	{
++		return 0;
++	}
++
++	fixed_t ax = fixAbs( x );
++	fixed_t ay = fixAbs( y );
++	fixed_t mx = fixMax( ay, ax );
++	fixed_t mn = fixMin( ay, ax );
++
++	int64_t a = refQ32Div( mn, mx );
++
++	int64_t s = refQ32Mul( a, a );
++	int64_t c = refQ32Mul( s, a );
++	int64_t q = refQ32Mul( s, s );
++	int64_t r = refQ32Mul( 106688212LL, q ) + 802360794LL;
++	int64_t t = refQ32Mul( -404147609LL, q ) - 1426490580LL;
++	r = refQ32Mul( r, s ) + t;
++	r = refQ32Mul( r, c ) + a;
++
++	if ( ay > ax )
++	{
++		r = REF_Q32_HALF_PI - r;
++	}
++
++	if ( x < 0 )
++	{
++		r = REF_Q32_PI - r;
++	}
++
++	if ( y < 0 )
++	{
++		r = -r;
++	}
++
++	return refQ32ToFix( r );
++}
++
++static fixCosSin refComputeCosSin( fixed_t radians )
++{
++	const int64_t pi = REF_Q32_PI;
++	const int64_t halfPi = REF_Q32_HALF_PI;
++	const int64_t pi2 = 42389628127LL;
++	const int64_t fivePi2 = 211948140636LL;
++
++	int64_t x = fixShiftLeft( fixUnwindAngle( radians ), 16 );
++	x = x < -pi ? -pi : ( x > pi ? pi : x );
++
++	int64_t c;
++	if ( x < -halfPi )
++	{
++		int64_t y = x + pi;
++		int64_t y2 = refQ32Mul( y, y );
++		c = -refQ32Div( pi2 - 4 * y2, pi2 + y2 );
++	}
++	else if ( x > halfPi )
++	{
++		int64_t y = x - pi;
++		int64_t y2 = refQ32Mul( y, y );
++		c = -refQ32Div( pi2 - 4 * y2, pi2 + y2 );
++	}
++	else
++	{
++		int64_t y2 = refQ32Mul( x, x );
++		c = refQ32Div( pi2 - 4 * y2, pi2 + y2 );
++	}
++
++	int64_t s;
++	if ( x < 0 )
++	{
++		int64_t y = x + pi;
++		int64_t u = refQ32Mul( y, pi - y );
++		s = -refQ32Div( 16 * u, fivePi2 - 4 * u );
++	}
++	else
++	{
++		int64_t u = refQ32Mul( x, pi - x );
++		s = refQ32Div( 16 * u, fivePi2 - 4 * u );
++	}
++
++	int64_t mag = refQ32Sqrt( refQ32Mul( s, s ) + refQ32Mul( c, c ) );
++	if ( mag > 0 )
++	{
++		c = refQ32Div( c, mag );
++		s = refQ32Div( s, mag );
++	}
++
++	fixCosSin cs = { refQ32ToFix( c ), refQ32ToFix( s ) };
++	return cs;
++}
++
++static int fails = 0;
++#define CHECK( cond ) \
++	do { if ( !( cond ) ) { printf( "FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond ); fails++; } } while ( 0 )
++
++int main( void )
++{
++	// cos/sin over every raw angle in [-4 pi, 4 pi] at full Q48.16 resolution.
++	{
++		fixed_t lo = fixFromDouble( -4.0 * 3.14159265358979323846 );
++		fixed_t hi = fixFromDouble( 4.0 * 3.14159265358979323846 );
++		long long count = 0;
++		for ( fixed_t a = lo; a <= hi; a++ )
++		{
++			fixCosSin got = fixComputeCosSin( a );
++			fixCosSin ref = refComputeCosSin( a );
++			if ( got.cosine != ref.cosine || got.sine != ref.sine )
++			{
++				printf( "cos/sin mismatch at angle %lld: got (%lld,%lld) ref (%lld,%lld)\n",
++						(long long)a, (long long)got.cosine, (long long)got.sine,
++						(long long)ref.cosine, (long long)ref.sine );
++				fails++;
++				break;
++			}
++			count++;
++		}
++		printf( "cos/sin exhaustive: %lld angles checked\n", count );
++		CHECK( count > 1600000 );
++	}
++
++	// atan2 over a 4096 x 4096 grid of (y, x) crossed with sign and the axes.
++	{
++		long long count = 0;
++		for ( int i = -2048; i <= 2048; i++ )
++		{
++			for ( int j = -2048; j <= 2048; j++ )
++			{
++				fixed_t y = (fixed_t)i * 16;
++				fixed_t x = (fixed_t)j * 16;
++				fixed_t got = fixAtan2( y, x );
++				fixed_t ref = refAtan2( y, x );
++				if ( got != ref )
++				{
++					printf( "atan2 mismatch at (%lld,%lld): got %lld ref %lld\n",
++							(long long)y, (long long)x, (long long)got, (long long)ref );
++					fails++;
++					goto atan2_done;
++				}
++				count++;
++			}
++		}
++	atan2_done:
++		printf( "atan2 grid: %lld pairs checked\n", count );
++		CHECK( count == 4097 * 4097 );
++	}
++
++	// atan2 axes and the (0,0) and equal-magnitude edges that drive a == 2^32.
++	{
++		CHECK( fixAtan2( 0, 0 ) == refAtan2( 0, 0 ) );
++		CHECK( fixAtan2( FIX_ONE, FIX_ONE ) == refAtan2( FIX_ONE, FIX_ONE ) );
++		CHECK( fixAtan2( -FIX_ONE, -FIX_ONE ) == refAtan2( -FIX_ONE, -FIX_ONE ) );
++		CHECK( fixAtan2( FIX_ONE, -FIX_ONE ) == refAtan2( FIX_ONE, -FIX_ONE ) );
++		CHECK( fixAtan2( -FIX_ONE, FIX_ONE ) == refAtan2( -FIX_ONE, FIX_ONE ) );
++		CHECK( fixAtan2( FIX_ONE, 0 ) == refAtan2( FIX_ONE, 0 ) );
++		CHECK( fixAtan2( 0, FIX_ONE ) == refAtan2( 0, FIX_ONE ) );
++		CHECK( fixAtan2( 0, -FIX_ONE ) == refAtan2( 0, -FIX_ONE ) );
++		CHECK( fixAtan2( -FIX_ONE, 0 ) == refAtan2( -FIX_ONE, 0 ) );
++	}
++
++	if ( fails == 0 )
++	{
++		printf( "TrigEvaluationExhaustiveTest: PASS\n" );
++	}
++	return fails == 0 ? 0 : 1;
++}

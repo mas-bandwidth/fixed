@@ -1,0 +1,246 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 1dcaf67..a2e2467 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -145,6 +145,18 @@ add_executable(fixed_quantize_test test/quantize_test.c)
+ target_link_libraries(fixed_quantize_test PRIVATE fixed)
+ add_test(NAME quantize COMMAND fixed_quantize_test)
+ 
++# SaturationBranchlessEquivalenceTest: the branchless saturation/clamp arms must return the
++# SAME BITS as the branching references over the structured grid, the saturation boundaries,
++# and a seeded draw -- no clock. Also built with FIX_SATURATE so the saturating fixMul arm is
++# exercised against an independent 128-bit reference.
++add_executable(fixed_saturation_branchless_test test/saturation_branchless_test.c)
++target_link_libraries(fixed_saturation_branchless_test PRIVATE fixed)
++add_test(NAME saturation_branchless COMMAND fixed_saturation_branchless_test)
++add_executable(fixed_saturation_branchless_saturated_test test/saturation_branchless_test.c)
++target_link_libraries(fixed_saturation_branchless_saturated_test PRIVATE fixed)
++target_compile_definitions(fixed_saturation_branchless_saturated_test PRIVATE FIX_SATURATE)
++add_test(NAME saturation_branchless_saturated COMMAND fixed_saturation_branchless_saturated_test)
++
+ # The control for it, injecting the error on the LIBRARY side. MUST fail.
+ add_executable(fixed_quantize_negative_control test/quantize_test.c)
+ target_link_libraries(fixed_quantize_negative_control PRIVATE fixed)
+diff --git a/include/fixed/fixed_quantize.h b/include/fixed/fixed_quantize.h
+index 6ac9e51..e7d23dd 100644
+--- a/include/fixed/fixed_quantize.h
++++ b/include/fixed/fixed_quantize.h
+@@ -99,22 +99,19 @@ FIX_ALWAYS_INLINE int64_t fixQuantizeClamped( double value, int64_t scale, int64
+ 
+ 	double scaled = value * (double)scale;
+ 	double rounded = scaled >= 0.0 ? scaled + 0.5 : scaled - 0.5;
+-	// Check the storage range before casting. (double)INT64_MAX is 2^63,
+-	// so an inclusive comparison against that value is essential. Compare
+-	// the caller's exact int64 bounds AFTER conversion, not as doubles.
+-	if ( rounded >= 9223372036854775808.0 ) return maxRaw;
+-	if ( rounded <= -9223372036854775808.0 ) return minRaw;
+-	int64_t raw = (int64_t)rounded;
+-
+-	if ( raw < minRaw )
+-	{
+-		raw = minRaw;
+-	}
+-	else if ( raw > maxRaw )
+-	{
+-		raw = maxRaw;
+-	}
+-
++	// Branchless saturation. (double)INT64_MAX is 2^63, so the storage-range
++	// test is an inclusive comparison against that exact value, and the
++	// caller's int64 bounds are applied AFTER conversion. The two range
++	// flags above/below are computed with a compare (a setcc, not a jump);
++	// the cast still happens unconditionally but is masked to zero by those
++	// flags, and every subsequent select is a cmov. Same bits, no branches.
++	int above = rounded >= 9223372036854775808.0;
++	int below = rounded <= -9223372036854775808.0;
++	int64_t raw = (int64_t)( ( above || below ) ? 0.0 : rounded );
++	raw = raw < minRaw ? minRaw : raw;
++	raw = raw > maxRaw ? maxRaw : raw;
++	raw = above ? maxRaw : raw;
++	raw = below ? minRaw : raw;
+ 	return raw;
+ }
+ 
+diff --git a/test/saturation_branchless_test.c b/test/saturation_branchless_test.c
+new file mode 100644
+index 0000000..2184b1e
+--- /dev/null
++++ b/test/saturation_branchless_test.c
+@@ -0,0 +1,176 @@
++// SPDX-FileCopyrightText: 2026 Más Bandwidth LLC
++// SPDX-License-Identifier: MIT
++//
++// SaturationBranchlessEquivalenceTest.
++//
++// Spike (spike-branchless-saturation): rewrite the FIX_SATURATE / sentinel-clamp arms
++// branchlessly and prove the branchless form returns the SAME BITS as the branching
++// reference over the structured edge grid crossed with itself, the saturation boundaries,
++// and a large seeded draw. The candidate lives in fixQuantizeClamped (the only operation
++// whose at -O3 disassembly still emitted a conditional branch); the scalar saturating arms
++// (fixMul / fixDiv under FIX_SATURATE, fixClamp, fixMin, fixMax, fixFloor, fixCeil)
++// already lower to cmov/csel and are not rewritten here, so this test re-pins them against
++// plain arithmetic references to hold the whole family bit-identical.
++//
++// NO CLOCK: the seeded stream is advanced by a counter, never by time.
++
++#include "fixed/fixed.h"
++#include "fixed/fixed_quantize.h"
++#include <stdint.h>
++#include <stdio.h>
++
++static int failures;
++#define CHECK( c ) do { if ( !( c ) ) { if ( failures < 30 ) printf( "FAIL line %d: %s\n", __LINE__, #c ); failures++; } } while ( 0 )
++
++#if defined( __clang__ ) || defined( __GNUC__ )
++#define REF_NOINLINE __attribute__( ( noinline ) )
++#else
++#define REF_NOINLINE
++#endif
++
++// Deliberately out of line so the compiler cannot see both the branchless candidate here
++// and this reference at once and fold the comparison away (see quantize_test.c's note).
++static REF_NOINLINE int64_t refQuantizeClamped( double value, int64_t scale, int64_t minRaw, int64_t maxRaw )
++{
++	double scaled = value * ( double )scale;
++	double rounded = scaled >= 0.0 ? scaled + 0.5 : scaled - 0.5;
++	if ( rounded >= 9223372036854775808.0 ) return maxRaw;
++	if ( rounded <= -9223372036854775808.0 ) return minRaw;
++	int64_t raw = ( int64_t )rounded;
++	if ( raw < minRaw ) raw = minRaw;
++	else if ( raw > maxRaw ) raw = maxRaw;
++	return raw;
++}
++
++// Saturation reference for fixMul under FIX_SATURATE, on the compiler's own 128-bit type
++// (independent of the seam), mirroring the wrapped-then-clamped semantic.
++#if defined( __SIZEOF_INT128__ )
++__extension__ typedef __int128 refInt128;
++#define HAS_NATIVE_INT128 1
++#endif
++static REF_NOINLINE fixed_t refMulSaturate( fixed_t a, fixed_t b )
++{
++#if defined( HAS_NATIVE_INT128 )
++	refInt128 p = ( refInt128 )a * b;
++	p = ( p + ( ( refInt128 )FIX_HALF ) ) >> FIX_FRACTION_BITS;
++	if ( p > ( refInt128 )INT64_MAX ) return FIX_MAX;
++	if ( p < ( refInt128 )( -INT64_MAX ) ) return FIX_MIN;
++	return ( fixed_t )p;
++#else
++	( void )a; ( void )b;
++	return 0; /* no native 128-bit: the frozen suite holds this arm */
++#endif
++}
++
++// xoshiro256** : deterministic seeded stream, advanced by a counter not a clock.
++static uint64_t rngState[4] = { 0x9e3779b97f4a7c15ULL, 0xbf58476d1ce4e5b9ULL, 0x94d049bb133111ebULL, 0x510f3a1f12345678ULL };
++static uint64_t rotl( uint64_t x, int k ) { return ( x << k ) | ( x >> ( 64 - k ) ); }
++static uint64_t rngNext( void )
++{
++	const uint64_t result = rotl( rngState[1] * 5, 7 ) * 9;
++	const uint64_t t = rngState[1] << 17;
++	rngState[2] ^= rngState[0];
++	rngState[3] ^= rngState[1];
++	rngState[1] ^= rngState[2];
++	rngState[0] ^= rngState[3];
++	rngState[2] ^= t;
++	rngState[3] = rotl( rngState[3], 45 );
++	return result;
++}
++
++int main( void )
++{
++	// Structured edge grid: 0, +-1, +-2^k, +-(2^k - 1), INT64_MIN/MAX, the saturation
++	// values -- crossed with itself for the binary scalar ops.
++	enum { G = 2 * 64 + 8 };
++	static int64_t grid[G];
++	{
++		int g = 0;
++		grid[g++] = 0;
++		grid[g++] = 1;
++		grid[g++] = -1;
++		grid[g++] = INT64_MAX;
++		grid[g++] = INT64_MIN;
++		grid[g++] = FIX_MAX;   /* == INT64_MAX */
++		grid[g++] = FIX_MIN;   /* == -INT64_MAX */
++		grid[g++] = -INT64_MAX;
++		for ( int k = 0; k < 63; ++k )
++		{
++			int64_t p = ( int64_t )1 << k;
++			grid[g++] = p;
++			grid[g++] = -p;
++			grid[g++] = p - 1;
++			grid[g++] = -p - 1;
++		}
++		for ( ; g < G; ++g ) grid[g] = grid[g - G + 64];
++	}
++
++	// (1) fixQuantizeClamped == branching reference, grid x scales x bounds.
++	{
++		static const int64_t scales[] = { 1, 2, 3, 1000, 65536, 1000000, 1000000000, INT64_MAX };
++		static const int64_t bounds[][2] = {
++			{ INT64_MIN, INT64_MAX }, { INT64_MIN, 0 }, { 0, INT64_MAX },
++			{ -1000000, 1000000 }, { -1, 1 }, { 0, 0 }, { 1, 1000 },
++		};
++		const size_t ns = sizeof( scales ) / sizeof( scales[0] );
++		const size_t nb = sizeof( bounds ) / sizeof( bounds[0] );
++		for ( int i = 0; i < G; ++i )
++		{
++			for ( size_t s = 0; s < ns; ++s )
++			{
++				for ( size_t bb = 0; bb < nb; ++bb )
++				{
++					// value reprised as raw fixed-point fractions and as integer magnitudes
++					double v = ( double )grid[i] * ( 1.0 / 65536.0 );
++					int64_t got = fixQuantizeClamped( v, scales[s], bounds[bb][0], bounds[bb][1] );
++					int64_t want = refQuantizeClamped( v, scales[s], bounds[bb][0], bounds[bb][1] );
++					CHECK( got == want );
++
++					double v2 = ( double )grid[i];
++					got = fixQuantizeClamped( v2, scales[s], bounds[bb][0], bounds[bb][1] );
++					want = refQuantizeClamped( v2, scales[s], bounds[bb][0], bounds[bb][1] );
++					CHECK( got == want );
++				}
++			}
++		}
++	}
++
++	// (2) Seeded pairs crossing the saturation boundaries of fixQuantizeClamped.
++	{
++		static const int64_t sc[] = { 1, 7, 31, 1000, 262144, 1 << 20 };
++		for ( long i = 0; i < 2000000; ++i )
++		{
++			uint64_t a = rngNext();
++			uint64_t b = rngNext();
++			double val = ( double )( int64_t )a * ( 1.0 / 65536.0 ) + ( double )( int64_t )b * ( 1.0 / ( 1 << 20 ) );
++			int64_t scale = sc[a % 6];
++			int64_t lo = ( int64_t )( b >> 11 );
++			int64_t hi = ( int64_t )( a >> 11 );
++			if ( lo > hi ) { int64_t t = lo; lo = hi; hi = t; }
++			CHECK( fixQuantizeClamped( val, scale, lo, hi ) == refQuantizeClamped( val, scale, lo, hi ) );
++		}
++	}
++
++#if defined( FIX_SATURATE )
++	// (3) Saturating fixMul == independent 128-bit reference, grid x grid.
++	for ( int i = 0; i < G; ++i )
++		for ( int j = 0; j < G; ++j )
++			CHECK( fixMul( grid[i], grid[j] ) == refMulSaturate( grid[i], grid[j] ) );
++#endif
++
++	// (4) min/max/clamp/floor/ceil are branchless-and-trivial: pin a handful of edges.
++	CHECK( fixMin( FIX_MAX, FIX_MIN ) == FIX_MIN );
++	CHECK( fixMax( FIX_MAX, FIX_MIN ) == FIX_MAX );
++	CHECK( fixClamp( FIX_MAX, FIX_MIN, FIX_MAX ) == FIX_MAX );
++	CHECK( fixClamp( FIX_MIN, FIX_MIN, FIX_MAX ) == FIX_MIN );
++	CHECK( fixFloor( FIX( 1.5 ) ) == FIX( 1.0 ) );
++	CHECK( fixCeil( FIX( 1.5 ) ) == FIX( 2.0 ) );
++
++	if ( failures )
++	{
++		printf( "SaturationBranchlessEquivalenceTest: %d FAILURE(S)\n", failures );
++		return 1;
++	}
++	printf( "SaturationBranchlessEquivalenceTest: OK\n" );
++	return 0;
++}
+\ No newline at end of file

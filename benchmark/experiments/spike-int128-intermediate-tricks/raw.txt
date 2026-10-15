@@ -152,4 +152,4 @@ fixDot,scalar,17.6323,17.6323,17.6323,1491924509133835468
 fixDot,batch,17.8007,17.8007,17.8007,8015697193
 
 # ==== ctest summary (candidate tree) ====
-100% tests passed, 0 tests failed out of 36 (native + emulated arms, oracle_unit + oracle_unit_emulated + determinism hashes unchanged)
+100% tests passed, 0 tests failed out of 36

@@ -1,0 +1,201 @@
+spike-fixed-batch-avx512-on-skylake-w -- raw output
+
+== host / toolchain (benchmark/cpu_info.sh; note: sysctl is not on PATH in this shell, so the Darwin branch printed unknown) ==
+# cpu_info 2026-10-15T14:59:10Z
+uname: Darwin 24.6.0 x86_64
+cpu_model: unknown
+logical_cpus: unknown
+isa_neon: unknown
+isa_fp16: unknown
+isa_i8mm: unknown
+isa_sme: unknown
+isa_sme2: unknown
+affinity: taskset unavailable
+load_average:unknown
+benchmarks_running: no
+compiler_cc: Apple clang version 17.0.0 (clang-1700.0.13.5)
+compiler_clang: Apple clang version 17.0.0 (clang-1700.0.13.5)
+compiler_gcc: Apple clang version 17.0.0 (clang-1700.0.13.5)
+cmake: cmake version 4.1.3
+make: GNU Make 3.81
+
+== sysctl (absolute path) ==
+Intel(R) Xeon(R) W-2191B CPU @ 2.30GHz
+RDWRFSGS TSC_THREAD_OFFSET BMI1 HLE AVX2 FDPEO SMEP BMI2 ERMS INVPCID RTM PQM FPU_CSDS MPX PQE AVX512F AVX512DQ RDSEED ADX SMAP CLFSOPT CLWB IPT AVX512CD AVX512BW AVX512VL MDCLEAR TSXFA IBRS STIBP L1DF ACAPMSR SSBD
+36
+
+== XCR0 / CPUID read directly (scratch_xcr0.c) ==
+leaf1 ECX=0x7ffefbff OSXSAVE=1 AVX=1
+XCR0=0x7
+leaf7 EBX=0xd39ffffb F=1 DQ=1 VL=1 BW=1 CD=1 IFMA=0
+
+== isa_dispatch test, native (default 100,000,000 seeded lanes) ==
+SUBTEST IsaParserTest
+SUBTEST IsaRulesTest
+SUBTEST IsaVariantsTest
+host facts: avx2 os-ymm-state avx512f avx512dq avx512vl
+default variant: scalar
+VARIANT scalar RAN: batch oracle rows and 100000000 seeded lanes bit-identical to scalar
+VARIANT avx2 SKIP not compiled into this build
+VARIANT avx512 SKIP host lacks os-zmm-state
+VARIANT avx512ifma SKIP not compiled into this build
+VARIANT neon SKIP not compiled into this build
+VARIANT sme2 SKIP not compiled into this build
+IsaDispatchTest PASS
+
+== forced FIXED_ISA=avx512 A/B: refused by name ==
+# ab.sh 2026-10-15T15:00:02Z
+# compiler: Apple clang version 17.0.0 (clang-1700.0.13.5)
+# flags: -O3 -g -DNDEBUG -ffp-contract=off
+# repeats: 3  iterations: 50000
+# # cpu_info 2026-10-15T15:00:02Z
+# uname: Darwin 24.6.0 x86_64
+# cpu_model: unknown
+# logical_cpus: unknown
+# isa_neon: unknown
+# isa_fp16: unknown
+# isa_i8mm: unknown
+# isa_sme: unknown
+# isa_sme2: unknown
+# affinity: taskset unavailable
+# load_average:unknown
+# benchmarks_running: no
+# compiler_cc: Apple clang version 17.0.0 (clang-1700.0.13.5)
+# compiler_clang: Apple clang version 17.0.0 (clang-1700.0.13.5)
+# compiler_gcc: Apple clang version 17.0.0 (clang-1700.0.13.5)
+# cmake: cmake version 4.1.3
+# make: GNU Make 3.81
+fixed: FIXED_ISA=avx512 refused: host lacks os-zmm-state
+benchmark/ab.sh: line 104: 61653 Abort trap: 6           FIXED_ISA=$isa "$@"
+
+== scalar batch lane sweep (OP_BENCH_LANES; 7 repeats, 200000 iters) ==
+=== lanes=16 ===
+# isa: scalar (facts: avx2 os-ymm-state avx512f avx512dq avx512vl)
+op,mode,ns_per_op_min,ns_per_op_median,ns_per_op_max,checksum
+fixMulBatch,scalar,3.9650,3.9700,3.9850,6147586388597479916
+fixMulBatch,batch,1.2755,2.5510,3.8265,10703600884640421127
+fixDotBatch3,scalar,5.5850,7.3350,39.9050,1491924509133835468
+fixDotBatch3,batch,5.1020,6.3776,7.6531,18446744073076265963
+=== lanes=256 ===
+# isa: scalar (facts: avx2 os-ymm-state avx512f avx512dq avx512vl)
+op,mode,ns_per_op_min,ns_per_op_median,ns_per_op_max,checksum
+fixMulBatch,scalar,3.5950,4.0850,4.3800,6147586388597479916
+fixMulBatch,batch,1.4349,1.5944,1.9133,4858257949086449777
+fixDotBatch3,scalar,5.0650,6.8950,33.6600,1491924509133835468
+fixDotBatch3,batch,4.2251,4.8629,33.8807,1172434368
+=== lanes=4096 ===
+# isa: scalar (facts: avx2 os-ymm-state avx512f avx512dq avx512vl)
+op,mode,ns_per_op_min,ns_per_op_median,ns_per_op_max,checksum
+fixMulBatch,scalar,3.9650,3.9750,4.8400,6147586388597479916
+fixMulBatch,batch,1.5695,1.7239,3.1290,2701586523624746469
+fixDotBatch3,scalar,5.0350,5.7000,35.3450,1491924509133835468
+fixDotBatch3,batch,4.7284,4.9575,10.6326,8015697193
+
+== scalar A/A ab.sh attempt (reached the oracle, which is slow at base_random=50000000; terminated by the 300s wall before the summary table) ==
+# ab.sh 2026-10-15T15:00:29Z
+# compiler: Apple clang version 17.0.0 (clang-1700.0.13.5)
+# flags: -O3 -g -DNDEBUG -ffp-contract=off
+# repeats: 7  iterations: 200000
+# # cpu_info 2026-10-15T15:00:31Z
+# uname: Darwin 24.6.0 x86_64
+# cpu_model: unknown
+# logical_cpus: unknown
+# isa_neon: unknown
+# isa_fp16: unknown
+# isa_i8mm: unknown
+# isa_sme: unknown
+# isa_sme2: unknown
+# affinity: taskset unavailable
+# load_average:unknown
+# benchmarks_running: no
+# compiler_cc: Apple clang version 17.0.0 (clang-1700.0.13.5)
+# compiler_clang: Apple clang version 17.0.0 (clang-1700.0.13.5)
+# compiler_gcc: Apple clang version 17.0.0 (clang-1700.0.13.5)
+# cmake: cmake version 4.1.3
+# make: GNU Make 3.81
+# side A (.) isa: scalar (facts: avx2 os-ymm-state avx512f avx512dq avx512vl)
+# side B (.) isa: scalar (facts: avx2 os-ymm-state avx512f avx512dq avx512vl)
+# oracle_check compiled against .:
+# oracle FIXED_ISA=scalar
+
+== disassembly of the AVX-512 kernels (otool -tV, Mach-O object) ==
+build/CMakeFiles/fixed.dir/src/fixed_isa_avx512.c.o:
+(__TEXT,__text) section
+_fixIsaMulBatchAvx512:
+0000000000000000	cmpq	$0x8, %rcx
+0000000000000004	jae	0xe
+0000000000000006	xorl	%r8d, %r8d
+0000000000000009	jmp	0x9c
+000000000000000e	pushq	%rbp
+000000000000000f	movq	%rsp, %rbp
+0000000000000012	xorl	%eax, %eax
+0000000000000014	vpbroadcastq	0x2ea(%rip), %zmm0
+000000000000001e	vpbroadcastq	0x2d8(%rip), %zmm1
+0000000000000028	nopl	_fixIsaMulBatchAvx512(%rax,%rax)
+0000000000000030	vmovdqu64	_fixIsaMulBatchAvx512(%rsi,%rax,8), %zmm2
+0000000000000037	vmovdqu64	_fixIsaMulBatchAvx512(%rdx,%rax,8), %zmm3
+000000000000003e	vpsraq	$0x10, %zmm3, %zmm4
+0000000000000045	vpmullq	%zmm2, %zmm4, %zmm4
+000000000000004b	vpandq	%zmm0, %zmm3, %zmm3
+0000000000000051	vpsrlq	$0x20, %zmm2, %zmm5
+0000000000000058	vpmuldq	%zmm5, %zmm3, %zmm5
+000000000000005e	vpsllq	$0x10, %zmm5, %zmm5
+0000000000000065	vpaddq	%zmm4, %zmm5, %zmm4
+000000000000006b	vpmuludq	%zmm2, %zmm3, %zmm2
+0000000000000071	vpaddq	%zmm1, %zmm2, %zmm2
+0000000000000077	vpsrlq	$0x10, %zmm2, %zmm2
+000000000000007e	vpaddq	%zmm2, %zmm4, %zmm2
+0000000000000084	vmovdqu64	%zmm2, _fixIsaMulBatchAvx512(%rdi,%rax,8)
+000000000000008b	leaq	0x8(%rax), %r8
+000000000000008f	addq	$0x10, %rax
+0000000000000093	cmpq	%rcx, %rax
+0000000000000096	movq	%r8, %rax
+0000000000000099	jbe	0x30
+000000000000009b	popq	%rbp
+000000000000009c	leaq	_fixIsaMulBatchAvx512(%rdi,%r8,8), %rdi
+00000000000000a0	leaq	_fixIsaMulBatchAvx512(%rsi,%r8,8), %rsi
+00000000000000a4	leaq	_fixIsaMulBatchAvx512(%rdx,%r8,8), %rdx
+00000000000000a8	subq	%r8, %rcx
+00000000000000ab	vzeroupper
+00000000000000ae	jmp	_fixIsaMulBatchScalar
+00000000000000b3	nopw	%cs:_fixIsaMulBatchAvx512(%rax,%rax)
+_fixIsaDotBatch3Avx512:
+00000000000000c0	pushq	%rbp
+00000000000000c1	movq	%rsp, %rbp
+00000000000000c4	pushq	%rbx
+00000000000000c5	pushq	%rax
+00000000000000c6	movq	0x18(%rbp), %rax
+00000000000000ca	movq	0x10(%rbp), %r10
+00000000000000ce	cmpq	$0x8, %rax
+00000000000000d2	jae	0xdb
+00000000000000d4	xorl	%ebx, %ebx
+00000000000000d6	jmp	0x254
+00000000000000db	xorl	%r11d, %r11d
+00000000000000de	vpbroadcastq	0x228(%rip), %zmm0
+00000000000000e8	vpbroadcastq	0x226(%rip), %zmm1
+00000000000000f2	nopw	%cs:_fixIsaMulBatchAvx512(%rax,%rax)
+0000000000000100	vmovdqu64	_fixIsaMulBatchAvx512(%rsi,%r11,8), %zmm2
+0000000000000107	vmovdqu64	_fixIsaMulBatchAvx512(%r8,%r11,8), %zmm3
+000000000000010e	vmovdqu64	_fixIsaMulBatchAvx512(%rdx,%r11,8), %zmm4
+0000000000000115	vmovdqu64	_fixIsaMulBatchAvx512(%r9,%r11,8), %zmm5
+000000000000011c	vmovdqu64	_fixIsaMulBatchAvx512(%rcx,%r11,8), %zmm6
+0000000000000123	vmovdqu64	_fixIsaMulBatchAvx512(%r10,%r11,8), %zmm7
+000000000000012a	vpsraq	$0x10, %zmm3, %zmm8
+0000000000000131	vpmullq	%zmm2, %zmm8, %zmm8
+0000000000000137	vpandq	%zmm0, %zmm3, %zmm9
+000000000000013d	vpsrlq	$0x20, %zmm2, %zmm10
+0000000000000144	vpmuldq	%zmm10, %zmm9, %zmm10
+000000000000014a	vpsllq	$0x10, %zmm10, %zmm10
+0000000000000151	vpaddq	%zmm8, %zmm10, %zmm8
+0000000000000157	vpmuludq	%zmm2, %zmm9, %zmm9
+000000000000015d	vpsrlq	$0x10, %zmm9, %zmm9
+0000000000000164	vpsraq	$0x10, %zmm5, %zmm10
+000000000000016b	vpmullq	%zmm4, %zmm10, %zmm10
+0000000000000171	vpaddq	%zmm10, %zmm9, %zmm9
+0000000000000177	vpaddq	%zmm9, %zmm8, %zmm8
+000000000000017d	vpandq	%zmm0, %zmm5, %zmm9
+0000000000000183	vpsrlq	$0x20, %zmm4, %zmm10
+000000000000018a	vpmuldq	%zmm10, %zmm9, %zmm10
+0000000000000190	vpsllq	$0x10, %zmm10, %zmm10
+0000000000000197	vpmuludq	%zmm4, %zmm9, %zmm9
+000000000000019d	vpsrlq	$0x10, %zmm9, %zmm9

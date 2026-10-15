@@ -1,0 +1,58 @@
+diff --git a/benchmark/op_bench.c b/benchmark/op_bench.c
+index c723c81..4226740 100644
+--- a/benchmark/op_bench.c
++++ b/benchmark/op_bench.c
+@@ -53,6 +53,12 @@ static volatile uint64_t opBenchSink;
+ static fixed_t opBatchA[6][OP_BENCH_BATCH];
+ static fixed_t opBatchOut[OP_BENCH_BATCH];
+ 
++// The number of lanes one batch call touches, clamped to the prepared array. Default
++// OP_BENCH_BATCH; the OP_BENCH_LANES environment variable selects a prefix so a sweep
++// over 16, 256 and 4096 lanes measures the dispatched kernel at each width (both the
++// scalar and the SIMD variant pay the same call and store overhead per lane).
++static int opBenchLanes = OP_BENCH_BATCH;
++
+ enum { OP_BENCH_PLAIN = 0, OP_BENCH_MUL_BATCH, OP_BENCH_DOT_BATCH3 };
+ static int opBenchKind( int opIndex )
+ {
+@@ -116,11 +122,11 @@ static uint64_t opBenchBatch( int opIndex, uint64_t passes )
+ 	{
+ 		for ( uint64_t p = 0; p < passes; ++p )
+ 		{
+-			if ( kind == OP_BENCH_MUL_BATCH ) fixMulBatch( opBatchOut, opBatchA[0], opBatchA[1], OP_BENCH_BATCH );
++			if ( kind == OP_BENCH_MUL_BATCH ) fixMulBatch( opBatchOut, opBatchA[0], opBatchA[1], ( size_t )opBenchLanes );
+ 			else
+ 				fixDotBatch3( opBatchOut, opBatchA[0], opBatchA[1], opBatchA[2], opBatchA[3], opBatchA[4], opBatchA[5],
+-							  OP_BENCH_BATCH );
+-			for ( int i = 0; i < OP_BENCH_BATCH; ++i ) sum += ( uint64_t )opBatchOut[i];
++							  ( size_t )opBenchLanes );
++			for ( int i = 0; i < opBenchLanes; ++i ) sum += ( uint64_t )opBatchOut[i];
+ 		}
+ 		return sum;
+ 	}
+@@ -169,6 +175,14 @@ int main( int argc, char** argv )
+ 	uint64_t iterations = argc > 2 ? strtoull( argv[2], NULL, 10 ) : 200000;
+ 	if ( repeats < 1 ) repeats = 1;
+ 	if ( iterations < 1 ) iterations = 1;
++	const char* lanesEnv = getenv( "OP_BENCH_LANES" );
++	if ( lanesEnv != NULL && lanesEnv[0] != '\0' )
++	{
++		long v = strtol( lanesEnv, NULL, 10 );
++		if ( v < 1 ) v = 1;
++		if ( v > OP_BENCH_BATCH ) v = OP_BENCH_BATCH;
++		opBenchLanes = ( int )v;
++	}
+ 	const uint64_t passes = ( iterations + OP_BENCH_BATCH - 1 ) / OP_BENCH_BATCH;
+ 	const int ops = fixOracleOpCount();
+ 
+@@ -214,7 +228,9 @@ int main( int argc, char** argv )
+ 			t0 = opBenchNowNs();
+ 			cs = opBenchBatch( i, passes );
+ 			t1 = opBenchNowNs();
+-			batch[r] = ( t1 - t0 ) / ( double )( passes * ( uint64_t )OP_BENCH_BATCH );
++			const int kind = opBenchKind( i );
++			const uint64_t perPass = kind == OP_BENCH_PLAIN ? ( uint64_t )OP_BENCH_BATCH : ( uint64_t )opBenchLanes;
++			batch[r] = ( t1 - t0 ) / ( double )( passes * perPass );
+ 			batchChecksum = cs;
+ 		}
+ 		opBenchSink = scalarChecksum ^ batchChecksum;

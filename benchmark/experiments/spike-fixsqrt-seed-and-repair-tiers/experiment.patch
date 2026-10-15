@@ -1,0 +1,296 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 1dcaf67..e3b9ba0 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -73,6 +73,10 @@ add_executable(fixed_exhaustive_test test/exhaustive_test.c)
+ target_link_libraries(fixed_exhaustive_test PRIVATE fixed)
+ add_test(NAME exhaustive COMMAND fixed_exhaustive_test)
+ 
++add_executable(fixed_sqrt_tier_test test/sqrt_tier_test.c)
++target_link_libraries(fixed_sqrt_tier_test PRIVATE fixed)
++add_test(NAME sqrt_tier COMMAND fixed_sqrt_tier_test)
++
+ add_executable(fixed_aabb_test test/aabb_test.c)
+ target_link_libraries(fixed_aabb_test PRIVATE fixed)
+ add_test(NAME aabb COMMAND fixed_aabb_test)
+@@ -246,7 +250,7 @@ if (TARGET fixed_emulated)
+     # inverse_envelope is in this list for a specific reason: the 256-bit layer the wide
+     # arm runs on is written entirely in the fixUInt128 vocabulary, so an emulated build
+     # is the only thing that checks the emulated 256-bit arithmetic at all.
+-    foreach(suite determinism transcendental wide_time exhaustive aabb port_equality int128 geometry inverse_envelope int256_division numerical_regression)
++    foreach(suite determinism transcendental wide_time exhaustive sqrt_tier aabb port_equality int128 geometry inverse_envelope int256_division numerical_regression)
+         add_executable(fixed_${suite}_emulated_test test/${suite}_test.c)
+         target_link_libraries(fixed_${suite}_emulated_test PRIVATE fixed_emulated)
+         if (NOT WIN32)
+diff --git a/include/fixed/fixed.h b/include/fixed/fixed.h
+index a76db23..f750917 100644
+--- a/include/fixed/fixed.h
++++ b/include/fixed/fixed.h
+@@ -306,32 +306,51 @@ FIX_ALWAYS_INLINE uint64_t fixISqrt128High( uint64_t hi, uint64_t lo )
+ 		return r;
+ 	}
+ 
+-	// Rare 128 bit case: restoring shift-subtract square root
++	// 128-bit input (hi >= 2^40): the root is in [2^52, 2^64). Seed with the
++	// hardware double sqrt (correctly rounded, relative error <= 2^-53, so at
++	// most ~2^11 raw units of error here), then one integer Newton step in
++	// 128-bit to collapse that error to a unit or two, then repair exactly.
++	// The restoring algorithm remains only for the rare tail where the seed
++	// rounds up to 2^64 (overflow) or the Newton quotient would not fit 64 bits.
+ 	fixUInt128 n = fixUInt128Make( hi, lo );
+-	fixUInt128 x = n;
+-	fixUInt128 c = FIX_UINT128_ZERO;
+-	fixUInt128 d = fixUInt128Shl( fixUInt128FromU64( 1 ), 126 );
+-	while ( fixUInt128Gt( d, n ) )
++	uint64_t r = (uint64_t)FIX_SQRT_SEED( (double)hi * 18446744073709551616.0 + (double)lo );
++	if ( r == 0 || hi >= r )
+ 	{
+-		d = fixUInt128Shr( d, 2 );
+-	}
+-
+-	while ( !fixUInt128Eq( d, FIX_UINT128_ZERO ) )
+-	{
+-		fixUInt128 cd = fixUInt128Add( c, d );
+-		if ( fixUInt128Ge( x, cd ) )
++		// Rare tail: restoring shift-subtract square root
++		fixUInt128 x = n;
++		fixUInt128 c = FIX_UINT128_ZERO;
++		fixUInt128 d = fixUInt128Shl( fixUInt128FromU64( 1 ), 126 );
++		while ( fixUInt128Gt( d, n ) )
+ 		{
+-			x = fixUInt128Sub( x, cd );
+-			c = fixUInt128Add( fixUInt128Shr( c, 1 ), d );
++			d = fixUInt128Shr( d, 2 );
+ 		}
+-		else
++
++		while ( !fixUInt128Eq( d, FIX_UINT128_ZERO ) )
+ 		{
+-			c = fixUInt128Shr( c, 1 );
++			fixUInt128 cd = fixUInt128Add( c, d );
++			if ( fixUInt128Ge( x, cd ) )
++			{
++				x = fixUInt128Sub( x, cd );
++				c = fixUInt128Add( fixUInt128Shr( c, 1 ), d );
++			}
++			else
++			{
++				c = fixUInt128Shr( c, 1 );
++			}
++			d = fixUInt128Shr( d, 2 );
+ 		}
+-		d = fixUInt128Shr( d, 2 );
++
++		return fixUInt128Lo( c );
+ 	}
+ 
+-	return fixUInt128Lo( c );
++	// One integer Newton step: r <- (r + n/r) / 2. hi < r guarantees the
++	// 128/64 quotient fits 64 bits (fixUInt128DivRemBy64's precondition).
++	uint64_t rem;
++	uint64_t q = fixUInt128DivRemBy64( n, r, &rem );
++	r = ( r >> 1 ) + ( q >> 1 ) + ( ( r & q ) & 1 );
++	while ( fixUInt128Gt( fixUInt128MulU64( r, r ), n ) ) { --r; }
++	while ( r < UINT64_MAX && fixUInt128Le( fixUInt128MulU64( r + 1, r + 1 ), n ) ) { ++r; }
++	return r;
+ }
+ 
+ /// Fixed-point square root. Exact (round toward zero). Negative inputs return 0.
+diff --git a/test/sqrt_tier_test.c b/test/sqrt_tier_test.c
+new file mode 100644
+index 0000000..32ebda1
+--- /dev/null
++++ b/test/sqrt_tier_test.c
+@@ -0,0 +1,192 @@
++// SPDX-License-Identifier: MIT
++// FixSqrtTierExhaustiveTest: the integer square root seam, held to the exact
++// integer floor against an independent reference restoring algorithm.
++//
++// The candidate fixISqrt128High has three tiers: a 64-bit seed+repair arm, a
++// <=104-bit seed+repair arm, and (this spike) a >104-bit seed + one integer
++// Newton step + repair arm with a restoring fallback for the rare tail. Every
++// tier must return floor(sqrt(n)) exactly, so the reference is the restoring
++// shift-subtract algorithm the >104-bit arm used to run, copied here verbatim.
++//
++// No clock, no sockets, no files: the sweep is a deterministic counter.
++#include "fixed/fixed.h"
++#include <stdio.h>
++#include <stdint.h>
++
++static int fails = 0;
++#define CHECK( cond ) \
++	do { if ( !( cond ) ) { printf( "FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond ); fails++; } } while ( 0 )
++
++// The reference: restoring shift-subtract square root, the pre-spike >104-bit
++// arm. Independent of the candidate's seed/Newton path.
++static uint64_t ref_isqrt128( uint64_t hi, uint64_t lo )
++{
++	fixUInt128 n = fixUInt128Make( hi, lo );
++	fixUInt128 x = n;
++	fixUInt128 c = FIX_UINT128_ZERO;
++	fixUInt128 d = fixUInt128Shl( fixUInt128FromU64( 1 ), 126 );
++	while ( fixUInt128Gt( d, n ) )
++	{
++		d = fixUInt128Shr( d, 2 );
++	}
++	while ( !fixUInt128Eq( d, FIX_UINT128_ZERO ) )
++	{
++		fixUInt128 cd = fixUInt128Add( c, d );
++		if ( fixUInt128Ge( x, cd ) )
++		{
++			x = fixUInt128Sub( x, cd );
++			c = fixUInt128Add( fixUInt128Shr( c, 1 ), d );
++		}
++		else
++		{
++			c = fixUInt128Shr( c, 1 );
++		}
++		d = fixUInt128Shr( d, 2 );
++	}
++	return fixUInt128Lo( c );
++}
++
++// A fast 64-bit reference for the exhaustive below-2^32 sweep: the same exact
++// floor, computed by an independent double-seed + repair (not the library's).
++static uint64_t ref_isqrt64( uint64_t n )
++{
++	if ( n == 0 )
++	{
++		return 0;
++	}
++	uint64_t r = (uint64_t)__builtin_sqrt( (double)n );
++	if ( r > 0xFFFFFFFFu )
++	{
++		r = 0xFFFFFFFFu;
++	}
++	while ( r * r > n )
++	{
++		r -= 1;
++	}
++	while ( n - r * r > 2 * r )
++	{
++		r += 1;
++	}
++	return r;
++}
++
++// xoshiro256** stream, seed fixed in the source so the sweep is reproducible.
++static uint64_t rng[4] = { 0x9E3779B97F4A7C15ULL, 0x243F6A8885A308D3ULL, 0x13198A2E03707344ULL, 0xA4093822299F31D0ULL };
++static uint64_t rng_next( void )
++{
++	uint64_t result = ( rng[1] * 5 ) << 7 | ( rng[1] * 5 ) >> ( 64 - 7 );
++	uint64_t t = rng[1] << 17;
++	rng[2] ^= rng[0];
++	rng[3] ^= rng[1];
++	rng[1] ^= rng[2];
++	rng[0] ^= rng[3];
++	rng[2] ^= t;
++	rng[3] = ( rng[3] << 45 ) | ( rng[3] >> ( 64 - 45 ) );
++	return result;
++}
++
++int main( void )
++{
++	// ---- A. exhaustive: every 64-bit input below 2^32 --------------------
++	for ( uint64_t lo = 0; lo < ( UINT64_C( 1 ) << 32 ); lo++ )
++	{
++		uint64_t got = fixISqrt128High( 0, lo );
++		uint64_t ref = ref_isqrt64( lo );
++		if ( got != ref )
++		{
++			printf( "FAIL exhaustive lo=%llu got=%llu ref=%llu\n",
++					(unsigned long long)lo, (unsigned long long)got, (unsigned long long)ref );
++			fails++;
++			break;
++		}
++	}
++
++	// ---- B. seeded 64-bit and 128-bit inputs -----------------------------
++	for ( int i = 0; i < 100000000; i++ )
++	{
++		uint64_t hi = rng_next();
++		uint64_t lo = rng_next();
++		uint64_t got = fixISqrt128High( hi, lo );
++		uint64_t ref = ref_isqrt128( hi, lo );
++		if ( got != ref )
++		{
++			printf( "FAIL seeded i=%d hi=%llu lo=%llu got=%llu ref=%llu\n",
++					i, (unsigned long long)hi, (unsigned long long)lo,
++					(unsigned long long)got, (unsigned long long)ref );
++			fails++;
++			break;
++		}
++	}
++
++	// ---- C. perfect-square neighbours at powers of two and 2^26-1, 2^27 --
++	{
++		uint64_t ks[] = { 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192,
++						  16384, 32768, 65536, 131072, 262144, 524288, 1048576, 2097152,
++						  4194304, 8388608, 16777216, 33554432, 67108864, 134217728,
++						  268435456, 536870912, 1073741824, 2147483648, 4294967296ULL,
++						  8589934592ULL, 17179869184ULL, 34359738368ULL, 68719476736ULL,
++						  137438953472ULL, 274877906944ULL, 549755813888ULL, 1099511627776ULL,
++						  2199023255552ULL, 4398046511104ULL, 8796093022208ULL, 17592186044416ULL,
++						  35184372088832ULL, 70368744177664ULL, 140737488355328ULL, 281474976710656ULL,
++						  562949953421312ULL, 1125899906842624ULL, 2251799813685248ULL, 4503599627370496ULL,
++						  9007199254740992ULL, 18014398509481984ULL, 36028797018963968ULL, 72057594037927936ULL,
++						  144115188075855872ULL, 288230376151711744ULL, 576460752303423488ULL, 1152921504606846976ULL,
++						  2305843009213693952ULL, 4611686018427387904ULL, 9223372036854775808ULL,
++						  ( UINT64_C( 1 ) << 26 ) - 1, ( UINT64_C( 1 ) << 27 ) };
++		unsigned nk = sizeof( ks ) / sizeof( ks[0] );
++		for ( unsigned i = 0; i < nk; i++ )
++		{
++			uint64_t k = ks[i];
++			// n = k*k, k*k-1, k*k+1, as 128-bit (hi, lo)
++			uint64_t sq_hi, sq_lo;
++			{
++				fixUInt128 sq = fixUInt128MulU64( k, k );
++				sq_hi = fixUInt128Hi( sq );
++				sq_lo = fixUInt128Lo( sq );
++			}
++			uint64_t cases[3][2] = {
++				{ sq_hi, sq_lo },
++				{ sq_hi, sq_lo - 1 },
++				{ sq_hi, sq_lo + 1 },
++			};
++			for ( int c = 0; c < 3; c++ )
++			{
++				uint64_t got = fixISqrt128High( cases[c][0], cases[c][1] );
++				uint64_t ref = ref_isqrt128( cases[c][0], cases[c][1] );
++				if ( got != ref )
++				{
++					printf( "FAIL square k=%llu c=%d got=%llu ref=%llu\n",
++							(unsigned long long)k, c, (unsigned long long)got, (unsigned long long)ref );
++					fails++;
++				}
++			}
++		}
++	}
++
++	// ---- D. tier boundaries: 2^104 - 1 and 2^104 -------------------------
++	{
++		// 2^104 = hi=2^40, lo=0 ; 2^104 - 1 = hi=2^40-1, lo=~0
++		uint64_t cases[2][2] = {
++			{ ( UINT64_C( 1 ) << 40 ) - 1, UINT64_MAX },
++			{ ( UINT64_C( 1 ) << 40 ), 0 },
++		};
++		for ( int c = 0; c < 2; c++ )
++		{
++			uint64_t got = fixISqrt128High( cases[c][0], cases[c][1] );
++			uint64_t ref = ref_isqrt128( cases[c][0], cases[c][1] );
++			if ( got != ref )
++			{
++				printf( "FAIL boundary c=%d got=%llu ref=%llu\n", c, (unsigned long long)got, (unsigned long long)ref );
++				fails++;
++			}
++		}
++	}
++
++	if ( fails )
++	{
++		printf( "FAILED: %d check(s)\n", fails );
++		return 1;
++	}
++	printf( "ALL OK\n" );
++	return 0;
++}

@@ -1,0 +1,398 @@
+# raw output, spike-fixed-batch-sme2-streaming-m5, host mini-m5-1 (ssh), Apple M5 Pro, all runs on that host
+## sysctl
+hw.optional.arm.FEAT_BF16: 1
+hw.optional.arm.FEAT_EBF16: 1
+hw.optional.arm.FEAT_I8MM: 1
+hw.optional.arm.FEAT_SME: 1
+hw.optional.arm.FEAT_SME2: 1
+hw.optional.arm.FEAT_SME2p1: 1
+hw.optional.arm.SME_F32F32: 1
+hw.optional.arm.SME_BI32I32: 1
+hw.optional.arm.SME_B16F32: 1
+hw.optional.arm.SME_F16F32: 1
+hw.optional.arm.SME_I8I32: 1
+hw.optional.arm.SME_I16I32: 1
+hw.optional.arm.FEAT_SME_F64F64: 1
+hw.optional.arm.FEAT_SME_I16I64: 1
+hw.optional.arm.FEAT_SME_F16F16: 1
+hw.optional.arm.FEAT_SME_B16B16: 1
+hw.optional.arm.FEAT_SME_LUTv2: 0
+hw.optional.arm.FEAT_SME_F8F16: 0
+hw.optional.arm.FEAT_SME_F8F32: 0
+hw.optional.arm.FEAT_SVE_B16B16: 1
+hw.optional.arm.sme_max_svl_b: 64
+
+## RED at BASE (d7f6ac5): test/batch_sme2_test.c copied onto an unmodified BASE tree, built with clang -O2 -ffp-contract=off -Iinclude test/batch_sme2_test.c src/*.c -lm
+BatchSme2EquivalenceTest FAIL: host has sme/sme2 but variant sme2 is absent from this build   (exit=1)
+
+## cpu_info before
+# cpu_info 2026-10-15T16:03:19Z
+uname: Darwin 27.0.0 arm64
+cpu_model: Apple M5 Pro
+logical_cpus: 18
+isa_neon: unknown
+isa_fp16: unknown
+isa_i8mm: unknown
+isa_sme: unknown
+isa_sme2: unknown
+affinity: taskset unavailable
+load_average:{ 1.86 1.83 1.82 }
+benchmarks_running: no
+compiler_cc: Apple clang version 21.0.0 (clang-2100.3.34.2)
+compiler_clang: Apple clang version 21.0.0 (clang-2100.3.34.2)
+compiler_gcc: Apple clang version 21.0.0 (clang-2100.3.34.2)
+make: GNU Make 3.81
+
+## ab.sh: AB_REPEATS=11 AB_ITERS=2000000 AB_ISA_A=scalar AB_ISA_B=sme2 sh benchmark/ab.sh . . fixMulBatch fixDotBatch3 (header lines 'oracle' included)
+# ab.sh 2026-10-15T16:03:26Z
+# compiler: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# flags: -O3 -g -DNDEBUG -ffp-contract=off
+# repeats: 11  iterations: 2000000
+# # cpu_info 2026-10-15T16:03:26Z
+# uname: Darwin 27.0.0 arm64
+# cpu_model: Apple M5 Pro
+# logical_cpus: 18
+# isa_neon: unknown
+# isa_fp16: unknown
+# isa_i8mm: unknown
+# isa_sme: unknown
+# isa_sme2: unknown
+# affinity: taskset unavailable
+# load_average:{ 1.89 1.84 1.82 }
+# benchmarks_running: no
+# compiler_cc: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# compiler_clang: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# compiler_gcc: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# make: GNU Make 3.81
+# side A (.) isa: scalar (facts: neon sme sme2)
+# side B (.) isa: sme2 (facts: neon sme sme2)
+# oracle_check compiled against .:
+# oracle FIXED_ISA=sme2
+ORACLE OK   fixMul  count=50063756  hash=eb1995a6b21bf036
+ORACLE OK   fixDiv_below2p47  count=50063756  hash=9519544a71a6aee9
+ORACLE OK   fixDiv_above2p47  count=12563756  hash=679bdcc4e27fd523
+ORACLE OK   fixSqrt_small  count=50000252  hash=0a01c17d8970c8c5
+ORACLE OK   fixSqrt_raw_below2p32  count=4344967548  hash=e8cd953f7d9cb442
+ORACLE OK   fixISqrt128High_u64  count=50063756  hash=3f2bde37bd6f7cb0
+ORACLE OK   fixISqrt128High_above104bits  count=2563756  hash=0c9fdfcdcf937183
+ORACLE OK   fixComputeCosSin  count=50823803  hash=75d77c6260933da6
+ORACLE OK   fixSin  count=50823803  hash=ea6b89849492e203
+ORACLE OK   fixCos  count=50823803  hash=92884abbd0d0dfc4
+ORACLE OK   fixAtan2  count=6313756  hash=e783be1aa18a9e6c
+ORACLE OK   fixLog2  count=9395980  hash=7d1ccc520e783eca
+ORACLE OK   fixExp2  count=9395980  hash=a1d52ff7b1ceef98
+ORACLE OK   fixPow  count=2563756  hash=55410e05742068c7
+ORACLE OK   fixLerp  count=50063756  hash=3c3983b96260d159
+ORACLE OK   fixInt128Div  count=2563756  hash=65e492d721fcd5f6
+ORACLE OK   fixUInt256DivMod  count=563756  hash=d6c2bda0c1986a82
+ORACLE OK   fixDot  count=50063756  hash=4392264c082fde77
+ORACLE OK   fixCross  count=50063756  hash=5a5555238d655a2c
+ORACLE OK   fixLength  count=25063756  hash=785da375992b2c05
+ORACLE OK   fixNormalize  count=12563756  hash=44e1c09212bfac1d
+ORACLE OK   fixMulQuat  count=25063756  hash=ff696a9b57ac0860
+ORACLE OK   fixNormalizeQuat  count=12563756  hash=5e439ba2ea83daeb
+ORACLE OK   fixRotateVector  count=12563756  hash=64afce887683c703
+ORACLE OK   fixInvRotateVector  count=12563756  hash=a7d02b0685663640
+ORACLE OK   fixNLerp  count=6313756  hash=315cf27e3e31527e
+ORACLE OK   fixInvertMatrix  count=563756  hash=f7c48d2fcea79473
+ORACLE OK   fixSolve3  count=563756  hash=da2489cbf6193bad
+ORACLE OK   fixAABB_Transform  count=2563756  hash=d105925232ba6473
+ORACLE OK   fixQuantize  count=50063756  hash=8100e7c61c94a956
+ORACLE OK   fixDequantize  count=50063756  hash=1be2b75e26b7a4d1
+ORACLE OK   fixMulBatch  count=50063756  hash=de6fc21fb01df7f2
+ORACLE OK   fixDotBatch3  count=50063756  hash=7fb109655c1745da
+ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMulBatch                    scalar      1.3020     1.3040    99.9%     1.3080     1.3380   131.1%    0.975
+fixMulBatch                    batch       0.4234     0.4239    55.7%     0.6346     0.6396    98.3%    0.663
+fixDotBatch3                   scalar      2.4145     2.4240    62.0%     2.4155     2.4310    91.1%    0.997
+fixDotBatch3                   batch       0.9321     0.9406    34.1%     1.2542     1.2596    59.6%    0.747
+# speedup = a_median / b_median; > 1 means the candidate is faster.
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+
+## sme2_batch_bench 11 4000000 0 (consume=0)
+# repeats=11 lanes_per_sample=4000000; arms interleaved scalar,sme2,scalar(A/A) each repeat
+op,n,scalar_ns_call_min,scalar_ns_call_med,scalar_spread_pct,sme2_ns_call_min,sme2_ns_call_med,sme2_spread_pct,scalar2_ns_call_med,AA_gap_pct,scalar_ns_lane_med,sme2_ns_lane_med,speedup_med
+fixMulBatch,0,0.868,0.870,47.5,8.895,8.919,16.8,0.877,0.9,0.8695,8.9195,0.097
+fixMulBatch,1,0.656,0.669,6.4,32.059,32.727,150.6,0.655,2.1,0.6695,32.7275,0.020
+fixMulBatch,8,2.880,3.004,5.3,31.848,32.342,3.3,2.898,3.5,0.3755,4.0427,0.093
+fixMulBatch,16,5.808,6.072,7.8,34.032,34.608,24.9,5.840,3.8,0.3795,2.1630,0.175
+fixMulBatch,32,12.440,12.536,1.8,35.512,36.176,286.1,12.440,0.8,0.3917,1.1305,0.347
+fixMulBatch,64,24.928,25.152,1.3,51.280,51.632,158.4,25.264,0.4,0.3930,0.8067,0.487
+fixMulBatch,128,53.760,53.856,1.2,76.160,76.672,2.2,53.792,0.1,0.4208,0.5990,0.702
+fixMulBatch,256,104.512,104.640,1.4,127.744,129.600,42.6,104.512,0.1,0.4088,0.5062,0.807
+fixMulBatch,512,207.501,208.781,1.9,231.055,233.487,6.5,209.165,0.2,0.4078,0.4560,0.894
+fixMulBatch,1024,412.186,417.307,2.9,436.508,440.604,3.5,414.747,0.6,0.4075,0.4303,0.947
+fixMulBatch,4096,1632.172,1653.689,2.4,1642.418,1655.738,1.9,1643.443,0.6,0.4037,0.4042,0.999
+fixDotBatch3,0,0.697,0.723,32.2,8.896,8.982,2.0,0.869,20.2,0.7225,8.9815,0.080
+fixDotBatch3,1,1.218,1.246,3.8,32.068,32.318,85.8,1.218,2.2,1.2457,32.3182,0.039
+fixDotBatch3,8,6.806,7.030,4.0,31.966,32.420,135.7,6.840,2.7,0.8788,4.0525,0.217
+fixDotBatch3,16,13.436,13.724,2.8,37.800,37.944,1.9,13.408,2.3,0.8578,2.3715,0.362
+fixDotBatch3,32,26.448,27.400,4.3,51.864,53.088,67.7,27.288,0.4,0.8562,1.6590,0.516
+fixDotBatch3,64,54.384,54.816,10.2,79.856,80.208,46.8,54.544,0.5,0.8565,1.2532,0.683
+fixDotBatch3,128,111.680,114.368,2.9,133.856,136.096,74.6,114.176,0.2,0.8935,1.0633,0.840
+fixDotBatch3,256,218.496,222.848,2.6,247.232,248.512,1.4,218.944,1.8,0.8705,0.9708,0.897
+fixDotBatch3,512,433.308,443.164,4.2,469.534,472.734,8.4,434.844,1.9,0.8656,0.9233,0.937
+fixDotBatch3,1024,859.191,868.920,2.9,914.747,915.259,1.3,869.432,0.1,0.8486,0.8938,0.949
+fixDotBatch3,4096,3643.443,3720.287,2.7,3562.500,3582.992,1.6,3649.590,1.9,0.9083,0.8748,1.038
+# threads: aggregate lanes per microsecond (higher is faster), median of 11, scalar vs sme2
+op,n,threads,scalar_lanes_us_med,sme2_lanes_us_med,speedup_med,scalar_spread_pct,sme2_spread_pct
+fixMulBatch,1024,1,2424.61,2374.24,0.979,6.2,2.3
+fixMulBatch,1024,2,4980.54,2773.20,0.557,6.3,7.6
+fixMulBatch,1024,4,9933.26,3766.92,0.379,3.9,5.7
+fixMulBatch,1024,6,14748.81,5018.03,0.340,0.9,15.1
+fixMulBatch,4096,1,2518.73,2517.94,1.000,2.9,1.7
+fixMulBatch,4096,2,4955.54,2811.77,0.567,1.1,2.5
+fixMulBatch,4096,4,9759.94,3798.88,0.389,1.5,24.9
+fixMulBatch,4096,6,14606.49,5152.93,0.353,0.7,5.7
+fixDotBatch3,1024,1,1172.93,1115.14,0.951,1.6,1.9
+fixDotBatch3,1024,2,2310.97,1665.11,0.721,1.0,27.4
+fixDotBatch3,1024,4,4564.91,2033.30,0.445,1.1,17.9
+fixDotBatch3,1024,6,6720.81,2822.87,0.420,16.6,8.2
+fixDotBatch3,4096,1,1102.39,1146.63,1.040,1.4,3.6
+fixDotBatch3,4096,2,2181.78,1683.48,0.772,0.6,3.0
+fixDotBatch3,4096,4,4333.71,2080.22,0.480,1.1,14.2
+fixDotBatch3,4096,6,6151.48,2841.15,0.462,0.7,5.3
+
+## sme2_batch_bench 11 4000000 1 (consume=1: outputs summed by the normal core after every call)
+# repeats=11 lanes_per_sample=4000000 consume=1; arms interleaved scalar,sme2,scalar(A/A) each repeat
+op,n,scalar_ns_call_min,scalar_ns_call_med,scalar_spread_pct,sme2_ns_call_min,sme2_ns_call_med,sme2_spread_pct,scalar2_ns_call_med,AA_gap_pct,scalar_ns_lane_med,sme2_ns_lane_med,speedup_med
+fixMulBatch,0,0.701,0.930,246.3,8.976,8.996,31.4,0.929,0.1,0.9300,8.9965,0.103
+fixMulBatch,1,0.928,0.931,1.1,74.899,75.470,0.8,0.929,0.2,0.9307,75.4700,0.012
+fixMulBatch,8,5.138,5.144,1.3,81.984,82.134,0.8,5.146,0.0,0.6430,10.2668,0.063
+fixMulBatch,16,6.864,6.948,2.1,85.764,87.380,3.1,6.936,0.2,0.4343,5.4612,0.080
+fixMulBatch,32,13.040,13.056,1.0,89.000,89.352,2.6,13.048,0.1,0.4080,2.7923,0.146
+fixMulBatch,64,26.192,26.256,1.6,113.984,114.544,1.7,26.224,0.1,0.4103,1.7897,0.229
+fixMulBatch,128,59.328,59.648,1.8,153.984,157.824,6.7,59.648,0.0,0.4660,1.2330,0.378
+fixMulBatch,256,115.520,116.352,1.5,220.480,232.384,6.4,116.032,0.3,0.4545,0.9077,0.501
+fixMulBatch,512,232.847,233.487,1.0,344.854,357.399,12.0,233.487,0.0,0.4560,0.6980,0.653
+fixMulBatch,1024,466.718,470.046,1.4,886.329,895.801,1.9,468.510,0.3,0.4590,0.8748,0.525
+fixMulBatch,4096,1864.754,1865.779,0.5,2503.074,2516.393,1.3,1866.803,0.1,0.4555,0.6144,0.741
+fixDotBatch3,0,0.698,0.930,26.3,8.980,8.995,0.8,0.930,0.0,0.9300,8.9955,0.103
+fixDotBatch3,1,1.581,1.594,4.8,79.311,79.696,1.0,1.589,0.3,1.5942,79.6960,0.020
+fixDotBatch3,8,7.582,7.674,2.2,86.420,87.016,1.8,7.662,0.2,0.9593,10.8770,0.088
+fixDotBatch3,16,14.644,14.780,1.8,92.736,93.424,1.9,14.784,0.0,0.9237,5.8390,0.158
+fixDotBatch3,32,29.568,29.928,1.7,130.112,130.672,1.2,29.776,0.5,0.9353,4.0835,0.229
+fixDotBatch3,64,58.096,58.320,2.9,160.128,161.152,2.3,58.352,0.1,0.9113,2.5180,0.362
+fixDotBatch3,128,118.720,120.288,2.0,222.624,224.384,1.3,120.544,0.2,0.9397,1.7530,0.536
+fixDotBatch3,256,233.920,234.624,1.0,344.448,346.944,1.3,235.200,0.2,0.9165,1.3553,0.676
+fixDotBatch3,512,463.774,465.566,0.9,590.630,593.318,1.1,465.310,0.1,0.9093,1.1588,0.785
+fixDotBatch3,1024,925.243,929.595,1.2,1505.632,1560.676,6.1,930.364,0.1,0.9078,1.5241,0.596
+fixDotBatch3,4096,4103.484,4112.705,0.5,5024.590,5030.738,0.2,4116.803,0.1,1.0041,1.2282,0.818
+# threads: aggregate lanes per microsecond (higher is faster), median of 11, scalar vs sme2
+op,n,threads,scalar_lanes_us_med,sme2_lanes_us_med,speedup_med,scalar_spread_pct,sme2_spread_pct
+fixMulBatch,1024,1,2496.49,2353.29,0.943,5.8,0.8
+fixMulBatch,1024,2,4973.58,2773.44,0.558,5.9,32.1
+fixMulBatch,1024,4,9847.67,3768.47,0.383,0.3,1.3
+fixMulBatch,1024,6,10519.40,5318.26,0.506,41.8,14.9
+fixMulBatch,4096,1,2482.00,2490.50,1.003,1.8,2.3
+fixMulBatch,4096,2,4930.35,2801.68,0.568,0.7,2.6
+fixMulBatch,4096,4,9749.53,3798.43,0.390,0.9,10.0
+fixMulBatch,4096,6,10403.58,5308.22,0.510,40.3,13.9
+fixDotBatch3,1024,1,1161.52,1105.43,0.952,2.4,1.8
+fixDotBatch3,1024,2,2307.80,1211.48,0.525,0.6,40.6
+fixDotBatch3,1024,4,4561.33,2035.62,0.446,2.4,14.9
+fixDotBatch3,1024,6,5165.18,2779.95,0.538,10.2,3.6
+fixDotBatch3,4096,1,1087.33,1132.59,1.042,0.8,1.4
+fixDotBatch3,4096,2,2167.74,1678.18,0.774,1.5,30.7
+fixDotBatch3,4096,4,4186.57,2043.55,0.488,5.3,3.3
+fixDotBatch3,4096,6,4805.70,2775.83,0.578,12.3,7.0
+
+## cpu_info after
+# cpu_info 2026-10-15T16:08:22Z
+uname: Darwin 27.0.0 arm64
+cpu_model: Apple M5 Pro
+logical_cpus: 18
+isa_neon: unknown
+isa_fp16: unknown
+isa_i8mm: unknown
+isa_sme: unknown
+isa_sme2: unknown
+affinity: taskset unavailable
+load_average:{ 2.91 2.27 2.00 }
+benchmarks_running: no
+compiler_cc: Apple clang version 21.0.0 (clang-2100.3.34.2)
+compiler_clang: Apple clang version 21.0.0 (clang-2100.3.34.2)
+compiler_gcc: Apple clang version 21.0.0 (clang-2100.3.34.2)
+make: GNU Make 3.81
+12:08  up 7 days,  1:23, 3 users, load averages: 2.91 2.27 2.00
+
+## disassembly, otool -tv (llvm-objdump absent): SME2 kernels, clang -O3
+../out-spike-fixed-batch-sme2-streaming-m5.w1/obj/sme2.o:
+(__TEXT,__text) section
+_fixIsaMulBatchSme2:
+0000000000000000	stp	d15, d14, [sp, #-0x40]!
+0000000000000004	stp	d13, d12, [sp, #0x10]
+0000000000000008	stp	d11, d10, [sp, #0x20]
+000000000000000c	stp	d9, d8, [sp, #0x30]
+0000000000000010	smstart	sm
+0000000000000014	cbz	x3, 0x60
+0000000000000018	mov	x8, #0x0
+000000000000001c	whilelo	p0.d, x8, x3
+0000000000000020	ld1d	{ z0.d }, p0/z, [x1, x8, lsl #3]
+0000000000000024	ld1d	{ z1.d }, p0/z, [x2, x8, lsl #3]
+0000000000000028	mul	z2.d, z0.d, z1.d
+000000000000002c	smulh	z0.d, z0.d, z1.d
+0000000000000030	mov	z1.d, z2.d
+0000000000000034	add	z1.d, z1.d, #0x8000
+0000000000000038	cmphi	p1.d, p0/z, z2.d, z1.d
+000000000000003c	mov	z2.d, #0x1
+0000000000000040	add	z0.d, p1/m, z0.d, z2.d
+0000000000000044	lsr	z1.d, z1.d, #0x10
+0000000000000048	lsl	z0.d, z0.d, #0x30
+000000000000004c	orr	z0.d, z1.d, z0.d
+0000000000000050	st1d	{ z0.d }, p0, [x0, x8, lsl #3]
+0000000000000054	incd	x8
+0000000000000058	cmp	x8, x3
+000000000000005c	b.lo	0x1c
+0000000000000060	smstop	sm
+0000000000000064	ldp	d9, d8, [sp, #0x30]
+0000000000000068	ldp	d11, d10, [sp, #0x20]
+000000000000006c	ldp	d13, d12, [sp, #0x10]
+0000000000000070	ldp	d15, d14, [sp], #0x40
+0000000000000074	ret
+_fixIsaDotBatch3Sme2:
+0000000000000078	stp	d15, d14, [sp, #-0x40]!
+000000000000007c	stp	d13, d12, [sp, #0x10]
+0000000000000080	stp	d11, d10, [sp, #0x20]
+0000000000000084	stp	d9, d8, [sp, #0x30]
+0000000000000088	smstart	sm
+000000000000008c	cbz	x7, 0x110
+0000000000000090	mov	x8, #0x0
+0000000000000094	whilelo	p0.d, x8, x7
+0000000000000098	ld1d	{ z0.d }, p0/z, [x1, x8, lsl #3]
+000000000000009c	ld1d	{ z1.d }, p0/z, [x4, x8, lsl #3]
+00000000000000a0	ld1d	{ z2.d }, p0/z, [x2, x8, lsl #3]
+00000000000000a4	ld1d	{ z3.d }, p0/z, [x5, x8, lsl #3]
+00000000000000a8	ld1d	{ z4.d }, p0/z, [x3, x8, lsl #3]
+00000000000000ac	ld1d	{ z5.d }, p0/z, [x6, x8, lsl #3]
+00000000000000b0	mul	z6.d, z0.d, z1.d
+00000000000000b4	smulh	z0.d, z0.d, z1.d
+00000000000000b8	smulh	z1.d, z2.d, z3.d
+00000000000000bc	mad	z2.d, p0/m, z3.d, z6.d
+00000000000000c0	cmphi	p1.d, p0/z, z6.d, z2.d
+00000000000000c4	add	z0.d, z0.d, z1.d
+00000000000000c8	mov	z1.d, #0x1
+00000000000000cc	add	z0.d, p1/m, z0.d, z1.d
+00000000000000d0	smulh	z3.d, z4.d, z5.d
+00000000000000d4	mad	z4.d, p0/m, z5.d, z2.d
+00000000000000d8	cmphi	p1.d, p0/z, z2.d, z4.d
+00000000000000dc	add	z0.d, z0.d, z3.d
+00000000000000e0	add	z0.d, p1/m, z0.d, z1.d
+00000000000000e4	mov	z2.d, z4.d
+00000000000000e8	add	z2.d, z2.d, #0x8000
+00000000000000ec	cmphi	p1.d, p0/z, z4.d, z2.d
+00000000000000f0	add	z0.d, p1/m, z0.d, z1.d
+00000000000000f4	lsr	z1.d, z2.d, #0x10
+00000000000000f8	lsl	z0.d, z0.d, #0x30
+00000000000000fc	orr	z0.d, z1.d, z0.d
+0000000000000100	st1d	{ z0.d }, p0, [x0, x8, lsl #3]
+0000000000000104	incd	x8
+0000000000000108	cmp	x8, x7
+000000000000010c	b.lo	0x94
+0000000000000110	smstop	sm
+0000000000000114	ldp	d9, d8, [sp, #0x30]
+0000000000000118	ldp	d11, d10, [sp, #0x20]
+000000000000011c	ldp	d13, d12, [sp, #0x10]
+0000000000000120	ldp	d15, d14, [sp], #0x40
+0000000000000124	ret
+
+## disassembly, scalar mul kernel (BASE, the code the A side runs)
+_fixIsaMulBatchScalar:
+0000000000000000	cbz	x3, 0x2c
+0000000000000004	ldr	x8, [x1], #0x8
+0000000000000008	ldr	x9, [x2], #0x8
+000000000000000c	smulh	x10, x9, x8
+0000000000000010	mul	x8, x9, x8
+0000000000000014	adds	x8, x8, #0x8, lsl #12
+0000000000000018	cinc	x9, x10, hs
+000000000000001c	extr	x8, x9, x8, #0x10
+0000000000000020	str	x8, [x0], #0x8
+0000000000000024	subs	x3, x3, #0x1
+0000000000000028	b.ne	0x4
+000000000000002c	ret
+_fixIsaDotBatch3Scalar:
+
+## disassembly, scalar dot kernel (BASE)
+_fixIsaDotBatch3Scalar:
+0000000000000030	cbz	x7, 0x8c
+0000000000000034	ldr	x8, [x1], #0x8
+0000000000000038	ldr	x9, [x2], #0x8
+000000000000003c	ldr	x10, [x3], #0x8
+0000000000000040	ldr	x11, [x4], #0x8
+0000000000000044	ldr	x12, [x5], #0x8
+0000000000000048	ldr	x13, [x6], #0x8
+000000000000004c	smulh	x14, x11, x8
+0000000000000050	mul	x8, x11, x8
+0000000000000054	smulh	x11, x12, x9
+0000000000000058	mul	x9, x12, x9
+000000000000005c	smulh	x12, x13, x10
+0000000000000060	mul	x10, x13, x10
+0000000000000064	adds	x8, x8, x9
+0000000000000068	adc	x9, x14, x11
+000000000000006c	adds	x8, x8, x10
+0000000000000070	adc	x9, x9, x12
+0000000000000074	adds	x8, x8, #0x8, lsl #12
+0000000000000078	cinc	x9, x9, hs
+000000000000007c	extr	x8, x9, x8, #0x10
+0000000000000080	str	x8, [x0], #0x8
+0000000000000084	subs	x7, x7, #0x1
+0000000000000088	b.ne	0x34
+000000000000008c	ret
+_fixIsaVariantName:
+0000000000000090	cmp	w0, #0x5
+0000000000000094	b.hi	0xa8
+0000000000000098	adrp	x8, 0 ; 0x0
+000000000000009c	add	x8, x8, #0x0
+00000000000000a0	ldr	x0, [x8, w0, uxtw #3]
+00000000000000a4	ret
+00000000000000a8	mov	x0, #0x0
+00000000000000ac	ret
+_fixIsaFactName:
+00000000000000b0	mov	x8, x0
+00000000000000b4	mov	x0, #0x0
+00000000000000b8	cmp	w8, #0x3f
+00000000000000bc	b.gt	0xe8
+00000000000000c0	cmp	w8, #0x7
+00000000000000c4	b.gt	0x110
+00000000000000c8	cmp	w8, #0x1
+00000000000000cc	b.eq	0x150
+00000000000000d0	cmp	w8, #0x2
+00000000000000d4	b.eq	0x170
+00000000000000d8	cmp	w8, #0x4
+00000000000000dc	b.ne	0x198
+00000000000000e0	mov	w8, #0x2
+00000000000000e4	b	0x18c
+00000000000000e8	cmp	w8, #0x1ff
+00000000000000ec	b.gt	0x130
+00000000000000f0	cmp	w8, #0x40
+00000000000000f4	b.eq	0x158
+00000000000000f8	cmp	w8, #0x80
+00000000000000fc	b.eq	0x178
+0000000000000100	cmp	w8, #0x100
+0000000000000104	b.ne	0x198
+0000000000000108	mov	w8, #0x8
+000000000000010c	b	0x18c
+0000000000000110	cmp	w8, #0x8
+0000000000000114	b.eq	0x160
+0000000000000118	cmp	w8, #0x10
+000000000000011c	b.eq	0x180
+0000000000000120	cmp	w8, #0x20
+0000000000000124	b.ne	0x198
+0000000000000128	mov	w8, #0x5
+000000000000012c	b	0x18c
+0000000000000130	cmp	w8, #0x200
+0000000000000134	b.eq	0x168
+0000000000000138	cmp	w8, #0x400
+000000000000013c	b.eq	0x188
+0000000000000140	cmp	w8, #0x800
+0000000000000144	b.ne	0x198
+0000000000000148	mov	w8, #0xb
+000000000000014c	b	0x18c
+0000000000000150	mov	x8, #0x0
+0000000000000154	b	0x18c
+0000000000000158	mov	w8, #0x6
+000000000000015c	b	0x18c
+0000000000000160	mov	w8, #0x3
+
+## ZA / lazy-save check: grep -iE 'za|tpidr2|rdsvl|mova|zero' on the SME2 kernels: 0 matches; mode switches: smstart sm x2, smstop sm x2 (one pair per kernel, per call)

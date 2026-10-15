@@ -1,0 +1,532 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 6c7f627..15a33b3 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -21,7 +21,7 @@ endif()
+ # variant of the batch kernels, whose functions carry their own target attribute. No -m or
+ # -march flag is added anywhere: the baseline objects stay baseline, and every variant is
+ # selected at run time on the host that can run it (include/fixed/fixed_isa.h).
+-set(FIX_SOURCES src/fixed_math.c src/fixed_vec.c src/fixed_isa.c src/fixed_isa_avx512.c)
++set(FIX_SOURCES src/fixed_math.c src/fixed_vec.c src/fixed_isa.c src/fixed_isa_avx512.c src/fixed_isa_sme2.c)
+ 
+ add_library(fixed STATIC ${FIX_SOURCES})
+ target_include_directories(fixed PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+@@ -96,6 +96,26 @@ if (NOT WIN32)
+ endif()
+ add_test(NAME batch_saturated COMMAND fixed_batch_saturated_test)
+ 
++# THE SME2 STREAMING VARIANT, forced, held to scalar (experiment spike-fixed-batch-sme2-streaming-m5).
++# SKIPs, naming why, on a host without SME2 and in a build that does not compile the variant.
++add_executable(fixed_batch_sme2_test test/batch_sme2_test.c)
++target_link_libraries(fixed_batch_sme2_test PRIVATE fixed)
++add_test(NAME batch_sme2 COMMAND fixed_batch_sme2_test)
++
++if (TARGET fixed_emulated)
++    add_executable(fixed_batch_sme2_emulated_test test/batch_sme2_test.c)
++    target_link_libraries(fixed_batch_sme2_emulated_test PRIVATE fixed_emulated)
++    add_test(NAME batch_sme2_emulated COMMAND fixed_batch_sme2_emulated_test)
++endif()
++
++add_executable(fixed_batch_sme2_saturated_test test/batch_sme2_test.c ${FIX_SOURCES})
++target_include_directories(fixed_batch_sme2_saturated_test PRIVATE include)
++target_compile_definitions(fixed_batch_sme2_saturated_test PRIVATE FIX_SATURATE)
++if (NOT WIN32)
++    target_link_libraries(fixed_batch_sme2_saturated_test PRIVATE m)
++endif()
++add_test(NAME batch_sme2_saturated COMMAND fixed_batch_sme2_saturated_test)
++
+ # THE ISA DISPATCH. The pure detection parsers on faked cpuid/XCR0/hwcap/sysctl words, the
+ # selection and refusal rules, then EVERY compiled variant this host can run against scalar
+ # on the frozen batch oracle rows and on seeded lanes (the count is the argument; 100 million
+@@ -262,6 +282,15 @@ if (FIX_BUILD_BENCHMARKS)
+     # ns per operation, scalar (dependent chain: latency) and batch (independent: throughput).
+     # op_bench.c #includes oracle.c so the timed inputs and the hashed inputs are one
+     # definition of an input and cannot drift apart.
++    # The SME2 spike's microbenchmark: ns per CALL and per lane across batch lengths, the
++    # smstart/smstop cost alone (n = 0), and threads. Not run by ctest (it needs a clock).
++    add_executable(fixed_sme2_batch_bench benchmark/sme2_batch_bench.c)
++    target_link_libraries(fixed_sme2_batch_bench PRIVATE fixed)
++    find_package(Threads)
++    if (Threads_FOUND)
++        target_link_libraries(fixed_sme2_batch_bench PRIVATE Threads::Threads)
++    endif()
++
+     add_executable(fixed_op_bench benchmark/op_bench.c)
+     target_link_libraries(fixed_op_bench PRIVATE fixed)
+ 
+diff --git a/benchmark/sme2_batch_bench.c b/benchmark/sme2_batch_bench.c
+new file mode 100644
+index 0000000..aec164b
+--- /dev/null
++++ b/benchmark/sme2_batch_bench.c
+@@ -0,0 +1,184 @@
++// SPDX-FileCopyrightText: 2026 Más Bandwidth LLC
++// SPDX-License-Identifier: MIT
++// SME2 STREAMING-SVE BATCH MICROBENCHMARK (spike-fixed-batch-sme2-streaming-m5).
++//
++//   fixed_sme2_batch_bench [repeats] [lanes_per_sample] [consume]
++//
++// consume = 1 makes every call be followed by a non-streaming pass that sums the n output
++// lanes (what benchmark/op_bench.c does and what a real caller does with a result): data
++// stored in streaming mode is then read back by the normal core.
++//
++// For fixMulBatch and fixDotBatch3, at n = 0 (the smstart/smstop cost alone), 1, 8, 16, 32,
++// 64, 128, 256, 512, 1024, 4096: ns per CALL and ns per LANE under three arms measured
++// INTERLEAVED in every repeat: scalar, sme2, and scalar again (the A/A pair, whose gap is
++// the noise floor a claim must beat). The variant is switched with fixForceIsa between
++// samples; each sample is lanes_per_sample / n calls of the same n (iteration counts are
++// arguments; nothing here is a unit test). Then the shared-SME-unit question: T = 1, 2, 4, 6
++// threads each looping fixMulBatch / fixDotBatch3 at n = 1024 and 4096, aggregate lanes per
++// microsecond, scalar against sme2. macOS has no way to pin a thread to a core; the threads
++// are free to land on any core, which is stated in the finding.
++#include "fixed/fixed_isa.h"
++#include "fixed/fixed_vec.h"
++
++#include <pthread.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <time.h>
++
++enum { CAP = 4096 };
++static fixed_t in[6][CAP], outv[CAP];
++static volatile uint64_t sink;
++static int consume;
++
++static double nowNs( void )
++{
++	struct timespec ts;
++	clock_gettime( CLOCK_MONOTONIC, &ts );
++	return ( double )ts.tv_sec * 1e9 + ( double )ts.tv_nsec;
++}
++
++static int cmpd( const void* a, const void* b )
++{
++	double x = *( const double* )a, y = *( const double* )b;
++	return ( x > y ) - ( x < y );
++}
++
++static void callOp( int dot, fixed_t* out, size_t n )
++{
++	if ( dot ) fixDotBatch3( out, in[0], in[1], in[2], in[3], in[4], in[5], n );
++	else fixMulBatch( out, in[0], in[1], n );
++}
++
++static double sampleNsPerCall( int dot, size_t n, uint64_t calls )
++{
++	double t0 = nowNs();
++	uint64_t acc = 0;
++	for ( uint64_t c = 0; c < calls; ++c )
++	{
++		callOp( dot, outv, n );
++		if ( consume )
++			for ( size_t i = 0; i < n; ++i ) acc += ( uint64_t )outv[i];
++	}
++	double t1 = nowNs();
++	sink += acc + ( uint64_t )outv[n ? n - 1 : 0];
++	return ( t1 - t0 ) / ( double )calls;
++}
++
++typedef struct Stat { double min, med, max; } Stat;
++static Stat stat( double* v, int n )
++{
++	qsort( v, ( size_t )n, sizeof v[0], cmpd );
++	Stat s = { v[0], v[n / 2], v[n - 1] };
++	return s;
++}
++
++typedef struct Job { int dot; size_t n; uint64_t calls; fixed_t* out; volatile int* go; } Job;
++static void* worker( void* arg )
++{
++	Job* j = ( Job* )arg;
++	while ( !*j->go ) {}
++	for ( uint64_t c = 0; c < j->calls; ++c )
++	{
++		if ( j->dot ) fixDotBatch3( j->out, in[0], in[1], in[2], in[3], in[4], in[5], j->n );
++		else fixMulBatch( j->out, in[0], in[1], j->n );
++	}
++	sink += ( uint64_t )j->out[0];
++	return NULL;
++}
++
++// Aggregate lanes per microsecond with T threads, each doing calls calls of n lanes.
++static double threadedLanesPerUs( int dot, size_t n, int T, uint64_t calls )
++{
++	static fixed_t outs[8][CAP];
++	pthread_t th[8];
++	Job jobs[8];
++	volatile int go = 0;
++	for ( int t = 0; t < T; ++t )
++	{
++		jobs[t] = ( Job ){ dot, n, calls, outs[t], &go };
++		pthread_create( &th[t], NULL, worker, &jobs[t] );
++	}
++	struct timespec nap = { 0, 20 * 1000 * 1000 };
++	nanosleep( &nap, NULL ); // let every thread reach its spin
++	double t0 = nowNs();
++	go = 1;
++	for ( int t = 0; t < T; ++t ) pthread_join( th[t], NULL );
++	double t1 = nowNs();
++	return ( double )( calls * n * ( uint64_t )T ) / ( ( t1 - t0 ) / 1000.0 );
++}
++
++int main( int argc, char** argv )
++{
++	int repeats = argc > 1 ? atoi( argv[1] ) : 9;
++	uint64_t lanes = argc > 2 ? strtoull( argv[2], NULL, 10 ) : UINT64_C( 4000000 );
++	consume = argc > 3 ? atoi( argv[3] ) : 0;
++	if ( repeats < 3 ) repeats = 3;
++	if ( repeats > 64 ) repeats = 64;
++	uint64_t x = UINT64_C( 0x9e3779b97f4a7c15 );
++	for ( int j = 0; j < 6; ++j )
++		for ( int i = 0; i < CAP; ++i )
++		{
++			x ^= x << 13; x ^= x >> 7; x ^= x << 17;
++			in[j][i] = ( fixed_t )x;
++		}
++	if ( fixForceIsa( "sme2" ) != FIX_ISA_OK )
++	{
++		printf( "sme2_batch_bench: sme2 variant unavailable here (compiled=%d)\n", fixIsaCompiled( FIX_ISA_SME2 ) );
++		return 2;
++	}
++	const char* arms[3] = { "scalar", "sme2", "scalar" };
++	const size_t ns[] = { 0, 1, 8, 16, 32, 64, 128, 256, 512, 1024, 4096 };
++	printf( "# repeats=%d lanes_per_sample=%llu consume=%d; arms interleaved scalar,sme2,scalar(A/A) each repeat\n", repeats,
++			( unsigned long long )lanes, consume );
++	printf( "op,n,scalar_ns_call_min,scalar_ns_call_med,scalar_spread_pct,sme2_ns_call_min,sme2_ns_call_med,sme2_spread_pct,"
++			"scalar2_ns_call_med,AA_gap_pct,scalar_ns_lane_med,sme2_ns_lane_med,speedup_med\n" );
++	for ( int dot = 0; dot < 2; ++dot )
++	{
++		for ( size_t k = 0; k < sizeof ns / sizeof ns[0]; ++k )
++		{
++			const size_t n = ns[k];
++			const uint64_t calls = n ? ( lanes / n > 0 ? lanes / n : 1 ) : UINT64_C( 2000000 );
++			double v[3][64];
++			for ( int arm = 0; arm < 3; ++arm ) { fixForceIsa( arms[arm] ); ( void )sampleNsPerCall( dot, n, calls / 10 + 1 ); }
++			for ( int r = 0; r < repeats; ++r )
++				for ( int arm = 0; arm < 3; ++arm )
++				{
++					fixForceIsa( arms[arm] );
++					v[arm][r] = sampleNsPerCall( dot, n, calls );
++				}
++			Stat a = stat( v[0], repeats ), b = stat( v[1], repeats ), c = stat( v[2], repeats );
++			double lane = n ? ( double )n : 1.0;
++			printf( "%s,%zu,%.3f,%.3f,%.1f,%.3f,%.3f,%.1f,%.3f,%.1f,%.4f,%.4f,%.3f\n", dot ? "fixDotBatch3" : "fixMulBatch", n,
++					a.min, a.med, 100.0 * ( a.max - a.min ) / a.med, b.min, b.med, 100.0 * ( b.max - b.min ) / b.med, c.med,
++					100.0 * ( c.med > a.med ? c.med - a.med : a.med - c.med ) / a.med, a.med / lane, b.med / lane, a.med / b.med );
++			fflush( stdout );
++		}
++	}
++	printf( "# threads: aggregate lanes per microsecond (higher is faster), median of %d, scalar vs sme2\n", repeats );
++	printf( "op,n,threads,scalar_lanes_us_med,sme2_lanes_us_med,speedup_med,scalar_spread_pct,sme2_spread_pct\n" );
++	const int tcounts[] = { 1, 2, 4, 6 };
++	for ( int dot = 0; dot < 2; ++dot )
++		for ( int nn = 0; nn < 2; ++nn )
++		{
++			const size_t n = nn ? 4096 : 1024;
++			for ( size_t ti = 0; ti < sizeof tcounts / sizeof tcounts[0]; ++ti )
++			{
++				const int T = tcounts[ti];
++				const uint64_t calls = lanes * 4 / n;
++				double v[2][64];
++				for ( int r = 0; r < repeats; ++r )
++					for ( int arm = 0; arm < 2; ++arm )
++					{
++						fixForceIsa( arm ? "sme2" : "scalar" );
++						v[arm][r] = threadedLanesPerUs( dot, n, T, calls );
++					}
++				Stat a = stat( v[0], repeats ), b = stat( v[1], repeats );
++				printf( "%s,%zu,%d,%.2f,%.2f,%.3f,%.1f,%.1f\n", dot ? "fixDotBatch3" : "fixMulBatch", n, T, a.med, b.med,
++						b.med / a.med, 100.0 * ( a.max - a.min ) / a.med, 100.0 * ( b.max - b.min ) / b.med );
++				fflush( stdout );
++			}
++		}
++	return 0;
++}
+diff --git a/src/fixed_isa.c b/src/fixed_isa.c
+index 8db324e..966f6a9 100644
+--- a/src/fixed_isa.c
++++ b/src/fixed_isa.c
+@@ -22,6 +22,17 @@
+ 	#define FIX_ISA_HAVE_AVX512 0
+ #endif
+ 
++// The SME2 variant: arm64 clang on macOS with <arm_sme.h>, same condition as src/fixed_isa_sme2.c.
++#if defined( __aarch64__ ) && defined( __clang__ ) && defined( __APPLE__ ) && !defined( FIX_SATURATE ) && \
++	defined( __has_include )
++	#if __has_include( <arm_sme.h> )
++		#define FIX_ISA_HAVE_SME2 1
++	#endif
++#endif
++#ifndef FIX_ISA_HAVE_SME2
++	#define FIX_ISA_HAVE_SME2 0
++#endif
++
+ #if defined( __x86_64__ ) || defined( _M_X64 ) || defined( __i386__ ) || defined( _M_IX86 )
+ 	#define FIX_ISA_X86 1
+ 	#if defined( _MSC_VER ) && !defined( __clang__ )
+@@ -81,6 +92,13 @@ void fixIsaDotBatch3Avx512( fixed_t* out, const fixed_t* ax, const fixed_t* ay,
+ 							const fixed_t* bx, const fixed_t* by, const fixed_t* bz, size_t n );
+ #endif
+ 
++#if FIX_ISA_HAVE_SME2
++// src/fixed_isa_sme2.c
++void fixIsaMulBatchSme2( fixed_t* out, const fixed_t* a, const fixed_t* b, size_t n );
++void fixIsaDotBatch3Sme2( fixed_t* out, const fixed_t* ax, const fixed_t* ay, const fixed_t* az,
++						  const fixed_t* bx, const fixed_t* by, const fixed_t* bz, size_t n );
++#endif
++
+ // THE KERNEL TABLE: one pointer per batch operation. It starts on scalar, which every host
+ // can run, so a batch call made before init (from another static constructor, say) is
+ // still correct; it is rewritten only by the init and by fixForceIsa.
+@@ -136,6 +154,7 @@ int fixIsaCompiled( fixIsa isa )
+ 	{
+ 		case FIX_ISA_SCALAR: return 1;
+ 		case FIX_ISA_AVX512: return FIX_ISA_HAVE_AVX512;
++		case FIX_ISA_SME2: return FIX_ISA_HAVE_SME2;
+ 		default: return 0;
+ 	}
+ }
+@@ -286,6 +305,12 @@ static void fixIsaInstall( fixIsa isa )
+ 			fixIsaTable.mulBatch = fixIsaMulBatchAvx512;
+ 			fixIsaTable.dotBatch3 = fixIsaDotBatch3Avx512;
+ 			break;
++#endif
++#if FIX_ISA_HAVE_SME2
++		case FIX_ISA_SME2:
++			fixIsaTable.mulBatch = fixIsaMulBatchSme2;
++			fixIsaTable.dotBatch3 = fixIsaDotBatch3Sme2;
++			break;
+ #endif
+ 		default:
+ 			fixIsaTable.mulBatch = fixIsaMulBatchScalar;
+diff --git a/src/fixed_isa_sme2.c b/src/fixed_isa_sme2.c
+new file mode 100644
+index 0000000..e243220
+--- /dev/null
++++ b/src/fixed_isa_sme2.c
+@@ -0,0 +1,91 @@
++// SPDX-FileCopyrightText: 2026 Más Bandwidth LLC
++// SPDX-License-Identifier: MIT
++// THE SME2 STREAMING-SVE VARIANT of the batch kernels (Apple M4/M5 class, arm64 clang).
++//
++// EXPERIMENT (spike-fixed-batch-sme2-streaming-m5). Each kernel is __arm_locally_streaming:
++// ONE smstart sm / smstop sm per CALL, over all n lanes, so the mode switch is amortised
++// over the batch. No ZA is touched (no __arm_new("za")/__arm_inout), so there is no lazy
++// save. The kernels carry a per-function target("sme2") attribute: no global -march flag.
++//
++// THE BIT ARGUMENT. fixMul(a, b) is the low 64 bits of (a*b + 2^15) >> 16 over the exact
++// signed 128-bit product. SVE gives the two halves of that product per 64-bit lane:
++// MUL = low 64 bits, SMULH = high 64 bits (signed). Adding the rounding half to the low
++// half carries into the high half iff the unsigned low sum wrapped (lo2 < lo); then the
++// 128-bit value shifted right by 16 has, as its low 64 bits, (lo2 >> 16) | (hi << 48).
++// fixDot sums three exact products with the same carry-propagating 128-bit add, adds the
++// half once, and shifts once, exactly as fixDot rounds (divide last). Tails are the
++// predicated final iteration of the same loop, so there is no scalar tail.
++#include "fixed/fixed_vec.h"
++
++#if defined( __aarch64__ ) && defined( __clang__ ) && defined( __APPLE__ ) && !defined( FIX_SATURATE ) && \
++	defined( __has_include )
++	#if __has_include( <arm_sme.h> )
++		#include <arm_sme.h>
++
++		#define FIX_ISA_SME2_TARGET __attribute__( ( target( "sme2" ) ) )
++		#define FIX_ISA_SME2_INLINE static inline __attribute__( ( always_inline ) ) FIX_ISA_SME2_TARGET
++
++FIX_ISA_SME2_INLINE svuint64_t fixIsaU( svint64_t v ) __arm_streaming { return svreinterpret_u64_s64( v ); }
++
++// Add a 128-bit (hi:lo) pair into an accumulator pair, carrying from lo into hi.
++FIX_ISA_SME2_INLINE void fixIsaAdd128( svbool_t p, svuint64_t* accLo, svint64_t* accHi, svuint64_t lo, svint64_t hi ) __arm_streaming
++{
++	svuint64_t sum = svadd_u64_x( p, *accLo, lo );
++	svbool_t carry = svcmplt_u64( p, sum, *accLo );
++	*accHi = svadd_s64_x( p, *accHi, hi );
++	*accHi = svadd_n_s64_m( carry, *accHi, 1 );
++	*accLo = sum;
++}
++
++FIX_ISA_SME2_INLINE svint64_t fixIsaShift16( svbool_t p, svuint64_t lo, svint64_t hi ) __arm_streaming
++{
++	return svreinterpret_s64_u64( svorr_u64_x( p, svlsr_n_u64_x( p, lo, 16 ), svlsl_n_u64_x( p, fixIsaU( hi ), 48 ) ) );
++}
++
++FIX_ISA_SME2_TARGET __arm_locally_streaming void fixIsaMulBatchSme2( fixed_t* out, const fixed_t* a, const fixed_t* b, size_t n )
++{
++	const svint64_t half = svdup_n_s64( ( int64_t )FIX_HALF );
++	const uint64_t step = svcntd();
++	for ( uint64_t i = 0; i < n; i += step )
++	{
++		svbool_t p = svwhilelt_b64_u64( i, ( uint64_t )n );
++		svint64_t x = svld1_s64( p, ( const int64_t* )a + i ), y = svld1_s64( p, ( const int64_t* )b + i );
++		svuint64_t lo = svreinterpret_u64_s64( svmul_s64_x( p, x, y ) );
++		svint64_t hi = svmulh_s64_x( p, x, y );
++		svuint64_t sum = svadd_u64_x( p, lo, svreinterpret_u64_s64( half ) );
++		svint64_t accHi = svadd_n_s64_m( svcmplt_u64( p, sum, lo ), hi, 1 );
++		svuint64_t accLo = sum;
++		svst1_s64( p, ( int64_t* )out + i, fixIsaShift16( p, accLo, accHi ) );
++	}
++}
++
++FIX_ISA_SME2_TARGET __arm_locally_streaming void fixIsaDotBatch3Sme2( fixed_t* out, const fixed_t* ax, const fixed_t* ay,
++																	   const fixed_t* az, const fixed_t* bx, const fixed_t* by,
++																	   const fixed_t* bz, size_t n )
++{
++	const svint64_t half = svdup_n_s64( ( int64_t )FIX_HALF );
++	const uint64_t step = svcntd();
++	for ( uint64_t i = 0; i < n; i += step )
++	{
++		svbool_t p = svwhilelt_b64_u64( i, ( uint64_t )n );
++		svint64_t x = svld1_s64( p, ( const int64_t* )ax + i ), u = svld1_s64( p, ( const int64_t* )bx + i );
++		svint64_t y = svld1_s64( p, ( const int64_t* )ay + i ), v = svld1_s64( p, ( const int64_t* )by + i );
++		svint64_t z = svld1_s64( p, ( const int64_t* )az + i ), w = svld1_s64( p, ( const int64_t* )bz + i );
++		svuint64_t accLo = svreinterpret_u64_s64( svmul_s64_x( p, x, u ) );
++		svint64_t accHi = svmulh_s64_x( p, x, u );
++		fixIsaAdd128( p, &accLo, &accHi, svreinterpret_u64_s64( svmul_s64_x( p, y, v ) ), svmulh_s64_x( p, y, v ) );
++		fixIsaAdd128( p, &accLo, &accHi, svreinterpret_u64_s64( svmul_s64_x( p, z, w ) ), svmulh_s64_x( p, z, w ) );
++		fixIsaAdd128( p, &accLo, &accHi, svreinterpret_u64_s64( half ), svdup_n_s64( 0 ) );
++		svst1_s64( p, ( int64_t* )out + i, fixIsaShift16( p, accLo, accHi ) );
++	}
++}
++
++		#define FIX_ISA_SME2_COMPILED 1
++	#endif
++#endif
++
++#ifndef FIX_ISA_SME2_COMPILED
++// Not compiled on this target (or a FIX_SATURATE build). ISO C forbids an empty
++// translation unit.
++typedef int fixIsaSme2NotCompiled;
++#endif
+diff --git a/test/batch_sme2_test.c b/test/batch_sme2_test.c
+new file mode 100644
+index 0000000..81e60ab
+--- /dev/null
++++ b/test/batch_sme2_test.c
+@@ -0,0 +1,67 @@
++// SPDX-FileCopyrightText: 2026 Más Bandwidth LLC
++// SPDX-License-Identifier: MIT
++// BatchSme2EquivalenceTest: the SME2 streaming-SVE variant (src/fixed_isa_sme2.c), FORCED,
++// against the scalar public operations. It reuses test/batch_test.c whole (the structured
++// edge grid crossed with itself, tails, unaligned pointers, the seeded full-width lanes;
++// the lane count is the optional argument, 100 million by default) and adds a sweep of every
++// length 0..130 over edge-valued lanes, so the predicated final iteration is hit at every
++// remainder of the streaming vector length. On a host without SME2, or a build that does not
++// compile the variant (FIX_SATURATE), it prints SKIP with the reason: a SKIP is not a pass.
++#define main batchEquivalenceMain
++#include "batch_test.c"
++#undef main
++
++int main( int argc, char** argv )
++{
++	// Whether this build should carry the variant (the condition src/fixed_isa.c uses).
++#if defined( __aarch64__ ) && defined( __clang__ ) && defined( __APPLE__ ) && !defined( FIX_SATURATE ) && \
++	defined( __has_include )
++	#if __has_include( <arm_sme.h> )
++		const int expectCompiled = 1;
++	#else
++		const int expectCompiled = 0;
++	#endif
++#else
++	const int expectCompiled = 0;
++#endif
++	const uint32_t need = FIX_ISA_FACT_SME | FIX_ISA_FACT_SME2;
++	const int hostHas = ( fixIsaHostFacts() & need ) == need;
++	if ( !expectCompiled || !hostHas )
++	{
++		printf( "BatchSme2EquivalenceTest SKIP: %s\n", !expectCompiled ? "this build does not carry the sme2 variant" : "host lacks sme/sme2" );
++		return 0;
++	}
++	// RED AT BASE: a host that has SME2, a build that should carry the variant, and the
++	// variant is not there. That is a failure, not a skip.
++	if ( !fixIsaCompiled( FIX_ISA_SME2 ) )
++	{
++		printf( "BatchSme2EquivalenceTest FAIL: host has sme/sme2 but variant sme2 is absent from this build\n" );
++		return 1;
++	}
++	if ( fixForceIsa( "sme2" ) != FIX_ISA_OK || fixIsaSelected() != FIX_ISA_SME2 )
++	{
++		printf( "BatchSme2EquivalenceTest FAIL: fixForceIsa(\"sme2\") did not select sme2\n" );
++		return 1;
++	}
++	if ( batchEquivalenceMain( argc, argv ) ) return 1;
++	// Every length around the streaming vector length (8 lanes on a 512-bit SVL, up to 32
++	// on a 2048-bit one), edge-valued lanes at a rotating phase.
++	for ( size_t n = 0; n <= 130; ++n )
++	{
++		for ( size_t phase = 0; phase < 5; ++phase )
++		{
++			for ( size_t i = 0; i < n; ++i )
++			{
++				aa[i + 1] = edges[( i + phase ) % edgeCount];
++				bb[i + 1] = edges[( i * 3 + phase * 7 ) % edgeCount];
++				cc[i + 1] = edges[( i * 5 + phase * 11 ) % edgeCount];
++				dd[i + 1] = edges[( i * 13 + phase ) % edgeCount];
++				ee[i + 1] = edges[( i * 17 + phase * 3 ) % edgeCount];
++				ff[i + 1] = edges[( i * 23 + phase * 5 ) % edgeCount];
++			}
++			if ( check( n, 0 ) ) return 1;
++		}
++	}
++	printf( "BatchSme2EquivalenceTest PASS: variant %s forced; every length 0..130 over edge lanes\n", fixIsaName() );
++	return 0;
++}
+diff --git a/test/isa_dispatch_test.c b/test/isa_dispatch_test.c
+index 3972605..c1d040a 100644
+--- a/test/isa_dispatch_test.c
++++ b/test/isa_dispatch_test.c
+@@ -40,6 +40,17 @@ extern uint64_t fixOracleHashOp( int opIndex, uint64_t baseRandom, uint64_t limi
+ 	#define EXPECT_AVX512_COMPILED 0
+ #endif
+ 
++// Whether this build should carry the SME2 variant: the same condition src/fixed_isa.c uses.
++#if defined( __aarch64__ ) && defined( __clang__ ) && defined( __APPLE__ ) && !defined( FIX_SATURATE ) && \
++	defined( __has_include )
++	#if __has_include( <arm_sme.h> )
++		#define EXPECT_SME2_COMPILED 1
++	#endif
++#endif
++#ifndef EXPECT_SME2_COMPILED
++	#define EXPECT_SME2_COMPILED 0
++#endif
++
+ static int fails = 0;
+ 
+ #define CHECK( cond )                                                            \
+@@ -124,7 +135,7 @@ static void IsaParserTest( void )
+ 	CHECK( fixIsaParseDarwinArm64( 1, 1, 1 ) == ( FIX_ISA_FACT_NEON | FIX_ISA_FACT_SME | FIX_ISA_FACT_SME2 ) );
+ 	CHECK( fixIsaParseDarwinArm64( 0, 0, 0 ) == 0 );
+ 	// Arm facts select nothing compiled today: neon and sme2 are reserved names.
+-	CHECK( fixIsaBest( fixIsaParseDarwinArm64( 1, 1, 1 ) ) == FIX_ISA_SCALAR );
++	CHECK( fixIsaBest( fixIsaParseDarwinArm64( 1, 1, 1 ) ) == ( EXPECT_SME2_COMPILED ? FIX_ISA_SME2 : FIX_ISA_SCALAR ) );
+ 
+ 	// Fact names round-trip and cover every bit.
+ 	for ( int i = 0; i < FIX_ISA_FACT_COUNT; ++i ) CHECK( fixIsaFactName( 1u << i ) != NULL );
+@@ -153,7 +164,7 @@ static void IsaRulesTest( void )
+ 	CHECK( !fixIsaCompiled( FIX_ISA_AVX2 ) );
+ 	CHECK( !fixIsaCompiled( FIX_ISA_AVX512IFMA ) );
+ 	CHECK( !fixIsaCompiled( FIX_ISA_NEON ) );
+-	CHECK( !fixIsaCompiled( FIX_ISA_SME2 ) );
++	CHECK( fixIsaCompiled( FIX_ISA_SME2 ) == EXPECT_SME2_COMPILED );
+ 
+ 	// Scalar runs anywhere; the best variant for no facts is scalar.
+ 	CHECK( fixIsaCheck( FIX_ISA_SCALAR, 0, NULL ) == FIX_ISA_OK );
+@@ -167,12 +178,17 @@ static void IsaRulesTest( void )
+ 	CHECK( fixIsaSelected() == before );
+ 	CHECK( fixForceIsa( NULL ) == FIX_ISA_UNKNOWN_NAME );
+ 	CHECK( fixIsaSelected() == before );
+-	const char* reserved[] = { "avx2", "avx512ifma", "neon", "sme2" };
++	const char* reserved[] = { "avx2", "avx512ifma", "neon" };
+ 	for ( size_t i = 0; i < sizeof reserved / sizeof reserved[0]; ++i )
+ 	{
+ 		CHECK( fixForceIsa( reserved[i] ) == FIX_ISA_NOT_COMPILED );
+ 		CHECK( fixIsaSelected() == before );
+ 	}
++	if ( !EXPECT_SME2_COMPILED )
++	{
++		CHECK( fixForceIsa( "sme2" ) == FIX_ISA_NOT_COMPILED );
++		CHECK( fixIsaSelected() == before );
++	}
+ 	if ( !EXPECT_AVX512_COMPILED )
+ 	{
+ 		CHECK( fixForceIsa( "avx512" ) == FIX_ISA_NOT_COMPILED );

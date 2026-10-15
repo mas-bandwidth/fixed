@@ -46,7 +46,7 @@ The only cell above 1.0 is dot at n = 4096, 1.038, with an A/A gap of 1.9% and p
 
 ## When the caller reads the result (consume=1), which is also why ab.sh disagrees with the table above
 
-`ab.sh` (`op_bench`) sums every output lane on the normal core after each batch call; the microbenchmark with consume=0 does not. Rerun with consume=1 (`sme2_batch_bench 11 4000000 1`), speedup medians: mul n = 64: 0.229; n = 256: 0.501; n = 1024: 0.525; n = 4096: 0.741; dot n = 64: 0.362; n = 1024: 0.596; n = 4096: 0.818. A single-lane call followed by a read costs 75 ns (mul) against 0.93 ns scalar. The data stored in streaming mode is evidently not cheaply visible to the normal core (a read-back penalty of about 0.15 to 0.2 ns per lane at 4096), and that cost is part of any real use of a batch result. This does not change the verdict; it makes the loss larger.
+`ab.sh` (`op_bench`) sums every output lane on the normal core after each batch call; the microbenchmark with consume=0 does not. Rerun with consume=1 (`sme2_batch_bench 11 4000000 1`), speedup medians: mul n = 64: 0.229; n = 256: 0.501; n = 1024: 0.525; n = 4096: 0.741; dot n = 64: 0.362; n = 1024: 0.596; n = 4096: 0.818. A single-lane call followed by a read costs 75 ns (mul) against 0.93 ns scalar. The data stored in streaming mode is evidently not cheaply visible to the normal core (a read-back penalty of about 0.2 ns (mul) to 0.35 ns (dot) per lane at 4096), and that cost is part of any real use of a batch result. This does not change the verdict; it makes the loss larger.
 
 **ab.sh, the card's gate A/B** (`AB_ISA_A=scalar AB_ISA_B=sme2 AB_REPEATS=11 AB_ITERS=2000000 sh benchmark/ab.sh . . fixMulBatch fixDotBatch3`, 4096 lanes per call, median ns per lane):
 

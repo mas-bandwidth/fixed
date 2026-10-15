@@ -1,0 +1,528 @@
+# raw.txt for spike-fixed-batch-mul-avx2-floor  (host vision = AMD Ryzen Threadripper 2990WX, AVX2 only; cross-check host b2 = Ryzen 7 255, AVX-512)
+# BASE = sprint/fixed-perf be0df4e. Build dirs and runs on the bench, not on the Mac. perf_event_paranoid=4 on vision: no perf counters (not done).
+
+===== STEP 2 RED FIRST at BASE (base + only the new test and its CMake registration)
+[100%] Linking C executable fixed_batch_mul_avx2_test
+[100%] Built target fixed_batch_mul_avx2_test
+BatchMulAvx2EquivalenceTest FAIL: avx2 variant absent (not compiled)
+exit=1
+
+===== STEP 4 ctest, native build (45/45) and emulated build (-DCMAKE_C_FLAGS=-DFIX_FORCE_EMULATED_INT128) (45/45); the FIX_SATURATE arm is the saturated targets inside both
+      Start 42: isa_dispatch_emulated
+39/45 Test  #6: batch_saturated .....................   Passed    4.75 sec
+      Start 43: oracle_unit_emulated
+40/45 Test  #7: isa_dispatch ........................   Passed    4.78 sec
+      Start 44: numerical_saturated_emulated
+41/45 Test #44: numerical_saturated_emulated ........   Passed    0.02 sec
+      Start 45: emulated_negative_control
+42/45 Test #43: oracle_unit_emulated ................   Passed    0.05 sec
+43/45 Test #45: emulated_negative_control ...........   Passed    0.07 sec
+44/45 Test #42: isa_dispatch_emulated ...............   Passed    1.40 sec
+45/45 Test #40: batch_emulated ......................   Passed    5.05 sec
+
+100% tests passed, 0 tests failed out of 45
+
+Total Test time (real) =   8.00 sec
+[100%] Built target fixed_oracle_check
+40/45 Test #43: oracle_unit_emulated ................   Passed    0.03 sec
+      Start 44: numerical_saturated_emulated
+41/45 Test #44: numerical_saturated_emulated ........   Passed    0.02 sec
+      Start 45: emulated_negative_control
+42/45 Test #45: emulated_negative_control ...........   Passed    0.05 sec
+43/45 Test #42: isa_dispatch_emulated ...............   Passed    0.81 sec
+44/45 Test  #7: isa_dispatch ........................   Passed    6.79 sec
+45/45 Test #40: batch_emulated ......................   Passed    3.17 sec
+
+100% tests passed, 0 tests failed out of 45
+
+Total Test time (real) =   7.27 sec
+
+===== oracle under FIXED_ISA=avx2, native and emulated oracle binaries in both builds (tail of each)
+== build/fixed_oracle_check FIXED_ISA=avx2
+ORACLE OK   fixDequantize  count=50063756  hash=1be2b75e26b7a4d1
+ORACLE OK   fixMulBatch  count=50063756  hash=de6fc21fb01df7f2
+ORACLE OK   fixDotBatch3  count=50063756  hash=7fb109655c1745da
+ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+== build/fixed_oracle_check_emulated FIXED_ISA=avx2
+ORACLE OK   fixDequantize  count=50063756  hash=1be2b75e26b7a4d1
+ORACLE OK   fixMulBatch  count=50063756  hash=de6fc21fb01df7f2
+ORACLE OK   fixDotBatch3  count=50063756  hash=7fb109655c1745da
+ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+== build-emu/fixed_oracle_check FIXED_ISA=avx2
+ORACLE OK   fixDequantize  count=50063756  hash=1be2b75e26b7a4d1
+ORACLE OK   fixMulBatch  count=50063756  hash=de6fc21fb01df7f2
+ORACLE OK   fixDotBatch3  count=50063756  hash=7fb109655c1745da
+ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+== build-emu/fixed_oracle_check_emulated FIXED_ISA=avx2
+ORACLE OK   fixDequantize  count=50063756  hash=1be2b75e26b7a4d1
+ORACLE OK   fixMulBatch  count=50063756  hash=de6fc21fb01df7f2
+ORACLE OK   fixDotBatch3  count=50063756  hash=7fb109655c1745da
+ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+
+[exited with code 0]
+
+===== run.sh on vision: cpu_info, ab.sh A/A scalar, A/A avx2, A/B scalar-vs-avx2 (taskset -c 15; sibling 47)
+### cpu_info (before)
+# cpu_info 2026-10-15T15:04:01Z
+uname: Linux 7.0.0-34-generic x86_64
+cpu_model: AMD Ryzen Threadripper 2990WX 32-Core Processor
+isa_avx2: yes
+isa_avx512f: no
+isa_avx512dq: no
+isa_avx512vl: no
+isa_avx512ifma: no
+isa_bmi2: yes
+isa_adx: yes
+isa_fma: yes
+isa_sse4_2: yes
+isa_neon: no
+isa_sme: no
+logical_cpus: 64
+affinity: 0-63
+load_average:11.16 7.33 6.05 3/1302 3604615
+benchmarks_running: no
+compiler_gcc: gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+compiler_clang: Ubuntu clang version 21.1.8 (6ubuntu1)
+compiler_gcc: gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+cmake: cmake version 4.2.3
+make: GNU Make 4.4.1
+pgrep -af bench: 453370 /usr/lib/postgresql/18/bin/postgres -D /home/glenn/nova-bench/read-5444/tmp/nova-config-pg-1398327361/data -p 37557 -c listen_addresses=127.0.0.1 -c unix_socket_directories= -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c log_min_messages=warning
+453374 /usr/lib/postgresql/18/bin/postgres -D /home/glenn/nova-bench/read-5444/tmp/nova-config-pg-1278251089/data -p 42821 -c listen_addresses=127.0.0.1 -c unix_socket_directories= -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c log_min_messages=warning
+453624 /usr/lib/postgresql/18/bin/postgres -D /home/glenn/nova-bench/read-5444/tmp/nova-config-pg-4109697454/data -p 36169 -c listen_addresses=127.0.0.1 -c unix_socket_directories= -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c log_min_messages=warning
+636183 /home/glenn/nova-bench/fable-mqfix-deadB/tmp/TestPausePointThreadDirected3963233565/001/probe_bin
+3559519 /bin/sh -c IFS= read -r gate <&3 || exit 125; exec 3<&-; [ "$gate" = go ] || exit 125; trap '' TERM; printf ready >&4; exec 4>&-; while :; do IFS= read -r action < "$1" || continue; case "$action" in TERM) kill -TERM 0 ;; KILL) kill -KILL 0 ;; esac; done sh /home/glenn/nova-bench/cache/dsh-usage-meter-20261009/tmp/nova-check-1092979610/RUN.anchor.fifo-0f6f95ad15be6e92c6b84a9737f00060
+3709478 bash -c tail -n 0 -F /home/glenn/nova-bench/runs/johnny-d212-gate.log | grep --line-buffered -E "GATE_DONE|GATE_BUSY|FLOCK_EXIT|_EXIT:|CI_SCOPE|FAIL	|RED"
+3709479 tail -n 0 -F /home/glenn/nova-bench/runs/johnny-d212-gate.log
+3774362 bash -c tail -n 0 -F /home/glenn/nova-bench/runs/johnny-d212b-gate.log | grep --line-buffered -E "GATE_DONE|GATE_BUSY|FLOCK_EXIT|_EXIT:|CI_SCOPE|--- FAIL:"
+3774363 tail -n 0 -F /home/glenn/nova-bench/runs/johnny-d212b-gate.log
+3876929 bash -c tail -n 0 -F /home/glenn/nova-bench/runs/johnny-e1be-gate.log | grep --line-buffered -E "GATE_DONE|GATE_BUSY|FLOCK_EXIT|_EXIT:|CI_SCOPE|--- FAIL:"
+3876932 tail -n 0 -F /home/glenn/nova-bench/runs/johnny-e1be-gate.log
+4046406 bash -c tail -n 0 -F /home/glenn/nova-bench/runs/johnny-5c7c-gate.log | grep --line-buffered -E "GATE_DONE|GATE_BUSY|FLOCK_EXIT|_EXIT:|CI_SCOPE|--- FAIL:"
+4046410 tail -n 0 -F /home/glenn/nova-bench/runs/johnny-5c7c-gate.log
+### A/A scalar vs scalar, 15 repeats, taskset -c 15 (sibling 47 idle)
+# ab.sh 2026-10-15T15:04:02Z
+# compiler: gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+# flags: -O3 -g -DNDEBUG -ffp-contract=off
+# repeats: 15  iterations: 200000
+# # cpu_info 2026-10-15T15:04:02Z
+# uname: Linux 7.0.0-34-generic x86_64
+# cpu_model: AMD Ryzen Threadripper 2990WX 32-Core Processor
+# isa_avx2: yes
+# isa_avx512f: no
+# isa_avx512dq: no
+# isa_avx512vl: no
+# isa_avx512ifma: no
+# isa_bmi2: yes
+# isa_adx: yes
+# isa_fma: yes
+# isa_sse4_2: yes
+# isa_neon: no
+# isa_sme: no
+# logical_cpus: 64
+# affinity: 15
+# load_average:11.16 7.33 6.05 5/1299 3604829
+# benchmarks_running: no
+# compiler_gcc: gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+# compiler_clang: Ubuntu clang version 21.1.8 (6ubuntu1)
+# compiler_gcc: gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+# cmake: cmake version 4.2.3
+# make: GNU Make 4.4.1
+# side A (.) isa: scalar (facts: avx2 os-ymm-state)
+# side B (.) isa: scalar (facts: avx2 os-ymm-state)
+# oracle_check compiled against .:
+# oracle FIXED_ISA=scalar
+ORACLE OK   fixMul  count=50063756  hash=eb1995a6b21bf036
+ORACLE OK   fixDiv_below2p47  count=50063756  hash=9519544a71a6aee9
+ORACLE OK   fixDiv_above2p47  count=12563756  hash=679bdcc4e27fd523
+ORACLE OK   fixSqrt_small  count=50000252  hash=0a01c17d8970c8c5
+ORACLE OK   fixSqrt_raw_below2p32  count=4344967548  hash=e8cd953f7d9cb442
+ORACLE OK   fixISqrt128High_u64  count=50063756  hash=3f2bde37bd6f7cb0
+ORACLE OK   fixISqrt128High_above104bits  count=2563756  hash=0c9fdfcdcf937183
+ORACLE OK   fixComputeCosSin  count=50823803  hash=75d77c6260933da6
+ORACLE OK   fixSin  count=50823803  hash=ea6b89849492e203
+ORACLE OK   fixCos  count=50823803  hash=92884abbd0d0dfc4
+ORACLE OK   fixAtan2  count=6313756  hash=e783be1aa18a9e6c
+ORACLE OK   fixLog2  count=9395980  hash=7d1ccc520e783eca
+ORACLE OK   fixExp2  count=9395980  hash=a1d52ff7b1ceef98
+ORACLE OK   fixPow  count=2563756  hash=55410e05742068c7
+ORACLE OK   fixLerp  count=50063756  hash=3c3983b96260d159
+ORACLE OK   fixInt128Div  count=2563756  hash=65e492d721fcd5f6
+ORACLE OK   fixUInt256DivMod  count=563756  hash=d6c2bda0c1986a82
+ORACLE OK   fixDot  count=50063756  hash=4392264c082fde77
+ORACLE OK   fixCross  count=50063756  hash=5a5555238d655a2c
+ORACLE OK   fixLength  count=25063756  hash=785da375992b2c05
+ORACLE OK   fixNormalize  count=12563756  hash=44e1c09212bfac1d
+ORACLE OK   fixMulQuat  count=25063756  hash=ff696a9b57ac0860
+ORACLE OK   fixNormalizeQuat  count=12563756  hash=5e439ba2ea83daeb
+ORACLE OK   fixRotateVector  count=12563756  hash=64afce887683c703
+ORACLE OK   fixInvRotateVector  count=12563756  hash=a7d02b0685663640
+ORACLE OK   fixNLerp  count=6313756  hash=315cf27e3e31527e
+ORACLE OK   fixInvertMatrix  count=563756  hash=f7c48d2fcea79473
+ORACLE OK   fixSolve3  count=563756  hash=da2489cbf6193bad
+ORACLE OK   fixAABB_Transform  count=2563756  hash=d105925232ba6473
+ORACLE OK   fixQuantize  count=50063756  hash=8100e7c61c94a956
+ORACLE OK   fixDequantize  count=50063756  hash=1be2b75e26b7a4d1
+ORACLE OK   fixMulBatch  count=50063756  hash=de6fc21fb01df7f2
+ORACLE OK   fixDotBatch3  count=50063756  hash=7fb109655c1745da
+ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMulBatch                    scalar      4.0403     4.0847     5.6%     3.9576     4.0546     4.8%    1.007
+fixMulBatch                    batch       1.4367     1.4656    15.6%     1.4477     1.4701    12.9%    0.997
+# speedup = a_median / b_median; > 1 means the candidate is faster.
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+### A/A avx2 vs avx2, 15 repeats
+ORACLE OK   fixMul  count=50063756  hash=eb1995a6b21bf036
+ORACLE OK   fixDiv_below2p47  count=50063756  hash=9519544a71a6aee9
+ORACLE OK   fixDiv_above2p47  count=12563756  hash=679bdcc4e27fd523
+ORACLE OK   fixSqrt_small  count=50000252  hash=0a01c17d8970c8c5
+ORACLE OK   fixSqrt_raw_below2p32  count=4344967548  hash=e8cd953f7d9cb442
+ORACLE OK   fixISqrt128High_u64  count=50063756  hash=3f2bde37bd6f7cb0
+ORACLE OK   fixISqrt128High_above104bits  count=2563756  hash=0c9fdfcdcf937183
+ORACLE OK   fixComputeCosSin  count=50823803  hash=75d77c6260933da6
+ORACLE OK   fixSin  count=50823803  hash=ea6b89849492e203
+ORACLE OK   fixCos  count=50823803  hash=92884abbd0d0dfc4
+ORACLE OK   fixAtan2  count=6313756  hash=e783be1aa18a9e6c
+ORACLE OK   fixLog2  count=9395980  hash=7d1ccc520e783eca
+ORACLE OK   fixExp2  count=9395980  hash=a1d52ff7b1ceef98
+ORACLE OK   fixPow  count=2563756  hash=55410e05742068c7
+ORACLE OK   fixLerp  count=50063756  hash=3c3983b96260d159
+ORACLE OK   fixInt128Div  count=2563756  hash=65e492d721fcd5f6
+ORACLE OK   fixUInt256DivMod  count=563756  hash=d6c2bda0c1986a82
+ORACLE OK   fixDot  count=50063756  hash=4392264c082fde77
+ORACLE OK   fixCross  count=50063756  hash=5a5555238d655a2c
+ORACLE OK   fixLength  count=25063756  hash=785da375992b2c05
+ORACLE OK   fixNormalize  count=12563756  hash=44e1c09212bfac1d
+ORACLE OK   fixMulQuat  count=25063756  hash=ff696a9b57ac0860
+ORACLE OK   fixNormalizeQuat  count=12563756  hash=5e439ba2ea83daeb
+ORACLE OK   fixRotateVector  count=12563756  hash=64afce887683c703
+ORACLE OK   fixInvRotateVector  count=12563756  hash=a7d02b0685663640
+ORACLE OK   fixNLerp  count=6313756  hash=315cf27e3e31527e
+ORACLE OK   fixInvertMatrix  count=563756  hash=f7c48d2fcea79473
+ORACLE OK   fixSolve3  count=563756  hash=da2489cbf6193bad
+ORACLE OK   fixAABB_Transform  count=2563756  hash=d105925232ba6473
+ORACLE OK   fixQuantize  count=50063756  hash=8100e7c61c94a956
+ORACLE OK   fixDequantize  count=50063756  hash=1be2b75e26b7a4d1
+ORACLE OK   fixMulBatch  count=50063756  hash=de6fc21fb01df7f2
+ORACLE OK   fixDotBatch3  count=50063756  hash=7fb109655c1745da
+ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMulBatch                    scalar      4.7776     5.0564    20.7%     4.6963     5.0003    39.8%    1.011
+fixMulBatch                    batch       1.5646     1.6860    31.7%     1.6244     1.8006    22.6%    0.936
+### A/B scalar (A) vs avx2 (B), 15 interleaved repeats, taskset -c 15
+# ab.sh 2026-10-15T15:11:14Z
+# compiler: gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+# flags: -O3 -g -DNDEBUG -ffp-contract=off
+# repeats: 15  iterations: 200000
+# # cpu_info 2026-10-15T15:11:14Z
+# uname: Linux 7.0.0-34-generic x86_64
+# cpu_model: AMD Ryzen Threadripper 2990WX 32-Core Processor
+# isa_avx2: yes
+# isa_avx512f: no
+# isa_avx512dq: no
+# isa_avx512vl: no
+# isa_avx512ifma: no
+# isa_bmi2: yes
+# isa_adx: yes
+# isa_fma: yes
+# isa_sse4_2: yes
+# isa_neon: no
+# isa_sme: no
+# logical_cpus: 64
+# affinity: 15
+# load_average:8.04 15.97 11.26 3/1480 3774429
+# benchmarks_running: no
+# compiler_gcc: gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+# compiler_clang: Ubuntu clang version 21.1.8 (6ubuntu1)
+# compiler_gcc: gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+# cmake: cmake version 4.2.3
+# make: GNU Make 4.4.1
+# side A (.) isa: scalar (facts: avx2 os-ymm-state)
+# side B (.) isa: avx2 (facts: avx2 os-ymm-state)
+# oracle_check compiled against .:
+# oracle FIXED_ISA=avx2
+ORACLE OK   fixMul  count=50063756  hash=eb1995a6b21bf036
+ORACLE OK   fixDiv_below2p47  count=50063756  hash=9519544a71a6aee9
+ORACLE OK   fixDiv_above2p47  count=12563756  hash=679bdcc4e27fd523
+ORACLE OK   fixSqrt_small  count=50000252  hash=0a01c17d8970c8c5
+ORACLE OK   fixSqrt_raw_below2p32  count=4344967548  hash=e8cd953f7d9cb442
+ORACLE OK   fixISqrt128High_u64  count=50063756  hash=3f2bde37bd6f7cb0
+ORACLE OK   fixISqrt128High_above104bits  count=2563756  hash=0c9fdfcdcf937183
+ORACLE OK   fixComputeCosSin  count=50823803  hash=75d77c6260933da6
+ORACLE OK   fixSin  count=50823803  hash=ea6b89849492e203
+ORACLE OK   fixCos  count=50823803  hash=92884abbd0d0dfc4
+ORACLE OK   fixAtan2  count=6313756  hash=e783be1aa18a9e6c
+ORACLE OK   fixLog2  count=9395980  hash=7d1ccc520e783eca
+ORACLE OK   fixExp2  count=9395980  hash=a1d52ff7b1ceef98
+ORACLE OK   fixPow  count=2563756  hash=55410e05742068c7
+ORACLE OK   fixLerp  count=50063756  hash=3c3983b96260d159
+ORACLE OK   fixInt128Div  count=2563756  hash=65e492d721fcd5f6
+ORACLE OK   fixUInt256DivMod  count=563756  hash=d6c2bda0c1986a82
+ORACLE OK   fixDot  count=50063756  hash=4392264c082fde77
+ORACLE OK   fixCross  count=50063756  hash=5a5555238d655a2c
+ORACLE OK   fixLength  count=25063756  hash=785da375992b2c05
+ORACLE OK   fixNormalize  count=12563756  hash=44e1c09212bfac1d
+ORACLE OK   fixMulQuat  count=25063756  hash=ff696a9b57ac0860
+ORACLE OK   fixNormalizeQuat  count=12563756  hash=5e439ba2ea83daeb
+ORACLE OK   fixRotateVector  count=12563756  hash=64afce887683c703
+ORACLE OK   fixInvRotateVector  count=12563756  hash=a7d02b0685663640
+ORACLE OK   fixNLerp  count=6313756  hash=315cf27e3e31527e
+ORACLE OK   fixInvertMatrix  count=563756  hash=f7c48d2fcea79473
+ORACLE OK   fixSolve3  count=563756  hash=da2489cbf6193bad
+ORACLE OK   fixAABB_Transform  count=2563756  hash=d105925232ba6473
+ORACLE OK   fixQuantize  count=50063756  hash=8100e7c61c94a956
+ORACLE OK   fixDequantize  count=50063756  hash=1be2b75e26b7a4d1
+ORACLE OK   fixMulBatch  count=50063756  hash=de6fc21fb01df7f2
+ORACLE OK   fixDotBatch3  count=50063756  hash=7fb109655c1745da
+ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMulBatch                    scalar      3.8369     4.1365    45.7%     3.8370     4.1340   144.4%    1.001
+fixMulBatch                    batch       1.3878     1.5047    23.9%     1.0517     1.1262   241.2%    1.336
+fixDotBatch3                   scalar      4.6820     4.9335    19.7%     4.6814     4.9547   213.2%    0.996
+fixDotBatch3                   batch       2.5073     2.6419   115.6%     2.4880     2.6265   304.4%    1.006
+# speedup = a_median / b_median; > 1 means the candidate is faster.
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+### cpu_info (after)
+3.73 10.63 10.07 3/1398 3776774
+Average:     CPU    %usr   %nice    %sys %iowait    %irq   %soft  %steal  %guest  %gnice   %idle
+Average:      15    1.00    0.00    0.00    0.00    0.00    0.00    0.00    0.00    0.00   99.00
+Average:      47    0.99    0.00    0.99    0.00    0.00    0.00    0.00    0.00    0.00   98.02
+
+===== run2.sh on vision: 5 A/A and 3 A/B passes per compiler, 15 interleaved repeats each, taskset -c 15, batch ns/element (fixMulBatch)
+##### op_bench_gcc 15:14:58Z load 7.30 10.70 10.11
+AA pass 1
+A n=15 min=1.3592 med=2.5688 spread=61.7%
+A2 n=15 min=1.3601 med=2.5647 spread=85.2%
+AA pass 2
+A n=15 min=1.3464 med=1.3540 spread=13.4%
+A2 n=15 min=1.3482 med=1.3600 spread=17.3%
+AA pass 3
+A n=15 min=1.3498 med=1.3538 spread=17.6%
+A2 n=15 min=1.3513 med=1.3623 spread=31.3%
+AA pass 4
+A n=15 min=1.3456 med=1.3708 spread=22.4%
+A2 n=15 min=1.3449 med=1.3540 spread=3.2%
+AA pass 5
+A n=15 min=1.3507 med=1.3544 spread=18.4%
+A2 n=15 min=1.3508 med=1.3614 spread=194.9%
+AB pass 1 (A=scalar, B=avx2)
+scalar n=15 min=1.3511 med=1.4255 spread=15.9%
+avx2 n=15 min=1.0239 med=1.0752 spread=8.2%
+AB pass 2 (A=scalar, B=avx2)
+scalar n=15 min=2.5637 med=2.5691 spread=1.9%
+avx2 n=15 min=1.9348 med=1.9607 spread=3.1%
+AB pass 3 (A=scalar, B=avx2)
+scalar n=15 min=2.5620 med=2.5701 spread=8.6%
+avx2 n=15 min=1.9302 med=1.9848 spread=15.9%
+##### op_bench_clang 15:15:00Z load 7.30 10.70 10.11
+AA pass 1
+A n=15 min=2.4752 med=2.5126 spread=6.0%
+A2 n=15 min=2.4747 med=2.5142 spread=41.0%
+AA pass 2
+A n=15 min=1.9468 med=2.5176 spread=35.7%
+A2 n=15 min=1.9466 med=2.4791 spread=32.7%
+AA pass 3
+A n=15 min=1.3714 med=1.3823 spread=41.7%
+A2 n=15 min=1.3622 med=1.3885 spread=42.0%
+AA pass 4
+A n=15 min=1.3557 med=1.3713 spread=6.8%
+A2 n=15 min=1.3540 med=1.3751 spread=4.6%
+AA pass 5
+A n=15 min=1.3534 med=1.3721 spread=5.8%
+A2 n=15 min=1.3544 med=1.3887 spread=6.7%
+AB pass 1 (A=scalar, B=avx2)
+scalar n=15 min=1.3535 med=1.3800 spread=3.7%
+avx2 n=15 min=1.0762 med=1.0902 spread=3.8%
+AB pass 2 (A=scalar, B=avx2)
+scalar n=15 min=1.3550 med=1.3803 spread=24.8%
+avx2 n=15 min=1.0750 med=1.0831 spread=3.9%
+AB pass 3 (A=scalar, B=avx2)
+scalar n=15 min=1.3630 med=1.3833 spread=22.8%
+avx2 n=15 min=1.0764 med=1.0833 spread=21.7%
+load after 6.80 10.54 10.06
+
+===== run3.sh CROSS-CHECK on b2 (AVX-512 host, Ryzen 7 255), taskset -c 2
+# cpu_info 2026-10-15T15:36:12Z
+uname: Linux 7.0.0-38-generic x86_64
+cpu_model: AMD Ryzen 7 255 w/ Radeon 780M Graphics
+isa_avx2: yes
+isa_avx512f: yes
+isa_avx512dq: yes
+isa_avx512vl: yes
+isa_avx512ifma: yes
+isa_bmi2: yes
+isa_adx: yes
+isa_fma: yes
+isa_sse4_2: yes
+isa_neon: no
+isa_sme: no
+logical_cpus: 16
+affinity: 0-15
+load_average:0.54 2.78 2.27 1/511 3786360
+benchmarks_running: no
+compiler_cc: cc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+compiler_clang: Ubuntu clang version 21.1.8 (6ubuntu1)
+compiler_gcc: gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+cmake: cmake version 4.2.3
+make: GNU Make 4.4.1
+##### op_bench_gcc 15:15:31Z load 0.65 0.42 0.56
+AA pass 1
+A n=15 min=0.9120 med=0.9140 spread=96.5%
+A2 n=15 min=0.9131 med=0.9353 spread=60.8%
+AA pass 2
+A n=15 min=1.4680 med=1.4767 spread=3.7%
+A2 n=15 min=1.4481 med=1.4735 spread=25.9%
+AA pass 3
+A n=15 min=1.0812 med=1.4663 spread=39.6%
+A2 n=15 min=1.0775 med=1.4783 spread=45.4%
+AA pass 4
+A n=15 min=0.9141 med=1.2661 spread=54.8%
+A2 n=15 min=0.9131 med=1.2742 spread=55.2%
+AA pass 5
+A n=15 min=0.9136 med=0.9152 spread=3.6%
+A2 n=15 min=0.9131 med=0.9152 spread=4.6%
+AB pass 1 (A=scalar, B=avx2)
+scalar n=15 min=0.9127 med=0.9152 spread=7.3%
+avx2 n=15 min=0.3630 med=0.3643 spread=1.0%
+AB pass 2 (A=scalar, B=avx2)
+scalar n=15 min=1.2016 med=1.4764 spread=20.5%
+avx2 n=15 min=0.4374 med=0.4786 spread=13.5%
+AB pass 3 (A=scalar, B=avx2)
+scalar n=15 min=1.4459 med=1.4761 spread=3.2%
+avx2 n=15 min=0.4763 med=0.4779 spread=0.9%
+load after 0.65 0.42 0.56
+
+===== disassembly: fixIsaMulBatchAvx2 (gcc 15.2 -O3 target avx2) and the scalar fixIsaMulBatchScalar
+0000000000000000 <fixIsaMulBatchAvx2>:
+   0:	endbr64
+   4:	cmp    $0x3,%rcx
+   8:	jbe    d1 <fixIsaMulBatchAvx2+0xd1>
+   e:	vmovdqa 0x0(%rip),%ymm6        # 16 <fixIsaMulBatchAvx2+0x16>
+  16:	mov    $0x4,%eax
+  1b:	vmovdqa 0x0(%rip),%ymm5        # 23 <fixIsaMulBatchAvx2+0x23>
+  23:	vpbroadcastq 0x0(%rip),%ymm4        # 2c <fixIsaMulBatchAvx2+0x2c>
+  2c:	vpbroadcastq 0x0(%rip),%ymm3        # 35 <fixIsaMulBatchAvx2+0x35>
+  35:	data16 cs nopw 0x0(%rax,%rax,1)
+  40:	vmovdqu -0x20(%rdx,%rax,8),%ymm8
+  46:	vmovdqu -0x20(%rsi,%rax,8),%ymm2
+  4c:	vpsrlq $0x10,%ymm8,%ymm0
+  52:	vpsrlq $0x20,%ymm2,%ymm1
+  57:	vpand  %ymm4,%ymm8,%ymm8
+  5b:	vpxor  %ymm6,%ymm0,%ymm0
+  5f:	vpaddq %ymm5,%ymm0,%ymm0
+  63:	vpsrlq $0x20,%ymm0,%ymm9
+  68:	vpmuludq %ymm0,%ymm1,%ymm7
+  6c:	vpmuludq %ymm9,%ymm2,%ymm9
+  71:	vpmuludq %ymm0,%ymm2,%ymm0
+  75:	vpmuludq %ymm8,%ymm2,%ymm2
+  7a:	vpmuldq %ymm8,%ymm1,%ymm1
+  7f:	vpaddq %ymm9,%ymm7,%ymm7
+  84:	vpsllq $0x20,%ymm7,%ymm7
+  89:	vpsllq $0x10,%ymm1,%ymm1
+  8e:	vpaddq %ymm3,%ymm2,%ymm2
+  92:	vpsrlq $0x10,%ymm2,%ymm2
+  97:	vpaddq %ymm7,%ymm0,%ymm0
+  9b:	vpaddq %ymm2,%ymm1,%ymm1
+  9f:	vpaddq %ymm0,%ymm1,%ymm1
+  a3:	vmovdqu %ymm1,-0x20(%rdi,%rax,8)
+  a9:	add    $0x4,%rax
+  ad:	cmp    %rax,%rcx
+  b0:	jae    40 <fixIsaMulBatchAvx2+0x40>
+  b2:	lea    -0x4(%rcx),%rax
+  b6:	and    $0xfffffffffffffffc,%rax
+  ba:	add    $0x4,%rax
+  be:	sub    %rax,%rcx
+  c1:	shl    $0x3,%rax
+  c5:	add    %rax,%rdx
+  c8:	add    %rax,%rsi
+  cb:	add    %rax,%rdi
+  ce:	vzeroupper
+  d1:	jmp    d6 <.LC1+0xb6>
+0000000000000000 <fixIsaMulBatchScalar>:
+   0:	endbr64
+   4:	mov    %rsi,%r8
+   7:	mov    %rdx,%r9
+   a:	mov    %rcx,%rsi
+   d:	test   %rcx,%rcx
+  10:	je     64 <fixIsaMulBatchScalar+0x64>
+  12:	xor    %ecx,%ecx
+  14:	data16 cs nopw 0x0(%rax,%rax,1)
+  1f:	data16 cs nopw 0x0(%rax,%rax,1)
+  2a:	data16 cs nopw 0x0(%rax,%rax,1)
+  35:	data16 cs nopw 0x0(%rax,%rax,1)
+  40:	mov    (%r8,%rcx,8),%rax
+  44:	imulq  (%r9,%rcx,8)
+  48:	add    $0x8000,%rax
+  4e:	adc    $0x0,%rdx
+  52:	shrd   $0x10,%rdx,%rax
+  57:	mov    %rax,(%rdi,%rcx,8)
+  5b:	add    $0x1,%rcx
+  5f:	cmp    %rcx,%rsi
+  62:	jne    40 <fixIsaMulBatchScalar+0x40>
+  64:	ret
+  65:	data16 cs nopw 0x0(%rax,%rax,1)
+
+
+===== llvm-mca-21 predictions
+vmovdqu -0x20(%rdx,%rax,8),%ymm8
+vmovdqu -0x20(%rsi,%rax,8),%ymm2
+vpsrlq $0x10,%ymm8,%ymm0
+=== znver1 avx2 loop (4 lanes/iter)
+Iterations:        1000
+Instructions:      24000
+Total Cycles:      12017
+Total uOps:        43000
+
+Dispatch Width:    4
+uOps Per Cycle:    3.58
+IPC:               2.00
+Block RThroughput: 12.0
+
+
+Instruction Info:
+Resource pressure per iteration:
+[0]    [1]    [2]    [3]    [4]    [5]    [6]    [7]    [8]    [9]    [10]   [11]   
+1.50   1.50   0.50   0.50   0.50   0.50    -     11.99  7.00   12.00  7.01    -     
+
+=== znver1 scalar loop (1 lane/iter)
+Iterations:        1000
+Instructions:      8000
+Total Cycles:      2348
+Total uOps:        9000
+
+Dispatch Width:    4
+uOps Per Cycle:    3.83
+IPC:               3.41
+Block RThroughput: 2.3
+
+
+Instruction Info:
+=== znver4 avx2 loop (4 lanes/iter)
+Iterations:        1000
+Instructions:      24000
+Total Cycles:      4769
+Total uOps:        24000
+
+Dispatch Width:    6
+uOps Per Cycle:    5.03
+IPC:               5.03
+Block RThroughput: 4.0
+
+
+Instruction Info:
+Resource pressure per iteration:
+[0]    [1]    [2]    [3]    [4]    [5]    [6]    [7]    [8]    [9]    [10]   [11]   [12.0] [12.1] [13]   [14.0] [14.1] [14.2] [15.0] [15.1] [15.2] [16.0] [16.1] 
+ -      -      -     0.50   0.50   0.50   0.50    -     4.75   4.75   4.75   4.75   1.50   1.50   1.00   1.00   1.00   1.00   0.67   0.67   0.67   0.50   0.50   
+
+=== znver4 scalar loop (1 lane/iter)
+Iterations:        1000
+Instructions:      8000
+Total Cycles:      5086
+Total uOps:        12000
+
+Dispatch Width:    6
+uOps Per Cycle:    2.36
+IPC:               1.57
+Block RThroughput: 3.0
+
+
+Instruction Info:

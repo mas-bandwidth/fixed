@@ -1,0 +1,145 @@
+diff --git a/include/fixed/fixed.h b/include/fixed/fixed.h
+index a76db23..9a68413 100644
+--- a/include/fixed/fixed.h
++++ b/include/fixed/fixed.h
+@@ -197,8 +197,40 @@ FIX_ALWAYS_INLINE fixInt128 fixInt128Div( fixInt128 a, fixInt128 b )
+ /// compiling fixed3d's 83 optimized objects each way and finding them byte-identical.
+ /// The saturation tail deliberately stays on the seam: it is off by default, cold when
+ /// on, and duplicating it would buy nothing.
++// Leading zero count of a 64-bit value, for the fixMul fast-path gate. gcc and clang
++// have __builtin_clzll (one instruction on arm64 and x86-64); plain MSVC has
++// _BitScanReverse64 (declared in <intrin.h>, already pulled in by fixed_int128.h on the
++// x64/arm64 targets this library supports). clz(0) is 64 on every arm, which is what
++// makes the gate total.
++FIX_ALWAYS_INLINE int fixClz64( uint64_t x )
++{
++#if defined( _MSC_VER ) && !defined( __clang__ )
++	unsigned long index;
++	if ( x == 0 ) return 64;
++	_BitScanReverse64( &index, x );
++	return 63 - (int)index;
++#else
++	return x == 0 ? 64 : __builtin_clzll( x );
++#endif
++}
++
+ FIX_ALWAYS_INLINE fixed_t fixMul( fixed_t a, fixed_t b )
+ {
++	// Fast path: when |a|*|b| + 2^15 < 2^63 the product and the rounding add fit in
++	// 64 bits, so a single 64-bit multiply, add and shift is bit-identical to the
++	// 128-bit widening multiply below. clz(|a|) + clz(|b|) >= 65 proves it: the sum of
++	// leading zeros bounds |a|*|b| by 2^(128 - 65) = 2^63, and the tightest case (both
++	// operands just under a power of two) leaves |a|*|b| <= 2^63 - 3*2^31 + 1, safely
++	// below 2^63 - 2^15. On arm64 this replaces MUL + SMULH with one MUL; on x86-64
++	// imul already writes rdx:rax, so the branch is a wash there. The unsigned round
++	// trip keeps the add defined, exactly as the 128-bit spelling below does.
++	uint64_t ua = a < 0 ? -(uint64_t)a : (uint64_t)a;
++	uint64_t ub = b < 0 ? -(uint64_t)b : (uint64_t)b;
++	if ( fixClz64( ua ) + fixClz64( ub ) >= 65 )
++	{
++		return (fixed_t)( (int64_t)( (uint64_t)( a * b ) + (uint64_t)FIX_HALF ) >> FIX_FRACTION_BITS );
++	}
++
+ 	// Round half up, then shift out the fraction bits (arithmetic shift)
+ #if FIX_INT128_EMULATED
+ 	fixInt128 product = fixInt128MulI64( a, b );
+diff --git a/test/exhaustive_test.c b/test/exhaustive_test.c
+index 412dedc..74e5753 100644
+--- a/test/exhaustive_test.c
++++ b/test/exhaustive_test.c
+@@ -309,7 +309,94 @@ int main( void )
+ 		CHECK( FIX_PI == FIX( 3.14159265359f ) );
+ 	}
+ 
+-	printf( "exhaustive sweep hash = 0x%016llx\n", (unsigned long long)fnv );
++	// ---- I. FixMulFits64ExhaustiveTest: the fixMul fast-path gate is bit-identical ----
++	// The fixMul fast path (clz(|a|) + clz(|b|) >= 65) must produce the same bits as the
++	// 128-bit widening multiply for every input, including the gate boundary. This holds
++	// the new arm against the compiler's own __int128 reference (not the library's seam),
++	// over the full structured grid, 100 million seeded pairs, and the gate-boundary
++	// products. No clock: work is counted, never timed.
++#if HAS_NATIVE_INT128
++	{
++		// 1. the full structured grid: every pair of {0, +-1, +-2^k, +-(2^k-1)} for
++		//    k in 0..63, plus INT64_MIN and INT64_MAX.
++		{
++			int64_t grid[4 * 64 + 8];
++			int gn = 0;
++			grid[gn++] = 0;
++			grid[gn++] = 1;
++			grid[gn++] = -1;
++			for ( int k = 0; k <= 63; ++k )
++			{
++				int64_t p = (int64_t)( (uint64_t)1 << k );
++				grid[gn++] = p;
++				grid[gn++] = -p;
++				grid[gn++] = p - 1;
++				grid[gn++] = -( p - 1 );
++			}
++			grid[gn++] = INT64_MIN;
++			grid[gn++] = INT64_MAX;
++			for ( int i = 0; i < gn; ++i )
++			{
++				for ( int j = 0; j < gn; ++j )
++				{
++					fixed_t a = grid[i], b = grid[j];
++					fixed_t got = fixMul( a, b );
++					fixed_t ref = (fixed_t)( ( (refInt128)a * b + FIX_HALF ) >> FIX_FRACTION_BITS );
++					CHECK( got == ref );
++				}
++			}
++		}
++
++		// 2. 100 million seeded pairs (LCG, deterministic; the first differing input is
++		//    printed, then the count is checked once so a bug cannot flood the log).
++		{
++			uint64_t s = 0x9E3779B97F4A7C15ULL;
++			int mismatches = 0;
++			for ( int i = 0; i < 100000000; ++i )
++			{
++				s = s * 6364136223846793005ULL + 1442695040888963407ULL;
++				fixed_t a = (fixed_t)(int64_t)s;
++				s = s * 6364136223846793005ULL + 1442695040888963407ULL;
++				fixed_t b = (fixed_t)(int64_t)s;
++				fixed_t got = fixMul( a, b );
++				fixed_t ref = (fixed_t)( ( (refInt128)a * b + FIX_HALF ) >> FIX_FRACTION_BITS );
++				if ( got != ref )
++				{
++					if ( mismatches == 0 )
++						printf( "FAIL %s:%d: fixMul(%lld, %lld) = %lld, ref %lld\n", __FILE__, __LINE__,
++								( long long )a, ( long long )b, ( long long )got, ( long long )ref );
++					mismatches++;
++				}
++			}
++			CHECK( mismatches == 0 );
++		}
++
++		// 3. the gate boundary: products 2^62, 2^63 - 2^15 - 1, 2^63 - 2^15, and negatives.
++		{
++			int64_t bp[] = { (int64_t)( (uint64_t)1 << 62 ),
++							 (int64_t)( ( (uint64_t)1 << 63 ) - (uint64_t)FIX_HALF - 1 ),
++							 (int64_t)( ( (uint64_t)1 << 63 ) - (uint64_t)FIX_HALF ) };
++			for ( int i = 0; i < 3; ++i )
++			{
++				int64_t P = bp[i];
++				int64_t as[] = { 1, -1, P, -P, 2, -2, P / 2, -( P / 2 ) };
++				int64_t bs[] = { P, -P, 1, -1, P / 2, -( P / 2 ), 2, -2 };
++				for ( int x = 0; x < 8; ++x )
++				{
++					for ( int y = 0; y < 8; ++y )
++					{
++						fixed_t a = as[x], b = bs[y];
++						fixed_t got = fixMul( a, b );
++						fixed_t ref = (fixed_t)( ( (refInt128)a * b + FIX_HALF ) >> FIX_FRACTION_BITS );
++						CHECK( got == ref );
++					}
++				}
++			}
++		}
++	}
++#endif
++
++printf( "exhaustive sweep hash = 0x%016llx\n", (unsigned long long)fnv );
+ #if EXPECTED_SWEEP_HASH != 0
+ 	CHECK( fnv == (uint64_t)EXPECTED_SWEEP_HASH );
+ #else

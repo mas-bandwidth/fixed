@@ -1,0 +1,110 @@
+# cpu_info 2026-10-15T02:27:57Z
+uname: Linux 7.0.0-38-generic x86_64
+cpu_model: AMD Ryzen 7 255 w/ Radeon 780M Graphics
+isa_avx2: yes
+isa_avx512f: yes
+isa_avx512dq: yes
+isa_avx512vl: yes
+isa_avx512ifma: yes
+isa_bmi2: yes
+isa_adx: yes
+isa_fma: yes
+isa_sse4_2: yes
+isa_neon: no
+isa_sme: no
+logical_cpus: 16
+affinity: 0-15
+load_average:0.77 0.85 0.78 1/556 2177913
+benchmarks_running: no
+compiler_cc: cc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+compiler_clang: Ubuntu clang version 21.1.8 (6ubuntu1)
+compiler_gcc: gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+cmake: cmake version 4.2.3
+make: GNU Make 4.4.1
+
+# ===== native A/B (ab.sh, cc -O3 -g -DNDEBUG -ffp-contract=off, 7 repeats, 200000 iters) =====
+# ab.sh 2026-10-15T02:22:10Z
+# compiler: cc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+# flags: -O3 -g -DNDEBUG -ffp-contract=off
+# repeats: 7  iterations: 200000
+# # cpu_info 2026-10-15T02:22:10Z
+# uname: Linux 7.0.0-38-generic x86_64
+# cpu_model: AMD Ryzen 7 255 w/ Radeon 780M Graphics
+# isa_avx2: yes
+# isa_avx512f: yes
+# isa_avx512dq: yes
+# isa_avx512vl: yes
+# isa_avx512ifma: yes
+# isa_bmi2: yes
+# isa_adx: yes
+# isa_fma: yes
+# isa_sse4_2: yes
+# isa_neon: no
+# isa_sme: no
+# logical_cpus: 16
+# affinity: 0-15
+# load_average:1.34 1.10 0.78 1/560 2174203
+# benchmarks_running: no
+# compiler_cc: cc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+# compiler_clang: Ubuntu clang version 21.1.8 (6ubuntu1)
+# compiler_gcc: gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+# cmake: cmake version 4.2.3
+# make: GNU Make 4.4.1
+# oracle_check compiled against .:
+ORACLE OK   fixMul  count=50063756  hash=eb1995a6b21bf036
+ORACLE OK   fixDiv_below2p47  count=50063756  hash=9519544a71a6aee9
+ORACLE OK   fixDiv_above2p47  count=12563756  hash=679bdcc4e27fd523
+ORACLE OK   fixSqrt_small  count=50000252  hash=0a01c17d8970c8c5
+ORACLE OK   fixSqrt_raw_below2p32  count=4344967548  hash=e8cd953f7d9cb442
+ORACLE OK   fixISqrt128High_u64  count=50063756  hash=3f2bde37bd6f7cb0
+ORACLE OK   fixISqrt128High_above104bits  count=2563756  hash=0c9fdfcdcf937183
+ORACLE OK   fixComputeCosSin  count=50823803  hash=75d77c6260933da6
+ORACLE OK   fixSin  count=50823803  hash=ea6b89849492e203
+ORACLE OK   fixCos  count=50823803  hash=92884abbd0d0dfc4
+ORACLE OK   fixAtan2  count=6313756  hash=e783be1aa18a9e6c
+ORACLE OK   fixLog2  count=9395980  hash=7d1ccc520e783eca
+ORACLE OK   fixExp2  count=9395980  hash=a1d52ff7b1ceef98
+ORACLE OK   fixPow  count=2563756  hash=55410e05742068c7
+ORACLE OK   fixLerp  count=50063756  hash=3c3983b96260d159
+ORACLE OK   fixInt128Div  count=2563756  hash=65e492d721fcd5f6
+ORACLE OK   fixUInt256DivMod  count=563756  hash=d6c2bda0c1986a82
+ORACLE OK   fixDot  count=50063756  hash=4392264c082fde77
+ORACLE OK   fixCross  count=50063756  hash=5a5555238d655a2c
+ORACLE OK   fixLength  count=25063756  hash=785da375992b2c05
+ORACLE OK   fixNormalize  count=12563756  hash=44e1c09212bfac1d
+ORACLE OK   fixMulQuat  count=25063756  hash=ff696a9b57ac0860
+ORACLE OK   fixNormalizeQuat  count=12563756  hash=5e439ba2ea83daeb
+ORACLE OK   fixRotateVector  count=12563756  hash=64afce887683c703
+ORACLE OK   fixInvRotateVector  count=12563756  hash=a7d02b0685663640
+ORACLE OK   fixNLerp  count=6313756  hash=315cf27e3e31527e
+ORACLE OK   fixInvertMatrix  count=563756  hash=f7c48d2fcea79473
+ORACLE OK   fixSolve3  count=563756  hash=da2489cbf6193bad
+ORACLE OK   fixAABB_Transform  count=2563756  hash=d105925232ba6473
+ORACLE OK   fixQuantize  count=50063756  hash=f27ed579335213a8
+ORACLE OK   fixDequantize  count=50063756  hash=1be2b75e26b7a4d1
+ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMul                         scalar      1.4965     1.6652    77.8%     3.8928     3.9190     9.7%    0.425
+fixMul                         batch       1.2188     1.2377   124.9%     2.6299     2.6795   147.4%    0.462
+fixDot                         scalar      2.0614     2.0871    25.5%     2.0614     2.0664     1.9%    1.010
+fixDot                         batch       1.8264     2.2280    57.9%     1.8360     2.2211    20.9%    1.003
+fixCross                       scalar      4.6679     4.6726     5.4%     4.2641     4.2706     1.7%    1.094
+fixCross                       batch       7.6168     7.7016    65.5%     8.8754     9.1635    53.5%    0.840
+fixRotateVector                scalar     12.1739    12.2046    16.7%    21.6726    21.9033    10.9%    0.557
+fixRotateVector                batch      12.5944    12.7347    36.5%    13.6246    14.9446    18.9%    0.852
+# speedup = a_median / b_median; > 1 means the candidate is faster.
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+
+# ===== emulated A/B (FIX_FORCE_EMULATED_INT128) =====
+# emulated A/B (FIX_FORCE_EMULATED_INT128), 7 interleaved repeats, 200000 iters
+# speedup = a_median / b_median; > 1 means candidate faster
+op mode a_min a_med a_spread b_min b_med b_spread speedup
+fixMul scalar 3.5086 3.5319 101.0% 5.9771 5.9840 1.1% 0.590
+fixMul batch 2.8364 2.8729 114.7% 3.7028 3.7175 4.5% 0.773
+fixDot scalar 6.6958 6.8372 48.9% 6.6972 6.7211 4.6% 1.017
+fixDot batch 6.9103 6.9367 2.4% 6.9290 6.9649 40.7% 0.996
+fixCross scalar 51.3797 52.0945 29.2% 18.6949 18.7632 1.9% 2.776
+fixCross batch 49.9159 50.7823 25.3% 20.0312 20.0701 16.6% 2.530
+fixRotateVector scalar 129.9687 130.1542 2.3% 112.0840 112.3528 3.5% 1.158
+fixRotateVector batch 128.0640 129.7684 2.1% 82.8285 84.7945 10.4% 1.530
+

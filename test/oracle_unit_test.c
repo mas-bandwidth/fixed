@@ -73,6 +73,8 @@ static const struct
 	{ "fixAABB_Transform", UINT64_C( 0xe49b93d186894fd4 ) },
 	{ "fixQuantize", UINT64_C( 0x22e364f7b025cf17 ) },
 	{ "fixDequantize", UINT64_C( 0x99e81db2278ac2fd ) },
+	{ "fixMulBatch", UINT64_C( 0xf74d919d55ad89c8 ) },
+	{ "fixDotBatch3", UINT64_C( 0xa967efd82587b494 ) },
 };
 
 static int fails = 0;

@@ -18,8 +18,19 @@
 # non-zero. It never kills anything: a number measured next to another benchmark is not a
 # number, and the process belongs to whoever started it.
 #
+# ONE BINARY, TWO VARIANTS. The batch kernels are chosen at run time (include/fixed/fixed_isa.h),
+# so the A/B of an instruction-set variant is the SAME tree run under two FIXED_ISA values:
+#
+#   AB_ISA_A=scalar AB_ISA_B=avx512 benchmark/ab.sh . . fixMulBatch fixDotBatch3
+#
+# FIXED_ISA itself passes through to every binary when the AB_ISA_* pair is not set, so
+# FIXED_ISA=scalar benchmark/ab.sh base cand pins both trees to one variant. The oracle runs
+# under side B's variant, and each side's selected variant is printed in the header.
+#
 # Environment:
 #   AB_REPEATS   repeats per tree (default 7)
+#   AB_ISA_A     FIXED_ISA for side A (default: FIXED_ISA, else the detected best)
+#   AB_ISA_B     FIXED_ISA for side B (default: FIXED_ISA, else the detected best)
 #   AB_ITERS     iterations per repeat (default 200000)
 #   CC           compiler (default cc)
 set -eu
@@ -38,6 +49,8 @@ OPS=$*
 REPEATS=${AB_REPEATS:-7}
 ITERS=${AB_ITERS:-200000}
 CC=${CC:-cc}
+ISA_A=${AB_ISA_A:-${FIXED_ISA:-}}
+ISA_B=${AB_ISA_B:-${FIXED_ISA:-}}
 FLAGS="-O3 -g -DNDEBUG -ffp-contract=off"
 
 for d in "$BASE_DIR" "$CAND_DIR"; do
@@ -69,8 +82,9 @@ build() {
     dir=$1
     out=$2
     # shellcheck disable=SC2086
-    $CC $FLAGS -I "$dir/include" benchmark/op_bench.c "$dir/src/fixed_math.c" "$dir/src/fixed_vec.c" \
-        -lm -o "$out"
+    # Every source in the tree's src/: a tree with the ISA dispatch carries its variant TUs
+    # there, and an older tree simply has fewer files. No -m flag: variants select at run time.
+    $CC $FLAGS -I "$dir/include" benchmark/op_bench.c "$dir"/src/*.c -lm -o "$out"
 }
 
 build "$BASE_DIR" "$WORK/bench-a"
@@ -83,17 +97,30 @@ build_oracle() {
     out=$2
     # shellcheck disable=SC2086
     $CC $FLAGS -I "$dir/include" benchmark/oracle_check.c "$dir/benchmark/oracle.c" \
-        "$dir/src/fixed_math.c" "$dir/src/fixed_vec.c" -lm -o "$out" || return 1
+        "$dir"/src/*.c -lm -o "$out" || return 1
+}
+
+# run_side <isa> <binary> <args...>: FIXED_ISA set for that side only, or unset.
+run_side() {
+    isa=$1
+    shift
+    if [ -n "$isa" ]; then FIXED_ISA=$isa "$@"; else env -u FIXED_ISA "$@"; fi
 }
 
 i=1
 while [ "$i" -le "$REPEATS" ]; do
     # shellcheck disable=SC2086
-    "$WORK/bench-a" 1 "$ITERS" $OPS > "$WORK/a-$i.csv"
+    run_side "$ISA_A" "$WORK/bench-a" 1 "$ITERS" $OPS > "$WORK/a-$i.csv"
     # shellcheck disable=SC2086
-    "$WORK/bench-b" 1 "$ITERS" $OPS > "$WORK/b-$i.csv"
+    run_side "$ISA_B" "$WORK/bench-b" 1 "$ITERS" $OPS > "$WORK/b-$i.csv"
     i=$((i + 1))
 done
+isa_line() {
+    l=$(sed -n 's/^# isa: //p' "$1")
+    echo "${l:-none (no ISA dispatch in this tree)}"
+}
+echo "# side A ($BASE_DIR) isa: $(isa_line "$WORK/a-1.csv")"
+echo "# side B ($CAND_DIR) isa: $(isa_line "$WORK/b-1.csv")"
 
 # The candidate must also be bit-identical: a faster tree that moved an output is a FAIL,
 # not a speedup. This binary is the one just compiled against $CAND_DIR.
@@ -102,7 +129,8 @@ if ! build_oracle "$CAND_DIR" "$WORK/oracle_check"; then
     echo "ab.sh: cannot build oracle_check against $CAND_DIR" >&2
     exit 1
 fi
-"$WORK/oracle_check" || { echo "ab.sh: candidate FAILED the output oracle; the table below is moot" >&2; exit 1; }
+echo "# oracle FIXED_ISA=${ISA_B:-<detected>}"
+run_side "$ISA_B" "$WORK/oracle_check" || { echo "ab.sh: candidate FAILED the output oracle; the table below is moot" >&2; exit 1; }
 
 awk -v reps="$REPEATS" -v work="$WORK" '
 function median(a, n,   b, i, j, t) {
@@ -114,6 +142,7 @@ BEGIN {
     FS = ","
     for (r = 1; r <= reps; r++) {
         while ((getline line < (work "/a-" r ".csv")) > 0) {
+            if (substr(line, 1, 1) == "#") continue
             n = split(line, f, ",")
             if (f[1] == "op") continue
             key = f[1] "," f[2]
@@ -124,6 +153,7 @@ BEGIN {
         }
         close(work "/a-" r ".csv")
         while ((getline line < (work "/b-" r ".csv")) > 0) {
+            if (substr(line, 1, 1) == "#") continue
             n = split(line, f, ",")
             if (f[1] == "op") continue
             key = f[1] "," f[2]

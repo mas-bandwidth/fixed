@@ -408,6 +408,18 @@ path preserves the existing rounding; it need not be bit-identical to `fixNormal
 A length beyond the scalar range saturates to `FIX_MAX`; the direction still normalizes
 correctly.
 
+Batch forms over structure-of-arrays inputs, for when there are many independent lanes:
+
+```c
+fixMulBatch( out, a, b, n );                        // out[i] = fixMul( a[i], b[i] )
+fixDotBatch3( out, ax, ay, az, bx, by, bz, n );     // out[i] = fixDot( a_i, b_i ), one rounding
+```
+
+Pointers may be unaligned and `n` may be anything, including zero. Each returns exactly the
+bits of the scalar operation, on every lane, whichever instruction-set variant ran it (see
+"Runtime ISA dispatch" below). Under `FIX_SATURATE` they run the saturating scalar
+operations.
+
 The `fix`/`fixVec` distinction is deliberate and load-bearing: `fixMin` is scalar,
 `fixVecMin` is componentwise. In fixed3d these were `b3FixMin` and `b3Min`, a one-token
 difference for two different operations.
@@ -729,6 +741,47 @@ just of this library:
   does this for you)
 - quantize on the authority, once
 
+## Runtime ISA dispatch
+
+The batch kernels (`fixMulBatch`, `fixDotBatch3`) have one variant per instruction set,
+all compiled into the one library, and the best one the host can run is chosen at start-up.
+There is no build per instruction set and no `-m` or `-march` flag to pass: the variant
+translation units (`src/fixed_isa_avx512.c`) carry per-function target attributes, so the
+rest of the library stays baseline code and runs on every CPU of its architecture.
+
+| variant | compiled on | needs (detected) |
+|---|---|---|
+| `scalar` | everywhere | nothing |
+| `avx512` | x86-64, not `FIX_SATURATE` | AVX-512F, AVX-512DQ, and the OS saving zmm state (XCR0) |
+| `avx2`, `avx512ifma`, `neon`, `sme2` | reserved names, not compiled yet | |
+
+```c
+#include "fixed/fixed_isa.h"
+fixIsaName();                  // "avx512", "scalar", ...
+fixForceIsa( "scalar" );       // FIX_ISA_OK, or the reason it was refused
+```
+
+`FIXED_ISA=scalar|avx2|avx512|avx512ifma|neon|sme2` in the environment forces a variant
+at start-up the same way. A name that is unknown, not compiled into this build, or whose
+facts this host lacks is **refused by name, never silently replaced**: `fixForceIsa`
+returns the reason and leaves the selection alone, and a refused `FIXED_ISA` prints the
+reason and aborts, so an A/B run can never measure a variant other than the one it asked
+for. Every variant is held to scalar's bits by `test/isa_dispatch_test.c` (each variant
+the host can run, on the frozen batch oracle rows and 100 million seeded lanes) and by the
+output oracle run under each `FIXED_ISA`.
+
+**Why there is no state machine to model.** Detection is a pure function of words the CPU
+and OS report (cpuid and XGETBV, `getauxval`, `sysctlbyname`), run exactly once by a
+static constructor before `main`, single-threaded, and it writes the kernel table once.
+It is not lazy: no batch call ever detects, so two threads making the first batch call
+cannot race on initialization, and the table starts on the scalar kernels, so even a call
+from another static constructor that runs earlier is correct. After that the table is
+written only by `fixForceIsa`, which is a setup call with the same contract as `setlocale`
+(make it before threads are making batch calls). Within that contract there are no
+transitions left to interleave: one write before any reader, then reads only. If detection
+ever becomes lazy, or the override becomes callable concurrently with batch calls, that is
+a state machine and needs a TLA+ model before the change lands.
+
 ---
 
 ## Consumer hooks
@@ -758,7 +811,7 @@ Build-time switches:
 
 | macro | effect |
 |---|---|
-| `FIX_SATURATE` | `fixMul` and `fixFromDotRaw` saturate on overflow instead of wrapping |
+| `FIX_SATURATE` | `fixMul` and `fixFromDotRaw` saturate on overflow instead of wrapping; the batch kernels compile scalar only |
 | `FIX_FORCE_EMULATED_INT128` | use the emulated 128-bit pair even where `__int128` exists |
 | `NDEBUG` | as usual — **without it, `FIX_ASSERT` compiles into hot math**, including `fixVecLerp`, `fixMakeQuatFromAxisAngle`, `fixNarrow` and `fixWiden` |
 
@@ -776,4 +829,5 @@ Build-time switches:
 | `fixed/fixed_wide.h` | Q112.16 scalars, wide positions, wide transforms and boxes |
 | `fixed/fixed_time.h` | Q32.32 time |
 | `fixed/fixed_quantize.h` | arbitrary-scale conversion and Q-format crossing |
+| `fixed/fixed_isa.h` | runtime ISA dispatch: the selected variant, `fixForceIsa`, the detection parsers |
 | `fixed/base.h` | the overridable macro set |

@@ -381,6 +381,25 @@ static void fillScalar2( fixOracleInput* in, uint64_t index, fixOracleRng* rng )
 	in->s[1] = ( int64_t )oracleRngNext( rng );
 }
 static void applyMul( const fixOracleInput* in, fixOracleOutput* out ) { ORACLE_OUT1( out, fixMul( in->s[0], in->s[1] ) ); }
+// THE BATCH ROWS run each input through the batch API in ORACLE_BATCH_LANES identical lanes,
+// so the vector body of whichever variant the dispatch selected (FIXED_ISA) is what is
+// hashed, not only its scalar tail. Any lane that disagrees with lane 0 is folded into the
+// output, so a lane-dependent bug moves the hash. With every lane equal the output is the
+// scalar result, and the frozen rows were written from the scalar variant.
+#define ORACLE_BATCH_LANES 16
+static fixed_t oracleBatchFold( const fixed_t* lanes )
+{
+	uint64_t diff = 0;
+	for ( int k = 1; k < ORACLE_BATCH_LANES; ++k ) diff |= ( uint64_t )lanes[k] ^ ( uint64_t )lanes[0];
+	return ( fixed_t )( ( uint64_t )lanes[0] ^ diff );
+}
+static void applyMulBatch( const fixOracleInput* in, fixOracleOutput* out )
+{
+	fixed_t a[ORACLE_BATCH_LANES], b[ORACLE_BATCH_LANES], r[ORACLE_BATCH_LANES];
+	for ( int k = 0; k < ORACLE_BATCH_LANES; ++k ) a[k] = in->s[0], b[k] = in->s[1];
+	fixMulBatch( r, a, b, ORACLE_BATCH_LANES );
+	ORACLE_OUT1( out, oracleBatchFold( r ) );
+}
 // fixAbs(INT64_MIN) is undefined. On x86-64 it wraps, the following min/max treats the
 // still-negative value as a zero divisor, and the native 128-bit divide traps (SIGFPE).
 // The emulated arm returns instead of trapping, so the same input is not one result.
@@ -512,6 +531,14 @@ static void fillVec3x2( fixOracleInput* in, uint64_t index, fixOracleRng* rng )
 static void applyDot( const fixOracleInput* in, fixOracleOutput* out )
 {
 	ORACLE_OUT1( out, fixDot( oracleVec( in->s[0], in->s[1], in->s[2] ), oracleVec( in->s[3], in->s[4], in->s[5] ) ) );
+}
+static void applyDotBatch3( const fixOracleInput* in, fixOracleOutput* out )
+{
+	fixed_t v[6][ORACLE_BATCH_LANES], r[ORACLE_BATCH_LANES];
+	for ( int j = 0; j < 6; ++j )
+		for ( int k = 0; k < ORACLE_BATCH_LANES; ++k ) v[j][k] = in->s[j];
+	fixDotBatch3( r, v[0], v[1], v[2], v[3], v[4], v[5], ORACLE_BATCH_LANES );
+	ORACLE_OUT1( out, oracleBatchFold( r ) );
 }
 static void applyCross( const fixOracleInput* in, fixOracleOutput* out )
 {
@@ -737,6 +764,8 @@ static const fixOracleOp oracleOps[] = {
 	{ "fixAABB_Transform", 13, 20, 0, fillAABBTransform, applyAABBTransform },
 	{ "fixQuantize", 2, 1, 0, fillQuantizeInDomain, applyQuantize },
 	{ "fixDequantize", 2, 1, 0, fillQuantize, applyDequantize },
+	{ "fixMulBatch", 2, 1, 0, fillScalar2, applyMulBatch },
+	{ "fixDotBatch3", 6, 1, 0, fillVec3x2, applyDotBatch3 },
 };
 
 #define FIX_ORACLE_OP_COUNT ( int )( sizeof oracleOps / sizeof oracleOps[0] )

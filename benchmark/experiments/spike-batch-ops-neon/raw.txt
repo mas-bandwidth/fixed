@@ -1,65 +1,462 @@
-spike-batch-ops-neon.w2 -- raw output
-=====================================
+# spike-batch-ops-neon w10 raw output. Host: studio.local (Apple M3 Ultra, 24P+8E), macOS 27.2, SHARED LOADED MACHINE
+# (hosts the sprint server, bus, Redis, Postgres, swarm members). Owner override 2026-10-15 11:30Z: run here, width 1.
+# BASE = origin/sprint/fixed-perf ac247f7137eb4756eb00eeecead00b163d639627; candidate = BASE + experiment.patch (git apply --check on BASE: clean).
 
-THE HEAD THIS EFFORT IS ABOUT, AND WHERE IT RAN:
-  repo:  mas-bandwidth/fixed  sha=eb059e62ca5f (staged tip c4f45106c65395625cb0dbc6e83b4c689d3eace2)
-  tier:  heavy
-  box:   x86-64 Linux, AMD Ryzen 7 PRO 8700GE -- isa_neon: no (see cpu_info below)
-  NOTE:  this is a NEON (arm64) spike dispatched to an x86-64 node. The NEON path could
-         not be executed or measured here, and no arm64 box was reachable from this job.
+## ISA (sysctl, read-only)
+hw.optional.neon: 1
+hw.optional.arm.FEAT_SME: 0
+hw.optional.arm.FEAT_SME2: 0
+hw.optional.arm.FEAT_I8MM: 1
+hw.optional.arm.FEAT_FP16: 1
+machdep.cpu.brand_string: Apple M3 Ultra
+## cpu_info.sh
+# cpu_info 2026-10-15T12:07:17Z
+uname: Darwin 27.2.0 arm64
+cpu_model: Apple M3 Ultra
+logical_cpus: 32
+isa_neon: unknown
+isa_fp16: unknown
+isa_i8mm: unknown
+isa_sme: unknown
+isa_sme2: unknown
+affinity: taskset unavailable
+load_average:{ 16.91 15.11 14.23 }
+benchmarks_running: YES
+  52107
+compiler_cc: Apple clang version 21.0.0 (clang-2100.3.34.2)
+compiler_clang: Apple clang version 21.0.0 (clang-2100.3.34.2)
+compiler_gcc: Apple clang version 21.0.0 (clang-2100.3.34.2)
+cmake: cmake version 4.4.4
+make: GNU Make 3.81
 
-cpu_info.sh (full header):
-# cpu_info 2026-10-15T02:11:35Z
-uname: Linux 6.8.0-139-generic x86_64
-cpu_model: AMD Ryzen 7 PRO 8700GE w/ Radeon 780M Graphics
-isa_avx2: yes
-isa_avx512f: yes
-isa_avx512dq: yes
-isa_avx512vl: yes
-isa_avx512ifma: yes
-isa_bmi2: yes
-isa_adx: yes
-isa_fma: yes
-isa_sse4_2: yes
-isa_neon: no
-isa_sme: no
-logical_cpus: 16
-affinity: 0-15
-load_average:0.39 0.54 1.08 1/559 2130391
-benchmarks_running: no
-compiler_cc: cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
-compiler_clang: Ubuntu clang version 18.1.3 (1ubuntu1)
-compiler_gcc: gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
-cmake: cmake version 3.28.3
-make: GNU Make 4.3
+## RED FIRST: candidate test/exhaustive_test.c on unchanged BASE ac247f7137eb4756eb00eeecead00b163d639627, 2026-10-15T11:51:09Z
+    Start  4: exhaustive
+1/2 Test  #4: exhaustive .......................***Failed    0.02 sec
+FAIL /Volumes/nova/ai/rowan/working/tmp/neon-w10/base/test/exhaustive_test.c:154: NeonBatchEquivalenceTest: no batch API (fixMulBatch, fixDotBatch3, ...) on aarch64
+exhaustive sweep hash = 0x5a4aac80ad1b6c5d
+FAILED: 1 check(s)
+    Start 26: exhaustive_emulated
+2/2 Test #26: exhaustive_emulated ..............***Failed    0.03 sec
+FAIL /Volumes/nova/ai/rowan/working/tmp/neon-w10/base/test/exhaustive_test.c:154: NeonBatchEquivalenceTest: no batch API (fixMulBatch, fixDotBatch3, ...) on aarch64
+exhaustive sweep hash = 0x5a4aac80ad1b6c5d
+FAILED: 1 check(s)
+0% tests passed, 2 tests failed out of 2
+The following tests FAILED:
+	  4 - exhaustive (Failed)
+	 26 - exhaustive_emulated (Failed)
 
-BASELINE SUITE (x86-64, before any change -- this node's only executable evidence):
-  configure: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DFIX_BUILD_BENCHMARKS=ON
-  build:     cmake --build build --parallel 2
-  ctest --test-dir build --output-on-failure:
-     100% tests passed, 0 tests failed out of 36
-     (the NeonBatchEquivalenceTest is not among these: it is registered only on
-      aarch64, so on this x86-64 node it is skipped by name -- a SKIP, not a pass.)
+## ctest, unchanged BASE (cmake Release, -DFIX_BUILD_BENCHMARKS=ON)
+ 7:53  up 11 days, 16:15, 5 users, load averages: 18.15 14.54 11.68
+100% tests passed out of 36
 
-  ./build/fixed_oracle_check (native __int128):
-     ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+Total Test time (real) =   3.92 sec
 
-  ./build/fixed_oracle_check_emulated:
-     NOT captured: the full emulated pass over base_random=50000000 did not finish
-     within the job's build-time budget on this node. The native arm and the 36-test
-     ctest (which includes oracle_unit_emulated over a 1,000-input prefix) both pass.
+## ctest, candidate
+ 7:52  up 11 days, 16:14, 5 users, load averages: 21.15 14.70 11.65
+ 1/36 Test  #1: determinism .........................   Passed    0.10 sec
+ 2/36 Test  #2: transcendental ......................   Passed    0.09 sec
+ 3/36 Test  #3: wide_time ...........................   Passed    0.08 sec
+ 4/36 Test  #4: exhaustive ..........................   Passed    0.04 sec
+ 5/36 Test  #5: aabb ................................   Passed    0.08 sec
+ 6/36 Test  #6: override_api ........................   Passed    0.08 sec
+ 7/36 Test  #7: port_equality .......................   Passed    0.23 sec
+ 8/36 Test  #8: negative_control ....................   Passed    0.11 sec
+ 9/36 Test  #9: port_negative_control ...............   Passed    0.21 sec
+10/36 Test #10: int128 ..............................   Passed    0.21 sec
+11/36 Test #11: geometry ............................   Passed    0.11 sec
+12/36 Test #12: geometry_negative_control ...........   Passed    0.08 sec
+13/36 Test #13: quantize ............................   Passed    0.09 sec
+14/36 Test #14: quantize_negative_control ...........   Passed    0.10 sec
+15/36 Test #15: int256_division .....................   Passed    0.10 sec
+16/36 Test #16: int256_division_negative_control ....   Passed    0.10 sec
+17/36 Test #17: inverse_envelope ....................   Passed    0.07 sec
+18/36 Test #18: inverse_envelope_negative_control ...   Passed    0.08 sec
+19/36 Test #19: usage ...............................   Passed    0.07 sec
+20/36 Test #20: numerical_regression ................   Passed    0.08 sec
+21/36 Test #21: numerical_saturated .................   Passed    0.08 sec
+22/36 Test #22: oracle_unit .........................   Passed    0.01 sec
+23/36 Test #23: determinism_emulated ................   Passed    0.10 sec
+24/36 Test #24: transcendental_emulated .............   Passed    0.20 sec
+25/36 Test #25: wide_time_emulated ..................   Passed    0.08 sec
+26/36 Test #26: exhaustive_emulated .................   Passed    0.06 sec
+27/36 Test #27: aabb_emulated .......................   Passed    0.09 sec
+28/36 Test #28: port_equality_emulated ..............   Passed    0.73 sec
+29/36 Test #29: int128_emulated .....................   Passed    0.22 sec
+30/36 Test #30: geometry_emulated ...................   Passed    0.09 sec
+31/36 Test #31: inverse_envelope_emulated ...........   Passed    0.10 sec
+32/36 Test #32: int256_division_emulated ............   Passed    0.10 sec
+33/36 Test #33: numerical_regression_emulated .......   Passed    0.16 sec
+34/36 Test #34: oracle_unit_emulated ................   Passed    0.01 sec
+35/36 Test #35: numerical_saturated_emulated ........   Passed    0.08 sec
+36/36 Test #36: emulated_negative_control ...........   Passed    0.13 sec
+100% tests passed out of 36
+Total Test time (real) =   4.35 sec
 
-NEON COMPILE CHECK (the only validation the NEON path received here):
-  clang --target=aarch64-linux-gnu -O2 -ffreestanding -c <neon kernel> -> exit 0
-  Every intrinsic used (vmull_s32, vmull_high_s32, vmlal_s32, vmlal_high_s32,
-  vuzp1q_s32, vld3q_s32, vld1q_s64, vst1q_s64, vshrq_n_s64, vaddq_s64) assembles for
-  aarch64. It was never RUN; no timing was produced.
+## NeonBatchEquivalenceTest lines (candidate)
+NeonBatchEquivalenceTest: compared=1255818 fails=0 PASS
+NeonBatchEquivalenceTest: compared=1255818 fails=0 PASS
 
-A/B (benchmark/ab.sh) tables:
-  none -- no arm64 target, and the NEON path is not reachable on x86-64, so there is
-  nothing to measure against. The A/A control and the before/after numbers the card's
-  ACCEPTANCE (1) demands are all absent for that reason.
+## Mutation checks (temporary edits, reverted): vrshrq->vshrq in all batch kernels: test fails=205240 (mul, 3 dots, cross lines), oracle rows fixMulBatch/fixDotBatch3/AoS/AoSLd3/fixCrossBatch/fixMulBatch_mixed FAIL;
+## dropping the downward sqrt repair: test fails=1036 (length line), oracle fixLengthBatch FAIL. Dropping the UPWARD repair step was NOT detected by test or oracle (see finding).
 
-SCALAR FALLBACK SMOKE (x86-64, the non-aarch64 body of the two new entry points):
-  fixMulBatch and fixDotBatch3 (scalar fallback) matched fixMul/fixDot bit-for-bit for
-  a throwaway 4-element check: bad=0.
+## New oracle rows frozen from the SCALAR functions on the unchanged BASE (ref/build_ref.sh: candidate oracle.c + oracle_check.c compiled against BASE include/src), native == emulated:
+fixMulBatch	12563756	148e3555c392445b
+fixMulBatch_mixed	12563756	160716752139fc32
+fixDotBatch3	12563756	8e65a5439f48cd56
+fixDotBatch3_mixed	12563756	c7271efb8c0b3722
+fixDotBatch3AoS	12563756	c3087b0766a16e37
+fixDotBatch3AoSLd3	12563756	7863ef059ca27ae4
+fixLengthBatch	12563756	030faa9c77bc8216
+fixLengthBatch_mixed	12563756	0dfaf78e42457219
+fixCrossBatch	12563756	823849860a8fdc46
+fixCrossBatch_mixed	12563756	bdd2b1b7a3f7c9ee
+
+## Full oracle_check, candidate, cmake build (native then FIX_FORCE_EMULATED_INT128)
+ 7:53  up 11 days, 16:15, 5 users, load averages: 17.34 14.43 11.66
+2026-10-15T11:53:19Z
+ORACLE OK   fixMul  count=50063756  hash=eb1995a6b21bf036
+ORACLE OK   fixDiv_below2p47  count=50063756  hash=9519544a71a6aee9
+ORACLE OK   fixDiv_above2p47  count=12563756  hash=679bdcc4e27fd523
+ORACLE OK   fixSqrt_small  count=50000252  hash=0a01c17d8970c8c5
+ORACLE OK   fixSqrt_raw_below2p32  count=4344967548  hash=e8cd953f7d9cb442
+ORACLE OK   fixISqrt128High_u64  count=50063756  hash=3f2bde37bd6f7cb0
+ORACLE OK   fixISqrt128High_above104bits  count=2563756  hash=0c9fdfcdcf937183
+ORACLE OK   fixComputeCosSin  count=50823803  hash=75d77c6260933da6
+ORACLE OK   fixSin  count=50823803  hash=ea6b89849492e203
+ORACLE OK   fixCos  count=50823803  hash=92884abbd0d0dfc4
+ORACLE OK   fixAtan2  count=6313756  hash=e783be1aa18a9e6c
+ORACLE OK   fixLog2  count=9395980  hash=7d1ccc520e783eca
+ORACLE OK   fixExp2  count=9395980  hash=a1d52ff7b1ceef98
+ORACLE OK   fixPow  count=2563756  hash=55410e05742068c7
+ORACLE OK   fixLerp  count=50063756  hash=3c3983b96260d159
+ORACLE OK   fixInt128Div  count=2563756  hash=65e492d721fcd5f6
+ORACLE OK   fixUInt256DivMod  count=563756  hash=d6c2bda0c1986a82
+ORACLE OK   fixDot  count=50063756  hash=4392264c082fde77
+ORACLE OK   fixCross  count=50063756  hash=5a5555238d655a2c
+ORACLE OK   fixLength  count=25063756  hash=785da375992b2c05
+ORACLE OK   fixNormalize  count=12563756  hash=44e1c09212bfac1d
+ORACLE FAIL fixMulQuat: hash 89460e7fdc0afa12, baseline ff696a9b57ac0860
+ORACLE FAIL fixNormalizeQuat: hash c5c7a65be194eb17, baseline 5e439ba2ea83daeb
+ORACLE FAIL fixRotateVector: hash 10e435cf24ccc1e3, baseline 64afce887683c703
+ORACLE FAIL fixInvRotateVector: hash 6f67b302b04a739b, baseline a7d02b0685663640
+ORACLE FAIL fixNLerp: hash e5e48786b2a432ba, baseline 315cf27e3e31527e
+ORACLE OK   fixInvertMatrix  count=563756  hash=f7c48d2fcea79473
+ORACLE OK   fixSolve3  count=563756  hash=da2489cbf6193bad
+ORACLE FAIL fixAABB_Transform: hash da3ead85eb02e6aa, baseline d105925232ba6473
+ORACLE FAIL fixQuantize: hash f93e7a397db258e1, baseline f27ed579335213a8
+ORACLE OK   fixDequantize  count=50063756  hash=1be2b75e26b7a4d1
+ORACLE OK   fixMulBatch  count=12563756  hash=148e3555c392445b
+ORACLE OK   fixMulBatch_mixed  count=12563756  hash=160716752139fc32
+ORACLE OK   fixDotBatch3  count=12563756  hash=8e65a5439f48cd56
+ORACLE OK   fixDotBatch3_mixed  count=12563756  hash=c7271efb8c0b3722
+ORACLE OK   fixDotBatch3AoS  count=12563756  hash=c3087b0766a16e37
+ORACLE OK   fixDotBatch3AoSLd3  count=12563756  hash=7863ef059ca27ae4
+ORACLE OK   fixLengthBatch  count=12563756  hash=030faa9c77bc8216
+ORACLE OK   fixLengthBatch_mixed  count=12563756  hash=0dfaf78e42457219
+ORACLE OK   fixCrossBatch  count=12563756  hash=823849860a8fdc46
+ORACLE OK   fixCrossBatch_mixed  count=12563756  hash=bdd2b1b7a3f7c9ee
+ORACLE: 7 operation(s) differ from benchmark/oracle-baseline.txt
+native_exit=1
+ 7:55  up 11 days, 16:17, 5 users, load averages: 20.86 16.61 12.87
+2026-10-15T11:55:25Z
+ORACLE OK   fixMul  count=50063756  hash=eb1995a6b21bf036
+ORACLE OK   fixDiv_below2p47  count=50063756  hash=9519544a71a6aee9
+ORACLE OK   fixDiv_above2p47  count=12563756  hash=679bdcc4e27fd523
+ORACLE OK   fixSqrt_small  count=50000252  hash=0a01c17d8970c8c5
+ORACLE OK   fixSqrt_raw_below2p32  count=4344967548  hash=e8cd953f7d9cb442
+ORACLE OK   fixISqrt128High_u64  count=50063756  hash=3f2bde37bd6f7cb0
+ORACLE OK   fixISqrt128High_above104bits  count=2563756  hash=0c9fdfcdcf937183
+ORACLE OK   fixComputeCosSin  count=50823803  hash=75d77c6260933da6
+ORACLE OK   fixSin  count=50823803  hash=ea6b89849492e203
+ORACLE OK   fixCos  count=50823803  hash=92884abbd0d0dfc4
+ORACLE OK   fixAtan2  count=6313756  hash=e783be1aa18a9e6c
+ORACLE OK   fixLog2  count=9395980  hash=7d1ccc520e783eca
+ORACLE OK   fixExp2  count=9395980  hash=a1d52ff7b1ceef98
+ORACLE OK   fixPow  count=2563756  hash=55410e05742068c7
+ORACLE OK   fixLerp  count=50063756  hash=3c3983b96260d159
+ORACLE OK   fixInt128Div  count=2563756  hash=65e492d721fcd5f6
+ORACLE OK   fixUInt256DivMod  count=563756  hash=d6c2bda0c1986a82
+ORACLE OK   fixDot  count=50063756  hash=4392264c082fde77
+ORACLE OK   fixCross  count=50063756  hash=5a5555238d655a2c
+ORACLE OK   fixLength  count=25063756  hash=785da375992b2c05
+ORACLE OK   fixNormalize  count=12563756  hash=44e1c09212bfac1d
+ORACLE FAIL fixMulQuat: hash 89460e7fdc0afa12, baseline ff696a9b57ac0860
+ORACLE FAIL fixNormalizeQuat: hash c5c7a65be194eb17, baseline 5e439ba2ea83daeb
+ORACLE FAIL fixRotateVector: hash 10e435cf24ccc1e3, baseline 64afce887683c703
+ORACLE FAIL fixInvRotateVector: hash 6f67b302b04a739b, baseline a7d02b0685663640
+ORACLE FAIL fixNLerp: hash e5e48786b2a432ba, baseline 315cf27e3e31527e
+ORACLE OK   fixInvertMatrix  count=563756  hash=f7c48d2fcea79473
+ORACLE OK   fixSolve3  count=563756  hash=da2489cbf6193bad
+ORACLE FAIL fixAABB_Transform: hash da3ead85eb02e6aa, baseline d105925232ba6473
+ORACLE FAIL fixQuantize: hash f93e7a397db258e1, baseline f27ed579335213a8
+ORACLE OK   fixDequantize  count=50063756  hash=1be2b75e26b7a4d1
+ORACLE OK   fixMulBatch  count=12563756  hash=148e3555c392445b
+ORACLE OK   fixMulBatch_mixed  count=12563756  hash=160716752139fc32
+ORACLE OK   fixDotBatch3  count=12563756  hash=8e65a5439f48cd56
+ORACLE OK   fixDotBatch3_mixed  count=12563756  hash=c7271efb8c0b3722
+ORACLE OK   fixDotBatch3AoS  count=12563756  hash=c3087b0766a16e37
+ORACLE OK   fixDotBatch3AoSLd3  count=12563756  hash=7863ef059ca27ae4
+ORACLE OK   fixLengthBatch  count=12563756  hash=030faa9c77bc8216
+ORACLE OK   fixLengthBatch_mixed  count=12563756  hash=0dfaf78e42457219
+ORACLE OK   fixCrossBatch  count=12563756  hash=823849860a8fdc46
+ORACLE OK   fixCrossBatch_mixed  count=12563756  hash=bdd2b1b7a3f7c9ee
+ORACLE: 7 operation(s) differ from benchmark/oracle-baseline.txt
+emulated_exit=1
+ 7:59  up 11 days, 16:21, 5 users, load averages: 18.45 17.98 14.55
+
+## The 7 FAIL rows on the UNCHANGED BASE (build-base/fixed_oracle_check, and BASE oracle compiled with -O3 -g -DNDEBUG -ffp-contract=off): identical hashes to the candidate
+ORACLE FAIL fixMulQuat: hash 89460e7fdc0afa12, baseline ff696a9b57ac0860
+ORACLE FAIL fixNormalizeQuat: hash c5c7a65be194eb17, baseline 5e439ba2ea83daeb
+ORACLE FAIL fixRotateVector: hash 10e435cf24ccc1e3, baseline 64afce887683c703
+ORACLE FAIL fixInvRotateVector: hash 6f67b302b04a739b, baseline a7d02b0685663640
+ORACLE FAIL fixNLerp: hash e5e48786b2a432ba, baseline 315cf27e3e31527e
+ORACLE FAIL fixAABB_Transform: hash da3ead85eb02e6aa, baseline d105925232ba6473
+ORACLE FAIL fixQuantize: hash f93e7a397db258e1, baseline f27ed579335213a8
+
+## ab-arm64.sh = benchmark/ab.sh with ONE line changed so the table prints despite the pre-existing oracle FAIL rows:
+105c105
+< "$WORK/oracle_check" || { echo "ab.sh: candidate FAILED the output oracle; the table below is moot" >&2; exit 1; }
+---
+> "$WORK/oracle_check" || echo "ab-arm64: oracle_check reported differences (pre-existing on BASE on arm64, see raw.txt); table printed anyway"
+
+## run_ab.sh
+#!/bin/sh
+# One interleaved A/B run: base tree vs candidate tree, the candidate's op_bench.c for both.
+# $1 = label (native|emulated). Extra CC flags for the emulated arm come from $2.
+set -u
+cd "$(dirname "$0")/fixed"
+export TMPDIR="$(cd .. && pwd)/abtmp"
+export AB_REPEATS=9
+export AB_ITERS=200000
+export CC="cc $2"
+echo "### ab.sh $1 (CC=$CC) load: $(uptime)"
+sh ../ab-arm64.sh ../base . fixMul fixDot fixCross fixLength \
+  fixMulBatch fixMulBatch_mixed fixDotBatch3 fixDotBatch3_mixed fixDotBatch3AoS fixDotBatch3AoSLd3 \
+  fixLengthBatch fixLengthBatch_mixed fixCrossBatch fixCrossBatch_mixed
+echo "### ab.sh $1 exit=$? load after: $(uptime)"
+
+### ab.sh native (CC=cc ) load:  7:59  up 11 days, 16:22, 5 users, load averages: 15.72 17.39 14.43
+# ab.sh 2026-10-15T11:59:59Z
+# compiler: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# flags: -O3 -g -DNDEBUG -ffp-contract=off
+# repeats: 9  iterations: 200000
+# # cpu_info 2026-10-15T11:59:59Z
+# uname: Darwin 27.2.0 arm64
+# cpu_model: Apple M3 Ultra
+# logical_cpus: 32
+# isa_neon: unknown
+# isa_fp16: unknown
+# isa_i8mm: unknown
+# isa_sme: unknown
+# isa_sme2: unknown
+# affinity: taskset unavailable
+# load_average:{ 15.72 17.39 14.43 }
+# benchmarks_running: no
+# compiler_clang: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# compiler_gcc: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# cmake: cmake version 4.4.4
+# make: GNU Make 3.81
+# oracle_check compiled against .:
+ORACLE OK   fixMul  count=50063756  hash=eb1995a6b21bf036
+ORACLE OK   fixDiv_below2p47  count=50063756  hash=9519544a71a6aee9
+ORACLE OK   fixDiv_above2p47  count=12563756  hash=679bdcc4e27fd523
+ORACLE OK   fixSqrt_small  count=50000252  hash=0a01c17d8970c8c5
+ORACLE OK   fixSqrt_raw_below2p32  count=4344967548  hash=e8cd953f7d9cb442
+ORACLE OK   fixISqrt128High_u64  count=50063756  hash=3f2bde37bd6f7cb0
+ORACLE OK   fixISqrt128High_above104bits  count=2563756  hash=0c9fdfcdcf937183
+ORACLE OK   fixComputeCosSin  count=50823803  hash=75d77c6260933da6
+ORACLE OK   fixSin  count=50823803  hash=ea6b89849492e203
+ORACLE OK   fixCos  count=50823803  hash=92884abbd0d0dfc4
+ORACLE OK   fixAtan2  count=6313756  hash=e783be1aa18a9e6c
+ORACLE OK   fixLog2  count=9395980  hash=7d1ccc520e783eca
+ORACLE OK   fixExp2  count=9395980  hash=a1d52ff7b1ceef98
+ORACLE OK   fixPow  count=2563756  hash=55410e05742068c7
+ORACLE OK   fixLerp  count=50063756  hash=3c3983b96260d159
+ORACLE OK   fixInt128Div  count=2563756  hash=65e492d721fcd5f6
+ORACLE OK   fixUInt256DivMod  count=563756  hash=d6c2bda0c1986a82
+ORACLE OK   fixDot  count=50063756  hash=4392264c082fde77
+ORACLE OK   fixCross  count=50063756  hash=5a5555238d655a2c
+ORACLE OK   fixLength  count=25063756  hash=785da375992b2c05
+ORACLE OK   fixNormalize  count=12563756  hash=44e1c09212bfac1d
+ORACLE FAIL fixMulQuat: hash 89460e7fdc0afa12, baseline ff696a9b57ac0860
+  first differing input is in [0, 1566484) of 25063756 inputs (segment 0)
+  name it exactly with: /Volumes/nova/ai/rowan/working/tmp/neon-w10/abtmp/fixed-ab.JyY6WM/oracle_check --dump fixMulQuat 0 1566484   (diff two trees' dumps line by line)
+0 in0=0 in1=0 in2=-46340 in3=46340 in4=-14528 in5=-7159 in6=50254 in7=-38821 out0=18446744073709536281 out1=5211 out2=62984 out3=8084
+ORACLE FAIL fixNormalizeQuat: hash c5c7a65be194eb17, baseline 5e439ba2ea83daeb
+  first differing input is in [0, 785234) of 12563756 inputs (segment 0)
+  name it exactly with: /Volumes/nova/ai/rowan/working/tmp/neon-w10/abtmp/fixed-ab.JyY6WM/oracle_check --dump fixNormalizeQuat 0 785234   (diff two trees' dumps line by line)
+ORACLE FAIL fixRotateVector: hash 10e435cf24ccc1e3, baseline 64afce887683c703
+  first differing input is in [0, 785234) of 12563756 inputs (segment 0)
+  name it exactly with: /Volumes/nova/ai/rowan/working/tmp/neon-w10/abtmp/fixed-ab.JyY6WM/oracle_check --dump fixRotateVector 0 785234   (diff two trees' dumps line by line)
+ORACLE FAIL fixInvRotateVector: hash 6f67b302b04a739b, baseline a7d02b0685663640
+  first differing input is in [0, 785234) of 12563756 inputs (segment 0)
+  name it exactly with: /Volumes/nova/ai/rowan/working/tmp/neon-w10/abtmp/fixed-ab.JyY6WM/oracle_check --dump fixInvRotateVector 0 785234   (diff two trees' dumps line by line)
+ORACLE FAIL fixNLerp: hash e5e48786b2a432ba, baseline 315cf27e3e31527e
+  first differing input is in [0, 394609) of 6313756 inputs (segment 0)
+  name it exactly with: /Volumes/nova/ai/rowan/working/tmp/neon-w10/abtmp/fixed-ab.JyY6WM/oracle_check --dump fixNLerp 0 394609   (diff two trees' dumps line by line)
+ORACLE OK   fixInvertMatrix  count=563756  hash=f7c48d2fcea79473
+ORACLE OK   fixSolve3  count=563756  hash=da2489cbf6193bad
+ORACLE FAIL fixAABB_Transform: hash da3ead85eb02e6aa, baseline d105925232ba6473
+  first differing input is in [0, 160234) of 2563756 inputs (segment 0)
+  name it exactly with: /Volumes/nova/ai/rowan/working/tmp/neon-w10/abtmp/fixed-ab.JyY6WM/oracle_check --dump fixAABB_Transform 0 160234   (diff two trees' dumps line by line)
+ORACLE FAIL fixQuantize: hash f93e7a397db258e1, baseline f27ed579335213a8
+  first differing input is in [0, 3128984) of 50063756 inputs (segment 0)
+  name it exactly with: /Volumes/nova/ai/rowan/working/tmp/neon-w10/abtmp/fixed-ab.JyY6WM/oracle_check --dump fixQuantize 0 3128984   (diff two trees' dumps line by line)
+ORACLE OK   fixDequantize  count=50063756  hash=1be2b75e26b7a4d1
+ORACLE OK   fixMulBatch  count=12563756  hash=148e3555c392445b
+ORACLE OK   fixMulBatch_mixed  count=12563756  hash=160716752139fc32
+ORACLE OK   fixDotBatch3  count=12563756  hash=8e65a5439f48cd56
+ORACLE OK   fixDotBatch3_mixed  count=12563756  hash=c7271efb8c0b3722
+ORACLE OK   fixDotBatch3AoS  count=12563756  hash=c3087b0766a16e37
+ORACLE OK   fixDotBatch3AoSLd3  count=12563756  hash=7863ef059ca27ae4
+ORACLE OK   fixLengthBatch  count=12563756  hash=030faa9c77bc8216
+ORACLE OK   fixLengthBatch_mixed  count=12563756  hash=0dfaf78e42457219
+ORACLE OK   fixCrossBatch  count=12563756  hash=823849860a8fdc46
+ORACLE OK   fixCrossBatch_mixed  count=12563756  hash=bdd2b1b7a3f7c9ee
+ORACLE: 7 operation(s) differ from benchmark/oracle-baseline.txt
+ab-arm64: oracle_check reported differences (pre-existing on BASE on arm64, see raw.txt); table printed anyway
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMul                         scalar      4.8100     4.8900     5.7%     4.8050     4.8650     1.8%    1.005
+fixMul                         batch       1.3652     1.4100     5.3%     1.3104     1.3552     9.2%    1.040
+fixDot                         scalar      5.4200     5.6100     4.0%     5.4350     5.5850     3.7%    1.004
+fixDot                         batch       1.9232     1.9731     7.6%     1.8335     1.8834     9.0%    1.048
+fixCross                       scalar      2.6650     2.9250     9.9%     2.5600     2.7600    15.6%    1.060
+fixCross                       batch       3.2934     3.3532     4.3%     3.1240     3.2286     6.6%    1.039
+fixLength                      scalar     13.7650    14.0100     3.0%    13.6750    14.0700     3.5%    0.996
+fixLength                      batch       2.2869     2.4912    17.4%     2.3517     2.4613    14.2%    1.012
+fixMulBatch                    scalar      5.3400     5.4750     3.4%    11.8250    11.9200     2.1%    0.459
+fixMulBatch                    batch       0.5829     0.5929     2.5%     0.5032     0.5132     3.9%    1.155
+fixMulBatch_mixed              scalar      5.3900     5.4800     3.0%    11.5400    11.7200     2.6%    0.468
+fixMulBatch_mixed              batch       0.5680     0.5929     7.6%     0.8719     0.8869     6.7%    0.669
+fixDotBatch3                   scalar      9.1200     9.2500     2.3%    14.0700    14.2250     2.1%    0.650
+fixDotBatch3                   batch       1.3702     1.4499     9.6%     1.4698     1.5097     5.0%    0.960
+fixDotBatch3_mixed             scalar      9.0600     9.2550     3.8%    11.4200    11.8700     9.0%    0.780
+fixDotBatch3_mixed             batch       1.3253     1.4549    13.0%     2.1425     2.1674     6.2%    0.671
+fixDotBatch3AoS                scalar      8.7300     9.2300     6.9%    14.7800    15.0850     2.9%    0.612
+fixDotBatch3AoS                batch       1.1659     1.2357     7.7%     1.4300     1.4748     3.7%    0.838
+fixDotBatch3AoSLd3             scalar      8.7350     9.2500     6.1%    14.5300    14.7000     2.4%    0.629
+fixDotBatch3AoSLd3             batch       1.1808     1.2257    19.1%     1.4399     1.5197     5.6%    0.807
+fixLengthBatch                 scalar     19.4550    20.5650     6.3%    22.5600    23.2300     3.7%    0.885
+fixLengthBatch                 batch       2.4015     2.4215     2.5%     1.1410     1.1908    11.3%    2.034
+fixLengthBatch_mixed           scalar    325.8850   330.7800     8.6%   326.9900   329.5250     1.7%    1.004
+fixLengthBatch_mixed           batch      48.7484    50.6716    13.7%    50.6866    51.4090     2.1%    0.986
+fixCrossBatch                  scalar      6.1000     6.2950     7.1%    13.9350    14.0800     2.1%    0.447
+fixCrossBatch                  batch       3.4728     3.6721     7.1%     2.0478     2.1325     4.9%    1.722
+fixCrossBatch_mixed            scalar      6.0400     6.2450     4.0%    17.8800    18.0550     2.0%    0.346
+fixCrossBatch_mixed            batch       3.5077     3.6073     9.3%     4.0308     4.2152     7.4%    0.856
+# speedup = a_median / b_median; > 1 means the candidate is faster.
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+### ab.sh native exit=0 load after:  8:02  up 11 days, 16:24, 5 users, load averages: 12.42 15.58 14.13
+
+### ab.sh emulated (CC=cc -DFIX_FORCE_EMULATED_INT128) load:  8:02  up 11 days, 16:24, 5 users, load averages: 12.11 15.30 14.06
+# ab.sh 2026-10-15T12:02:27Z
+# compiler: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# flags: -O3 -g -DNDEBUG -ffp-contract=off
+# repeats: 9  iterations: 200000
+# # cpu_info 2026-10-15T12:02:27Z
+# uname: Darwin 27.2.0 arm64
+# cpu_model: Apple M3 Ultra
+# logical_cpus: 32
+# isa_neon: unknown
+# isa_fp16: unknown
+# isa_i8mm: unknown
+# isa_sme: unknown
+# isa_sme2: unknown
+# affinity: taskset unavailable
+# load_average:{ 12.11 15.30 14.06 }
+# benchmarks_running: no
+# compiler_clang: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# compiler_gcc: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# cmake: cmake version 4.4.4
+# make: GNU Make 3.81
+# oracle_check compiled against .:
+ORACLE OK   fixMul  count=50063756  hash=eb1995a6b21bf036
+ORACLE OK   fixDiv_below2p47  count=50063756  hash=9519544a71a6aee9
+ORACLE OK   fixDiv_above2p47  count=12563756  hash=679bdcc4e27fd523
+ORACLE OK   fixSqrt_small  count=50000252  hash=0a01c17d8970c8c5
+ORACLE OK   fixSqrt_raw_below2p32  count=4344967548  hash=e8cd953f7d9cb442
+ORACLE OK   fixISqrt128High_u64  count=50063756  hash=3f2bde37bd6f7cb0
+ORACLE OK   fixISqrt128High_above104bits  count=2563756  hash=0c9fdfcdcf937183
+ORACLE OK   fixComputeCosSin  count=50823803  hash=75d77c6260933da6
+ORACLE OK   fixSin  count=50823803  hash=ea6b89849492e203
+ORACLE OK   fixCos  count=50823803  hash=92884abbd0d0dfc4
+ORACLE OK   fixAtan2  count=6313756  hash=e783be1aa18a9e6c
+ORACLE OK   fixLog2  count=9395980  hash=7d1ccc520e783eca
+ORACLE OK   fixExp2  count=9395980  hash=a1d52ff7b1ceef98
+ORACLE OK   fixPow  count=2563756  hash=55410e05742068c7
+ORACLE OK   fixLerp  count=50063756  hash=3c3983b96260d159
+ORACLE OK   fixInt128Div  count=2563756  hash=65e492d721fcd5f6
+ORACLE OK   fixUInt256DivMod  count=563756  hash=d6c2bda0c1986a82
+ORACLE OK   fixDot  count=50063756  hash=4392264c082fde77
+ORACLE OK   fixCross  count=50063756  hash=5a5555238d655a2c
+ORACLE OK   fixLength  count=25063756  hash=785da375992b2c05
+ORACLE OK   fixNormalize  count=12563756  hash=44e1c09212bfac1d
+ORACLE FAIL fixMulQuat: hash 89460e7fdc0afa12, baseline ff696a9b57ac0860
+  first differing input is in [0, 1566484) of 25063756 inputs (segment 0)
+  name it exactly with: /Volumes/nova/ai/rowan/working/tmp/neon-w10/abtmp/fixed-ab.vOdEky/oracle_check --dump fixMulQuat 0 1566484   (diff two trees' dumps line by line)
+0 in0=0 in1=0 in2=-46340 in3=46340 in4=-14528 in5=-7159 in6=50254 in7=-38821 out0=18446744073709536281 out1=5211 out2=62984 out3=8084
+ORACLE FAIL fixNormalizeQuat: hash c5c7a65be194eb17, baseline 5e439ba2ea83daeb
+  first differing input is in [0, 785234) of 12563756 inputs (segment 0)
+  name it exactly with: /Volumes/nova/ai/rowan/working/tmp/neon-w10/abtmp/fixed-ab.vOdEky/oracle_check --dump fixNormalizeQuat 0 785234   (diff two trees' dumps line by line)
+ORACLE FAIL fixRotateVector: hash 10e435cf24ccc1e3, baseline 64afce887683c703
+  first differing input is in [0, 785234) of 12563756 inputs (segment 0)
+  name it exactly with: /Volumes/nova/ai/rowan/working/tmp/neon-w10/abtmp/fixed-ab.vOdEky/oracle_check --dump fixRotateVector 0 785234   (diff two trees' dumps line by line)
+ORACLE FAIL fixInvRotateVector: hash 6f67b302b04a739b, baseline a7d02b0685663640
+  first differing input is in [0, 785234) of 12563756 inputs (segment 0)
+  name it exactly with: /Volumes/nova/ai/rowan/working/tmp/neon-w10/abtmp/fixed-ab.vOdEky/oracle_check --dump fixInvRotateVector 0 785234   (diff two trees' dumps line by line)
+ORACLE FAIL fixNLerp: hash e5e48786b2a432ba, baseline 315cf27e3e31527e
+  first differing input is in [0, 394609) of 6313756 inputs (segment 0)
+  name it exactly with: /Volumes/nova/ai/rowan/working/tmp/neon-w10/abtmp/fixed-ab.vOdEky/oracle_check --dump fixNLerp 0 394609   (diff two trees' dumps line by line)
+ORACLE OK   fixInvertMatrix  count=563756  hash=f7c48d2fcea79473
+ORACLE OK   fixSolve3  count=563756  hash=da2489cbf6193bad
+ORACLE FAIL fixAABB_Transform: hash da3ead85eb02e6aa, baseline d105925232ba6473
+  first differing input is in [0, 160234) of 2563756 inputs (segment 0)
+  name it exactly with: /Volumes/nova/ai/rowan/working/tmp/neon-w10/abtmp/fixed-ab.vOdEky/oracle_check --dump fixAABB_Transform 0 160234   (diff two trees' dumps line by line)
+ORACLE FAIL fixQuantize: hash f93e7a397db258e1, baseline f27ed579335213a8
+  first differing input is in [0, 3128984) of 50063756 inputs (segment 0)
+  name it exactly with: /Volumes/nova/ai/rowan/working/tmp/neon-w10/abtmp/fixed-ab.vOdEky/oracle_check --dump fixQuantize 0 3128984   (diff two trees' dumps line by line)
+ORACLE OK   fixDequantize  count=50063756  hash=1be2b75e26b7a4d1
+ORACLE OK   fixMulBatch  count=12563756  hash=148e3555c392445b
+ORACLE OK   fixMulBatch_mixed  count=12563756  hash=160716752139fc32
+ORACLE OK   fixDotBatch3  count=12563756  hash=8e65a5439f48cd56
+ORACLE OK   fixDotBatch3_mixed  count=12563756  hash=c7271efb8c0b3722
+ORACLE OK   fixDotBatch3AoS  count=12563756  hash=c3087b0766a16e37
+ORACLE OK   fixDotBatch3AoSLd3  count=12563756  hash=7863ef059ca27ae4
+ORACLE OK   fixLengthBatch  count=12563756  hash=030faa9c77bc8216
+ORACLE OK   fixLengthBatch_mixed  count=12563756  hash=0dfaf78e42457219
+ORACLE OK   fixCrossBatch  count=12563756  hash=823849860a8fdc46
+ORACLE OK   fixCrossBatch_mixed  count=12563756  hash=bdd2b1b7a3f7c9ee
+ORACLE: 7 operation(s) differ from benchmark/oracle-baseline.txt
+ab-arm64: oracle_check reported differences (pre-existing on BASE on arm64, see raw.txt); table printed anyway
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMul                         scalar      5.8600     6.9000    16.7%     5.8500     7.0000    16.6%    0.986
+fixMul                         batch       2.2222     2.3667    11.6%     2.3069     2.3816     6.5%    0.994
+fixDot                         scalar      9.0050    10.1450    12.0%     8.8600     9.5600    14.3%    1.061
+fixDot                         batch       4.8679     5.1220     6.7%     4.9675     5.0572     3.0%    1.013
+fixCross                       scalar     25.6600    25.8450     1.0%    25.4950    25.8600     2.2%    0.999
+fixCross                       batch      25.6148    26.4469     4.0%    26.1928    26.5366     7.8%    0.997
+fixLength                      scalar     16.5700    16.9850     5.9%    15.4900    15.7250     2.7%    1.080
+fixLength                      batch       4.8529     4.9775     5.3%     4.4145     4.5540     5.4%    1.093
+fixMulBatch                    scalar      7.6800     8.0300     5.9%    11.5350    11.8900     3.8%    0.675
+fixMulBatch                    batch       1.6641     1.7638     6.2%     0.4883     0.5082     5.9%    3.471
+fixMulBatch_mixed              scalar      7.7500     8.0100     4.2%    10.0200    10.0900     2.2%    0.794
+fixMulBatch_mixed              batch       1.6891     1.7538     7.1%     1.8884     1.9033     2.1%    0.921
+fixDotBatch3                   scalar     20.6800    20.9550     2.1%    13.6550    13.9750     3.2%    1.499
+fixDotBatch3                   batch       4.8629     5.1668     8.5%     1.4798     1.5047     2.7%    3.434
+fixDotBatch3_mixed             scalar     20.1700    20.9100     4.1%    22.9050    23.2850     2.2%    0.898
+fixDotBatch3_mixed             batch       4.8380     5.1668     9.5%     5.6551     5.7398     3.3%    0.900
+fixDotBatch3AoS                scalar     20.3500    20.9450     3.4%    14.4650    14.6900     3.0%    1.426
+fixDotBatch3AoS                batch       4.2451     4.3298     3.3%     1.4399     1.4599     3.1%    2.966
+fixDotBatch3AoSLd3             scalar     20.5300    20.9700     2.3%    14.0750    14.3000     2.8%    1.466
+fixDotBatch3AoSLd3             batch       4.2052     4.3298     3.3%     1.4499     1.4748     2.4%    2.936
+fixLengthBatch                 scalar     20.6850    21.0300     1.9%    22.7400    22.9050     1.0%    0.918
+fixLengthBatch                 batch       4.5141     4.5839     2.9%     1.1559     1.1808     3.0%    3.882
+fixLengthBatch_mixed           scalar    400.7500   403.4150     1.4%   410.5650   413.6300     1.1%    0.975
+fixLengthBatch_mixed           batch      66.5109    66.8895     1.4%    65.5493    65.9180     1.0%    1.015
+fixCrossBatch                  scalar     36.1450    36.5300     2.1%    13.9050    14.0600     3.4%    2.598
+fixCrossBatch                  batch      12.1373    12.4512    30.6%     2.0677     2.1325     7.2%    5.839
+fixCrossBatch_mixed            scalar     35.5450    36.6350     3.6%    42.4750    44.0700     4.3%    0.831
+fixCrossBatch_mixed            batch      12.1373    12.6455    30.8%    12.0974    17.2842    33.8%    0.732
+# speedup = a_median / b_median; > 1 means the candidate is faster.
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+### ab.sh emulated exit=0 load after:  8:06  up 11 days, 16:28, 5 users, load averages: 14.49 14.34 13.92

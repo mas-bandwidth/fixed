@@ -1,309 +1,884 @@
-diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 1dcaf67..c6b8cbe 100644
---- a/CMakeLists.txt
-+++ b/CMakeLists.txt
-@@ -214,6 +214,15 @@ add_executable(fixed_oracle_unit_test test/oracle_unit_test.c benchmark/oracle.c
- target_link_libraries(fixed_oracle_unit_test PRIVATE fixed)
- add_test(NAME oracle_unit COMMAND fixed_oracle_unit_test)
+diff --git a/benchmark/op_bench.c b/benchmark/op_bench.c
+index 0f30b2f..01a097a 100644
+--- a/benchmark/op_bench.c
++++ b/benchmark/op_bench.c
+@@ -43,6 +43,19 @@ enum { OP_BENCH_BATCH = 4096 };
+ static fixOracleInput opBenchInputs[OP_BENCH_BATCH];
+ static volatile uint64_t opBenchSink;
  
-+# THE NEON BATCH SPIKE. test/neon_batch_test.c holds NeonBatchEquivalenceTest, which needs
-+# the aarch64 NEON path in fixed_vec.h; it is compiled only there. Elsewhere it is skipped by
-+# name (not built), and a SKIP is not a pass in the report.
-+if (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64")
-+    add_executable(fixed_neon_batch_test test/neon_batch_test.c)
-+    target_link_libraries(fixed_neon_batch_test PRIVATE fixed)
-+    add_test(NAME neon_batch COMMAND fixed_neon_batch_test)
-+endif()
++// BATCH ENTRY POINTS (spike-batch-ops-neon). The rows named fix*Batch* time the array APIs:
++// BATCH mode calls the API once per pass over 4096 lanes (SoA arrays, or AoS fixVec3 arrays
++// for the *AoS* rows), so the gate scan is inside the timed region; a tree without the API
++// runs the scalar function over the same arrays, which is the "before" column. SCALAR mode
++// is the generic dependent chain over the row's apply, which is a FOUR-lane call per step;
++// the fed-back word is shifted into the int30 range so the chain stays on the gated path.
++static fixed_t opBatchA[6][OP_BENCH_BATCH];
++static fixed_t opBatchOut[3][OP_BENCH_BATCH];
++static fixVec3 opBatchVa[OP_BENCH_BATCH];
++static fixVec3 opBatchVb[OP_BENCH_BATCH];
 +
- option(FIX_BUILD_BENCHMARKS "Build the numerical public-API microbenchmarks" OFF)
- if (FIX_BUILD_BENCHMARKS)
-     add_executable(fixed_numerical_bench benchmark/numerical_bench.c)
++static int opBenchIsBatchRow( const char* name ) { return strstr( name, "Batch" ) != NULL; }
++
+ // The slot the dependent chain feeds back through. Slot 0 for every operation except the
+ // AABB transform, whose quaternion slots carry a validity contract the chain would break;
+ // its translation is chained instead, which is equally dependent and leaves the rotation
+@@ -63,6 +76,9 @@ static void opBenchPrepare( int opIndex )
+ 	{
+ 		memset( &opBenchInputs[i], 0, sizeof opBenchInputs[i] );
+ 		oracleOps[opIndex].fill( &opBenchInputs[i], ( uint64_t )i, &rng );
++		for ( int k = 0; k < 6; ++k ) opBatchA[k][i] = opBenchInputs[i].s[k];
++		opBatchVa[i] = oracleVec( opBatchA[0][i], opBatchA[1][i], opBatchA[2][i] );
++		opBatchVb[i] = oracleVec( opBatchA[3][i], opBatchA[4][i], opBatchA[5][i] );
+ 	}
+ }
+ 
+@@ -70,6 +86,7 @@ static uint64_t opBenchScalar( int opIndex, uint64_t iterations )
+ {
+ 	fixOracleInput chain = opBenchInputs[0];
+ 	const int slot = opBenchChainSlot( opIndex );
++	const int batchRow = opBenchIsBatchRow( oracleOps[opIndex].name );
+ 	fixOracleApply apply = oracleOps[opIndex].apply;
+ 	uint64_t sum = 0;
+ 	for ( uint64_t j = 0; j < iterations; ++j )
+@@ -78,7 +95,79 @@ static uint64_t opBenchScalar( int opIndex, uint64_t iterations )
+ 		out.n = 0;
+ 		apply( &chain, &out );
+ 		sum += ( uint64_t )out.s[0];
+-		chain.s[slot] = out.s[0]; // the dependency: latency, not throughput
++		chain.s[slot] = batchRow ? ( out.s[0] >> 34 ) : out.s[0]; // the dependency: latency, not throughput
++	}
++	return sum;
++}
++
++static uint64_t opBenchBatchApi( const char* name, uint64_t passes )
++{
++	const size_t n = OP_BENCH_BATCH;
++	uint64_t sum = 0;
++	for ( uint64_t p = 0; p < passes; ++p )
++	{
++		int words = 1;
++		if ( strncmp( name, "fixMulBatch", 11 ) == 0 )
++		{
++#if defined( FIX_HAVE_BATCH_API )
++			fixMulBatch( opBatchOut[0], opBatchA[0], opBatchA[1], n );
++#else
++			for ( size_t i = 0; i < n; ++i ) opBatchOut[0][i] = fixMul( opBatchA[0][i], opBatchA[1][i] );
++#endif
++		}
++		else if ( strcmp( name, "fixDotBatch3AoS" ) == 0 )
++		{
++#if defined( FIX_HAVE_BATCH_API )
++			fixDotBatch3AoS( opBatchOut[0], opBatchVa, opBatchVb, n );
++#else
++			for ( size_t i = 0; i < n; ++i ) opBatchOut[0][i] = fixDot( opBatchVa[i], opBatchVb[i] );
++#endif
++		}
++		else if ( strcmp( name, "fixDotBatch3AoSLd3" ) == 0 )
++		{
++#if defined( FIX_HAVE_BATCH_API )
++			fixDotBatch3AoSLd3( opBatchOut[0], opBatchVa, opBatchVb, n );
++#else
++			for ( size_t i = 0; i < n; ++i ) opBatchOut[0][i] = fixDot( opBatchVa[i], opBatchVb[i] );
++#endif
++		}
++		else if ( strncmp( name, "fixDotBatch3", 12 ) == 0 )
++		{
++#if defined( FIX_HAVE_BATCH_API )
++			fixDotBatch3( opBatchOut[0], opBatchA[0], opBatchA[1], opBatchA[2], opBatchA[3], opBatchA[4], opBatchA[5], n );
++#else
++			for ( size_t i = 0; i < n; ++i )
++				opBatchOut[0][i] = fixDot( oracleVec( opBatchA[0][i], opBatchA[1][i], opBatchA[2][i] ),
++										   oracleVec( opBatchA[3][i], opBatchA[4][i], opBatchA[5][i] ) );
++#endif
++		}
++		else if ( strncmp( name, "fixLengthBatch", 14 ) == 0 )
++		{
++#if defined( FIX_HAVE_BATCH_API )
++			fixLengthBatch( opBatchOut[0], opBatchA[0], opBatchA[1], opBatchA[2], n );
++#else
++			for ( size_t i = 0; i < n; ++i ) opBatchOut[0][i] = fixLength( oracleVec( opBatchA[0][i], opBatchA[1][i], opBatchA[2][i] ) );
++#endif
++		}
++		else
++		{
++			words = 3;
++#if defined( FIX_HAVE_BATCH_API )
++			fixCrossBatch( opBatchOut[0], opBatchOut[1], opBatchOut[2], opBatchA[0], opBatchA[1], opBatchA[2], opBatchA[3],
++						   opBatchA[4], opBatchA[5], n );
++#else
++			for ( size_t i = 0; i < n; ++i )
++			{
++				fixVec3 c = fixCross( oracleVec( opBatchA[0][i], opBatchA[1][i], opBatchA[2][i] ),
++									  oracleVec( opBatchA[3][i], opBatchA[4][i], opBatchA[5][i] ) );
++				opBatchOut[0][i] = c.x;
++				opBatchOut[1][i] = c.y;
++				opBatchOut[2][i] = c.z;
++			}
++#endif
++		}
++		for ( int w = 0; w < words; ++w )
++			for ( size_t i = 0; i < n; ++i ) sum += ( uint64_t )opBatchOut[w][i];
+ 	}
+ 	return sum;
+ }
+@@ -87,6 +176,7 @@ static uint64_t opBenchBatch( int opIndex, uint64_t passes )
+ {
+ 	fixOracleApply apply = oracleOps[opIndex].apply;
+ 	uint64_t sum = 0;
++	if ( opBenchIsBatchRow( oracleOps[opIndex].name ) ) return opBenchBatchApi( oracleOps[opIndex].name, passes );
+ 	for ( uint64_t p = 0; p < passes; ++p )
+ 	{
+ 		for ( int i = 0; i < OP_BENCH_BATCH; ++i )
+diff --git a/benchmark/oracle-baseline.txt b/benchmark/oracle-baseline.txt
+index 8d949f6..e93535e 100644
+--- a/benchmark/oracle-baseline.txt
++++ b/benchmark/oracle-baseline.txt
+@@ -34,3 +34,13 @@ fixSolve3	563756	da2489cbf6193bad	c133b3cc866ca715	b6e972a0996bbc60	f0f5f22ad94d
+ fixAABB_Transform	2563756	d105925232ba6473	6ff3cb019903cbf7	c4a006a4c82afd62	14f7579c27a63878	563b34320586f3b8	aac4c2eacaed0f21	358a578125bb637e	adcd9347c84bca87	ff38e31006f7bdbd	0a422b30bf6638ef	b8599cf23d84e975	b679410e7e7e0035	a562e7b13fdb1bb1	427eac953197caac	65e2ad3f4572ec1f	eec95b64a18189c9	9d0e05c70c621df6
+ fixQuantize	50063756	f27ed579335213a8	a6d5302b94eb5391	3c4421f2407d612c	3fd83c930137e5ab	f59622cb75a5921a	1a9c319b901e1b1a	2b6955610c010eb6	9f674582af21f5d7	5e16fd9d40acf716	4f3405c7ef36dd00	b64aade1c8c42a2c	1d2580dcfc18dfcf	2975f6d8e5754a6a	c34b5b45440a1260	0c576b27084b7e99	c02de40618e7f46c	168ba6a341a6baaf
+ fixDequantize	50063756	1be2b75e26b7a4d1	0dcced705080e026	40f319722ee5b454	577cdc8deed6d823	a3acca1638b0b364	4ef6ab2628220bb3	d8d223159c0c912d	f0b602e4f80ded81	8d9de53b3afab55f	40a674c6af15fbd6	35f0feac49d56db1	d527480a1127be0b	5dd42d0387d30079	03a6a2859718f2c2	d6a313e6e6772cb8	6832429ddee5295d	c772c5278e11d204
++fixMulBatch	12563756	148e3555c392445b	541b4919bd0517a0	7ab0e5628fa052c8	bc04ee9e325200b9	608c5e6ded2fde1b	d91f5f11d38247ea	3a75af8c19906306	9d7bea1d84561a44	6e502d6cdb8d3c5d	5d5f4b8822a15ecb	c98f6bfdd7d900b6	15e8b0ccc62afcf1	a17ba55b66cec30d	d4bdc5a41e1669f0	784ef75630aea569	978790bf971ae2da	72a73268872dd9d9
++fixMulBatch_mixed	12563756	160716752139fc32	7371aa45b3abe33a	87d7ade789a790a3	0faf37c674b60066	0c7deb4f62fac6fe	5e04960fd1c37925	27128739c6566659	b6bcd6fdb6fb68fe	d37e271390403f06	f1ca9bb868759d1a	d99671cfe6921a81	a33ffdcdf485d95e	ed3a34720a184a77	daa95dd5de4ae658	a2180bfccfb3d2a6	d87667097a4566bb	44cea92b79a8a4b5
++fixDotBatch3	12563756	8e65a5439f48cd56	2f0301182ed8e4c6	93d9df58549d906e	31a07a068cb94ffe	aaeb1fb3dd4fdc86	b57cc30b63712e6e	929ec7b4f411dcde	f62158ddca366a2e	97707f5bcaa3c6ae	29b4ba42f0eff59e	6704ec8334b623be	4eeeacbb7dba163e	fd7e00ded885274e	e7d31545b8f60496	be254c5336e38646	40913bc12a23e866	6129d7251220e406
++fixDotBatch3_mixed	12563756	c7271efb8c0b3722	ab811e311b27b8da	8f56afb7b129eed2	5a17c291354c9f2a	4119ccb2a97b7392	6e9d9c60767f2f72	c72469ab48fb913a	e274502f6c079092	204ca75ac07f679a	13aef701b7b05f9a	294086b2e07f2332	945ac4527b3ae902	e66cd141515e41aa	f0d8439198417362	eca35752f1bb22c2	8012093004566092	68f8c34b0893475a
++fixDotBatch3AoS	12563756	c3087b0766a16e37	84f6b4d978a081e7	8af6f09b83839cdf	774a59233ec4a2ff	e76ecadb98c041f7	af7c7cd360fea6ff	14a680bc21872e8f	a5b8663842fc335f	3e607bcf50efc85f	871b2b3c510bf01f	9d7fbea03b81b9ff	80931e292d44a53f	f7637eb410284b2f	cde2b080e2fb11d7	ee9fbaa69d5d2267	4fd4b807d7f4da97	10d4ae601cac5047
++fixDotBatch3AoSLd3	12563756	7863ef059ca27ae4	18676c0a37c432e4	6d531409503fe4ac	e2cfeebf07aad13c	6c2271c37b2fe7d4	ce1c09ab2e41466c	3df3795365c19a6c	c24a3e882a33078c	e8a4d3ba04fadfbc	183622d49361d1ac	35c0e22d5483dd3c	bab88a1cc77c50ec	422d8cbb3eb1079c	e725a5382c525e34	2a4913131f9ea834	43fd06513c9c9e94	df45c7f387c49264
++fixLengthBatch	12563756	030faa9c77bc8216	f99db371a4e92ca7	bf6c8ccfdf55ce99	c77d90e827e6b94f	479347399b264f12	b6798dc5038f271e	e8b1fc5157ffc7c3	ccd224cdd3eb7e2e	b1a710e6c508f484	9de5798e89276874	ac0643afe3972853	410e10d5841f5440	c93ad93f56ee5aa8	563ef9c9702e3a1f	f3979340833640a5	42db951fd3add245	28469affb0610b24
++fixLengthBatch_mixed	12563756	0dfaf78e42457219	dde47aecc37b7277	949e8b165b8a8fec	50866ccfcc4d2a73	c09f58fd958ea5b9	f5925cdb7e02b8fc	b94dce212179addd	78f2be9344a062ba	f5a817991c6edb02	4ece5b17df69b972	0fc8d9847cc27930	c1675ca02bebffcd	5251381e0a48b0d1	1b2789541512af54	312b41efe6e959de	fe095ad9303aaf89	7efb32cce054f57f
++fixCrossBatch	12563756	823849860a8fdc46	63ac4165b228d819	3c471ecc2b677249	43db4539080012a3	b1bf4aef14177489	851544e24b02749c	b9966d7654c4b22c	9ee38677151d4947	9bbe37083cc8f135	08b105b4c5acd526	59fa7d13e9323e44	7c7d375d91e7ac5f	2ddbf5310f42c41b	7f274eb2dcee72a6	1a77c90ea41389de	7a51c7232efb1dd6	57f8775134f5410c
++fixCrossBatch_mixed	12563756	bdd2b1b7a3f7c9ee	3286f6806d3da0ac	50b6f7ae2e8514dc	51c1cf0184409a8d	29c85c7fb1f47fae	3b4cd566e70f4aca	40bc25ac8881651e	14affbef9ce0d90f	6b3acdf3a3f51412	db26fae46cbd4faa	66ad2628bb017b3e	a1e99863269f2075	6a82b16df9aa3ba5	c98f91bf7201e04f	bd5362c31dab19b1	a5300f582563fd2d	48f41e06ed2df5ea
+diff --git a/benchmark/oracle.c b/benchmark/oracle.c
+index a007213..eef91e1 100644
+--- a/benchmark/oracle.c
++++ b/benchmark/oracle.c
+@@ -493,6 +493,122 @@ static void applyNormalize( const fixOracleInput* in, fixOracleOutput* out )
+ 	ORACLE_OUT_VEC( out, fixNormalize( oracleVec( in->s[0], in->s[1], in->s[2] ) ) );
+ }
+ 
++
++// --- batch entry points (spike-batch-ops-neon) ---
++// Each row hashes FOUR lanes per input, built from the input's slots by fixed permutations,
++// so the vector body (four lanes per step) runs on the oracle's own inputs and not only the
++// scalar tail. A tree without the batch API computes the same four lanes with the scalar
++// functions; the hashes were frozen from that scalar computation on the base tree, so a
++// matching hash is the batch path equal to the scalar loop. Fills: "In32" draws every slot
++// inside int32 (the mul/length/cross gate), "In30" inside int30 (the dot gate), "Mixed"
++// draws each slot's magnitude tier (inside, at and past each gate, and full range).
++static void fillBatchShifted( fixOracleInput* in, fixOracleRng* rng, int shift )
++{
++	for ( int i = 0; i < 6; ++i ) in->s[i] = ( int64_t )oracleRngNext( rng ) >> shift;
++}
++static void fillBatchIn32( fixOracleInput* in, uint64_t index, fixOracleRng* rng )
++{
++	( void )index;
++	fillBatchShifted( in, rng, 32 );
++}
++static void fillBatchIn30( fixOracleInput* in, uint64_t index, fixOracleRng* rng )
++{
++	( void )index;
++	fillBatchShifted( in, rng, 33 );
++}
++static void fillBatchMixed( fixOracleInput* in, uint64_t index, fixOracleRng* rng )
++{
++	static const int shifts[6] = { 34, 33, 32, 31, 30, 0 };
++	( void )index;
++	for ( int i = 0; i < 6; ++i )
++	{
++		int shift = shifts[oracleRngNext( rng ) % 6];
++		in->s[i] = ( int64_t )oracleRngNext( rng ) >> shift;
++	}
++}
++static void oracleBatchLanes( const fixOracleInput* in, fixed_t lanes[6][4] )
++{
++	static const int perm[4][6] = { { 0, 1, 2, 3, 4, 5 }, { 1, 2, 0, 4, 5, 3 }, { 3, 4, 5, 0, 1, 2 }, { 2, 0, 1, 5, 3, 4 } };
++	for ( int l = 0; l < 4; ++l )
++		for ( int k = 0; k < 6; ++k ) lanes[k][l] = in->s[perm[l][k]];
++}
++static void applyMulBatch( const fixOracleInput* in, fixOracleOutput* out )
++{
++	const fixed_t a[4] = { in->s[0], in->s[1], in->s[0], in->s[1] };
++	const fixed_t b[4] = { in->s[1], in->s[0], in->s[0], in->s[1] };
++	fixed_t r[4];
++#if defined( FIX_HAVE_BATCH_API )
++	fixMulBatch( r, a, b, 4 );
++#else
++	for ( int l = 0; l < 4; ++l ) r[l] = fixMul( a[l], b[l] );
++#endif
++	for ( int l = 0; l < 4; ++l ) out->s[l] = r[l];
++	out->n = 4;
++}
++static void applyDotBatch3Kind( const fixOracleInput* in, fixOracleOutput* out, int kind )
++{
++	fixed_t L[6][4];
++	fixVec3 va[4], vb[4];
++	fixed_t r[4];
++	oracleBatchLanes( in, L );
++	for ( int l = 0; l < 4; ++l )
++	{
++		va[l] = oracleVec( L[0][l], L[1][l], L[2][l] );
++		vb[l] = oracleVec( L[3][l], L[4][l], L[5][l] );
++	}
++#if defined( FIX_HAVE_BATCH_API )
++	if ( kind == 0 ) fixDotBatch3( r, L[0], L[1], L[2], L[3], L[4], L[5], 4 );
++	else if ( kind == 1 ) fixDotBatch3AoS( r, va, vb, 4 );
++	else fixDotBatch3AoSLd3( r, va, vb, 4 );
++#else
++	( void )kind;
++	for ( int l = 0; l < 4; ++l ) r[l] = fixDot( va[l], vb[l] );
++#endif
++	for ( int l = 0; l < 4; ++l ) out->s[l] = r[l];
++	out->n = 4;
++}
++static void applyDotBatch3( const fixOracleInput* in, fixOracleOutput* out ) { applyDotBatch3Kind( in, out, 0 ); }
++static void applyDotBatch3AoS( const fixOracleInput* in, fixOracleOutput* out ) { applyDotBatch3Kind( in, out, 1 ); }
++static void applyDotBatch3AoSLd3( const fixOracleInput* in, fixOracleOutput* out ) { applyDotBatch3Kind( in, out, 2 ); }
++static void applyLengthBatch( const fixOracleInput* in, fixOracleOutput* out )
++{
++	const fixed_t x[4] = { in->s[0], in->s[1], in->s[2], in->s[0] };
++	const fixed_t y[4] = { in->s[1], in->s[2], in->s[0], in->s[0] };
++	const fixed_t z[4] = { in->s[2], in->s[0], in->s[1], in->s[0] };
++	fixed_t r[4];
++#if defined( FIX_HAVE_BATCH_API )
++	fixLengthBatch( r, x, y, z, 4 );
++#else
++	for ( int l = 0; l < 4; ++l ) r[l] = fixLength( oracleVec( x[l], y[l], z[l] ) );
++#endif
++	for ( int l = 0; l < 4; ++l ) out->s[l] = r[l];
++	out->n = 4;
++}
++static void applyCrossBatch( const fixOracleInput* in, fixOracleOutput* out )
++{
++	fixed_t L[6][4];
++	fixed_t ox[4], oy[4], oz[4];
++	oracleBatchLanes( in, L );
++#if defined( FIX_HAVE_BATCH_API )
++	fixCrossBatch( ox, oy, oz, L[0], L[1], L[2], L[3], L[4], L[5], 4 );
++#else
++	for ( int l = 0; l < 4; ++l )
++	{
++		fixVec3 c = fixCross( oracleVec( L[0][l], L[1][l], L[2][l] ), oracleVec( L[3][l], L[4][l], L[5][l] ) );
++		ox[l] = c.x;
++		oy[l] = c.y;
++		oz[l] = c.z;
++	}
++#endif
++	for ( int l = 0; l < 4; ++l )
++	{
++		out->s[l] = ox[l];
++		out->s[4 + l] = oy[l];
++		out->s[8 + l] = oz[l];
++	}
++	out->n = 12;
++}
++
+ // --- quaternion ---
+ static void fillQuat( fixOracleInput* in, uint64_t index, fixOracleRng* rng )
+ {
+@@ -696,6 +812,16 @@ static const fixOracleOp oracleOps[] = {
+ 	{ "fixAABB_Transform", 13, 20, 0, fillAABBTransform, applyAABBTransform },
+ 	{ "fixQuantize", 2, 1, 0, fillQuantize, applyQuantize },
+ 	{ "fixDequantize", 2, 1, 0, fillQuantize, applyDequantize },
++	{ "fixMulBatch", 2, 4, 0, fillBatchIn32, applyMulBatch },
++	{ "fixMulBatch_mixed", 2, 4, 0, fillBatchMixed, applyMulBatch },
++	{ "fixDotBatch3", 6, 4, 0, fillBatchIn30, applyDotBatch3 },
++	{ "fixDotBatch3_mixed", 6, 4, 0, fillBatchMixed, applyDotBatch3 },
++	{ "fixDotBatch3AoS", 6, 4, 0, fillBatchIn30, applyDotBatch3AoS },
++	{ "fixDotBatch3AoSLd3", 6, 4, 0, fillBatchIn30, applyDotBatch3AoSLd3 },
++	{ "fixLengthBatch", 3, 4, 0, fillBatchIn32, applyLengthBatch },
++	{ "fixLengthBatch_mixed", 3, 4, 0, fillBatchMixed, applyLengthBatch },
++	{ "fixCrossBatch", 6, 4, 0, fillBatchIn32, applyCrossBatch },
++	{ "fixCrossBatch_mixed", 6, 4, 0, fillBatchMixed, applyCrossBatch },
+ };
+ 
+ #define FIX_ORACLE_OP_COUNT ( int )( sizeof oracleOps / sizeof oracleOps[0] )
+@@ -841,6 +967,12 @@ static void oracleFillRest( const fixOracleOp* op, fixOracleInput* in, uint64_t
+ 		in->s[4] = ( int64_t )( ( uint64_t )in->s[4] % ( UINT64_C( 1 ) << 40 ) );
+ 		in->s[7] |= 1;
+ 	}
++	if ( op->fill == fillBatchIn32 || op->fill == fillBatchIn30 )
++	{
++		// The derived slots stay inside the int30 gate, so whether the vector path runs is
++		// decided by the grid values in slots 0 and 1 (the edge and cross walks).
++		for ( int slot = start; slot < op->arity; ++slot ) in->s[slot] >>= 33;
++	}
+ 	if ( op->fill == fillLerp && op->arity >= 3 )
+ 	{
+ 		in->s[2] = oracleAlpha( ( uint64_t )in->s[2] );
 diff --git a/include/fixed/fixed_vec.h b/include/fixed/fixed_vec.h
-index e7f1d89..88a1c7f 100644
+index e7f1d89..60a4440 100644
 --- a/include/fixed/fixed_vec.h
 +++ b/include/fixed/fixed_vec.h
-@@ -1611,3 +1611,117 @@ FIX_INLINE fixVec3 fixClosestPointToAABB( fixVec3 point, fixAABB a )
+@@ -5,6 +5,7 @@
+ // positions have uniform precision everywhere, so fixPos is just fixVec3 -- no separate
+ // wide-world type. Ops on these types are being migrated here incrementally.
+ #pragma once
++#include <stddef.h>
+ #include "fixed/base.h"
+ #include "fixed/fixed.h"
+ #include "fixed/fixed_int256.h"
+@@ -25,6 +26,34 @@ typedef struct fixVec3
+ 	fixed_t z;
+ } fixVec3;
+ 
++// BATCH OPERATIONS (spike-batch-ops-neon experiment). Each entry point returns, for every
++// index, exactly the bits of the scalar function named beside it. On aarch64 an exactness
++// gate (one max-magnitude scan per call, part of the operation's cost) proves every
++// operand fits a 32-bit (or, for the three-term dot, 30-bit) lane; then smull/smlal
++// compute exact 64-bit products four lanes at a time. A failing gate runs the scalar loop.
++// Every other target runs the scalar loop. Outputs may alias inputs index-for-index.
++#define FIX_HAVE_BATCH_API 1
++
++/// out[i] = fixMul( a[i], b[i] ).
++FIX_API void fixMulBatch( fixed_t* out, const fixed_t* a, const fixed_t* b, size_t n );
++
++/// out[i] = fixDot( (ax,ay,az)[i], (bx,by,bz)[i] ), SoA inputs.
++FIX_API void fixDotBatch3( fixed_t* out, const fixed_t* ax, const fixed_t* ay, const fixed_t* az,
++						   const fixed_t* bx, const fixed_t* by, const fixed_t* bz, size_t n );
++
++/// out[i] = fixDot( a[i], b[i] ), AoS inputs de-swizzled with vuzp1q_s32 + vqtbl3q_u8.
++FIX_API void fixDotBatch3AoS( fixed_t* out, const fixVec3* a, const fixVec3* b, size_t n );
++
++/// out[i] = fixDot( a[i], b[i] ), AoS inputs de-swizzled with vld3q_s64 + vuzp1q_s32.
++FIX_API void fixDotBatch3AoSLd3( fixed_t* out, const fixVec3* a, const fixVec3* b, size_t n );
++
++/// out[i] = fixLength( (x,y,z)[i] ), SoA inputs.
++FIX_API void fixLengthBatch( fixed_t* out, const fixed_t* x, const fixed_t* y, const fixed_t* z, size_t n );
++
++/// (ox,oy,oz)[i] = fixCross( (ax,ay,az)[i], (bx,by,bz)[i] ), SoA inputs and outputs.
++FIX_API void fixCrossBatch( fixed_t* ox, fixed_t* oy, fixed_t* oz, const fixed_t* ax, const fixed_t* ay,
++							const fixed_t* az, const fixed_t* bx, const fixed_t* by, const fixed_t* bz, size_t n );
++
+ /// A quaternion.
+ typedef struct fixQuat
  {
- 	return fixVecClamp( point, a.lowerBound, a.upperBound );
+diff --git a/src/fixed_vec.c b/src/fixed_vec.c
+index 398c064..7e27529 100644
+--- a/src/fixed_vec.c
++++ b/src/fixed_vec.c
+@@ -88,3 +88,298 @@ fixQuat fixComputeQuatBetweenUnitVectors( fixVec3 v1, fixVec3 v2 )
+ 	// The algorithm is simplified and made more accurate by normalizing at the end
+ 	return fixNormalizeQuat( out );
  }
 +
 +// ---------------------------------------------------------------------------------------------
-+// NEON BATCH OPERATIONS (spike-batch-ops-neon experiment, NOT adopted into the stream).
++// BATCH OPERATIONS (spike-batch-ops-neon experiment, NOT adopted into the stream).
 +//
-+// The M3 has no 64-bit vector multiply (FEAT_SME 0, no SVE2, AMX private), so the narrow
-+// phase escapes through int32: when an exactness gate proves every operand fits a small
-+// lane, smull/smlal widen int32x2 -> int64x2 and compute exact int64 products four elements
-+// at a time, rounding once per reduction exactly as the scalar raw-128 dot does.
++// The M3 has no 64-bit vector multiply (FEAT_SME 0, no SVE2, AMX private), so the batch path
++// escapes through int32: when an exactness gate proves every operand fits a 32-bit lane,
++// smull/smull2 (vmull_s32/vmull_high_s32) produce the exact 64-bit product two lanes at a
++// time, and the rounding shift (srshr, vrshrq_n_s64) is exactly fixMul's
++// (p + FIX_HALF) >> FIX_FRACTION_BITS on a product that already fits 64 bits.
 +//
-+// GATE WIDTHS (the lesson the spike taught). A two-operand product (fixMulBatch) is exact
-+// in a signed 64-bit lane when both operands fit int32 (|x| <= 2^31 - 1). A three-term dot
-+// needs one more bit of headroom: three int32 products can sum to 3*2^62 = 1.5*2^63, which
-+// overflows the int64 lane, so the dot gate is int30 (|x| < 2^30). A failing gate runs the
-+// scalar loop, so any batch is bit-identical regardless of the gate's exact width. The gate
-+// scan is part of the operation and is timed. These entry points are compiled only on
-+// aarch64 (NEON); elsewhere they fall through to the scalar loop.
++// GATE WIDTHS. A product of two int32 operands is at most 2^62 in magnitude: exact in an
++// int64 lane, so fixMulBatch, fixCrossBatch (each product rounded on its own, then one
++// subtraction of two values below 2^46) and fixLengthBatch (three squares, each <= 2^62,
++// non-negative, summing below 3 * 2^62 < 2^64 in an unsigned lane) use the int32 gate. The
++// three-term SIGNED dot cannot: three int32 products reach 3 * 2^62 > 2^63, so its gate is
++// int30 (|x| <= 2^30, sum <= 3 * 2^60). That is the lesson attempt 2 recorded.
++//
++// The gate is one OR-of-magnitudes scan per call over every operand array, (x ^ (x >> 63)),
++// which is below 2^(k-1) exactly when x fits a signed k-bit lane. It is inside every timed
++// call. When it fails the WHOLE call runs the scalar loop, so every output equals the scalar
++// function for every input, by construction on one side and by the gate on the other.
 +// ---------------------------------------------------------------------------------------------
-+
-+#if defined( __aarch64__ )
++#if defined( __aarch64__ ) || defined( _M_ARM64 )
 +	#include <arm_neon.h>
++	#define FIX_BATCH_NEON 1
++#else
++	#define FIX_BATCH_NEON 0
 +#endif
 +
-+/// True when every operand magnitude is strictly inside +/-bound (a single max scan). With
-+/// bound = 1<<31 this proves each value fits int32; with bound = 1<<30 it proves the dot
-+/// accumulation below cannot overflow an int64 lane.
-+FIX_INLINE bool fixBatchFitsMagnitude( const fixed_t* v, int n, int64_t bound )
++#if FIX_BATCH_NEON
++// OR over the array of x ^ (x >> 63). Below 2^(k-1) iff every element fits a signed k-bit lane.
++static uint64_t fixBatchMagnitudeOr( const fixed_t* v, size_t n )
 +{
-+	for ( int i = 0; i < n; ++i )
++	uint64x2_t acc0 = vdupq_n_u64( 0 );
++	uint64x2_t acc1 = vdupq_n_u64( 0 );
++	size_t i = 0;
++	for ( ; i + 4 <= n; i += 4 )
 +	{
-+		if ( v[i] >= bound || v[i] <= -bound ) return false;
++		int64x2_t x0 = vld1q_s64( v + i );
++		int64x2_t x1 = vld1q_s64( v + i + 2 );
++		acc0 = vorrq_u64( acc0, vreinterpretq_u64_s64( veorq_s64( x0, vshrq_n_s64( x0, 63 ) ) ) );
++		acc1 = vorrq_u64( acc1, vreinterpretq_u64_s64( veorq_s64( x1, vshrq_n_s64( x1, 63 ) ) ) );
 +	}
-+	return true;
++	uint64x2_t acc = vorrq_u64( acc0, acc1 );
++	uint64_t r = vgetq_lane_u64( acc, 0 ) | vgetq_lane_u64( acc, 1 );
++	for ( ; i < n; ++i )
++	{
++		r |= (uint64_t)v[i] ^ (uint64_t)( v[i] < 0 ? -1 : 0 );
++	}
++	return r;
 +}
 +
-+/// Batch fixed-point multiply: out[i] = fixMul( a[i], b[i] ). Bit-identical to the scalar
-+/// loop for every input; the aarch64 path widens int32x4 -> int64x2 per product and rounds
-+/// with a single (product + FIX_HALF) >> 16, exactly as fixMul's native body.
-+FIX_INLINE void fixMulBatch( const fixed_t* a, const fixed_t* b, fixed_t* out, int n )
++// Four consecutive int64 (already proven to fit int32) -> one int32x4: the low halves.
++static inline int32x4_t fixBatchNarrow4( const fixed_t* p )
 +{
-+	int i = 0;
-+#if defined( __aarch64__ ) && !defined( FIX_SATURATE )
-+	const int64_t bound = (int64_t)1 << 31;
-+	if ( fixBatchFitsMagnitude( a, n, bound ) && fixBatchFitsMagnitude( b, n, bound ) )
++	return vuzp1q_s32( vreinterpretq_s32_s64( vld1q_s64( p ) ), vreinterpretq_s32_s64( vld1q_s64( p + 2 ) ) );
++}
++
++// AoS de-swizzle, the vuzp1q_s32 + vqtbl3q_u8 form: four fixVec3 (12 int64, 96 bytes) are
++// narrowed pairwise to three int32x4 holding x0 y0 z0 x1 | y1 z1 x2 y2 | z2 x3 y3 z3, and one
++// three-register table lookup per component gathers x0..x3, y0..y3, z0..z3.
++static const uint8_t fixBatchTblX[16] = { 0, 1, 2, 3, 12, 13, 14, 15, 24, 25, 26, 27, 36, 37, 38, 39 };
++static const uint8_t fixBatchTblY[16] = { 4, 5, 6, 7, 16, 17, 18, 19, 28, 29, 30, 31, 40, 41, 42, 43 };
++static const uint8_t fixBatchTblZ[16] = { 8, 9, 10, 11, 20, 21, 22, 23, 32, 33, 34, 35, 44, 45, 46, 47 };
++
++static inline void fixBatchDeswizzleTbl( const fixVec3* v, uint8x16_t ix, uint8x16_t iy, uint8x16_t iz,
++										 int32x4_t* x, int32x4_t* y, int32x4_t* z )
++{
++	const fixed_t* p = &v->x;
++	uint8x16x3_t t;
++	t.val[0] = vreinterpretq_u8_s32( fixBatchNarrow4( p ) );
++	t.val[1] = vreinterpretq_u8_s32( fixBatchNarrow4( p + 4 ) );
++	t.val[2] = vreinterpretq_u8_s32( fixBatchNarrow4( p + 8 ) );
++	*x = vreinterpretq_s32_u8( vqtbl3q_u8( t, ix ) );
++	*y = vreinterpretq_s32_u8( vqtbl3q_u8( t, iy ) );
++	*z = vreinterpretq_s32_u8( vqtbl3q_u8( t, iz ) );
++}
++
++// AoS de-swizzle, the vld3q_s64 form: the structure load splits x, y, z two vectors at a time
++// and one vuzp1q_s32 per component narrows the pair of int64x2 to int32x4.
++static inline void fixBatchDeswizzleLd3( const fixVec3* v, int32x4_t* x, int32x4_t* y, int32x4_t* z )
++{
++	const fixed_t* p = &v->x;
++	int64x2x3_t lo = vld3q_s64( p );
++	int64x2x3_t hi = vld3q_s64( p + 6 );
++	*x = vuzp1q_s32( vreinterpretq_s32_s64( lo.val[0] ), vreinterpretq_s32_s64( hi.val[0] ) );
++	*y = vuzp1q_s32( vreinterpretq_s32_s64( lo.val[1] ), vreinterpretq_s32_s64( hi.val[1] ) );
++	*z = vuzp1q_s32( vreinterpretq_s32_s64( lo.val[2] ), vreinterpretq_s32_s64( hi.val[2] ) );
++}
++
++// Three-term dot of int30 lanes, four results, one rounding each: smull, smlal, smlal (and
++// the smull2/smlal2 high halves), then srshr by FIX_FRACTION_BITS.
++static inline void fixBatchDot4( fixed_t* out, int32x4_t ax, int32x4_t ay, int32x4_t az, int32x4_t bx,
++								 int32x4_t by, int32x4_t bz )
++{
++	int64x2_t lo = vmull_s32( vget_low_s32( ax ), vget_low_s32( bx ) );
++	int64x2_t hi = vmull_high_s32( ax, bx );
++	lo = vmlal_s32( lo, vget_low_s32( ay ), vget_low_s32( by ) );
++	hi = vmlal_high_s32( hi, ay, by );
++	lo = vmlal_s32( lo, vget_low_s32( az ), vget_low_s32( bz ) );
++	hi = vmlal_high_s32( hi, az, bz );
++	vst1q_s64( out, vrshrq_n_s64( lo, FIX_FRACTION_BITS ) );
++	vst1q_s64( out + 2, vrshrq_n_s64( hi, FIX_FRACTION_BITS ) );
++}
++
++// Exact floor square root of two u64 lanes below 3 * 2^62. The double seed is within one of
++// the floor (the input rounds by 2^-53 relative, the root by half an ulp of a value below
++// 2^32: together far below one unit), and one downward and one upward step repair it to the
++// exact integer floor. Squares are formed with umull on the 32-bit root, so they are exact.
++static inline uint64x2_t fixBatchISqrt2( uint64x2_t n )
++{
++	uint64x2_t r = vcvtq_u64_f64( vsqrtq_f64( vcvtq_f64_u64( n ) ) );
++	uint32x2_t r32 = vmovn_u64( r );
++	uint64x2_t rr = vmull_u32( r32, r32 );
++	r = vaddq_u64( r, vcgtq_u64( rr, n ) ); // r*r > n: r - 1
++	r32 = vmovn_u64( r );
++	rr = vmull_u32( r32, r32 );
++	r = vsubq_u64( r, vcgtq_u64( vsubq_u64( n, rr ), vshlq_n_u64( r, 1 ) ) ); // n - r*r > 2r: r + 1
++	return r;
++}
++#endif
++
++void fixMulBatch( fixed_t* out, const fixed_t* a, const fixed_t* b, size_t n )
++{
++	size_t i = 0;
++#if FIX_BATCH_NEON
++	if ( ( ( fixBatchMagnitudeOr( a, n ) | fixBatchMagnitudeOr( b, n ) ) >> 31 ) == 0 )
 +	{
-+		const int64x2_t half = vdupq_n_s64( FIX_HALF );
-+		for ( ; i + 3 < n; i += 4 )
++		for ( ; i + 4 <= n; i += 4 )
 +		{
-+			int64x2_t a01 = vld1q_s64( &a[i] );
-+			int64x2_t a23 = vld1q_s64( &a[i + 2] );
-+			int32x4_t av = vuzp1q_s32( vreinterpretq_s32_s64( a01 ), vreinterpretq_s32_s64( a23 ) );
-+			int64x2_t b01 = vld1q_s64( &b[i] );
-+			int64x2_t b23 = vld1q_s64( &b[i + 2] );
-+			int32x4_t bv = vuzp1q_s32( vreinterpretq_s32_s64( b01 ), vreinterpretq_s32_s64( b23 ) );
++			int32x4_t av = fixBatchNarrow4( a + i );
++			int32x4_t bv = fixBatchNarrow4( b + i );
 +			int64x2_t lo = vmull_s32( vget_low_s32( av ), vget_low_s32( bv ) );
 +			int64x2_t hi = vmull_high_s32( av, bv );
-+			lo = vshrq_n_s64( vaddq_s64( lo, half ), FIX_FRACTION_BITS );
-+			hi = vshrq_n_s64( vaddq_s64( hi, half ), FIX_FRACTION_BITS );
-+			vst1q_s64( &out[i], lo );
-+			vst1q_s64( &out[i + 2], hi );
++			vst1q_s64( out + i, vrshrq_n_s64( lo, FIX_FRACTION_BITS ) );
++			vst1q_s64( out + i + 2, vrshrq_n_s64( hi, FIX_FRACTION_BITS ) );
 +		}
 +	}
 +#endif
-+	for ( ; i < n; ++i ) out[i] = fixMul( a[i], b[i] );
++	for ( ; i < n; ++i )
++	{
++		out[i] = fixMul( a[i], b[i] );
++	}
 +}
 +
-+/// Batch vector dot product: out[i] = fixDot( a[i], b[i] ). The aarch64 path de-swizzles
-+/// (vld3q_s32) four AoS vec3 into SoA lanes and accumulates the three products with
-+/// vmull/vmlal/vmlal_high, rounding once with (sum + FIX_HALF) >> 16.
-+FIX_INLINE void fixDotBatch3( const fixVec3* a, const fixVec3* b, fixed_t* out, int n )
++void fixDotBatch3( fixed_t* out, const fixed_t* ax, const fixed_t* ay, const fixed_t* az, const fixed_t* bx,
++				   const fixed_t* by, const fixed_t* bz, size_t n )
 +{
-+	int i = 0;
-+#if defined( __aarch64__ ) && !defined( FIX_SATURATE )
-+	// int30 gate: three int32 products can overflow an int64 lane (3*2^62 > 2^63).
-+	const int64_t bound = (int64_t)1 << 30;
-+	int ok = 1;
-+	for ( int k = 0; k < n && ok; ++k )
++	size_t i = 0;
++#if FIX_BATCH_NEON
++	uint64_t m = fixBatchMagnitudeOr( ax, n ) | fixBatchMagnitudeOr( ay, n ) | fixBatchMagnitudeOr( az, n ) |
++				 fixBatchMagnitudeOr( bx, n ) | fixBatchMagnitudeOr( by, n ) | fixBatchMagnitudeOr( bz, n );
++	if ( ( m >> 30 ) == 0 )
 +	{
-+		if ( a[k].x >= bound || a[k].x <= -bound || a[k].y >= bound || a[k].y <= -bound ||
-+			 a[k].z >= bound || a[k].z <= -bound || b[k].x >= bound || b[k].x <= -bound ||
-+			 b[k].y >= bound || b[k].y <= -bound || b[k].z >= bound || b[k].z <= -bound ) ok = 0;
-+	}
-+	if ( ok )
-+	{
-+		const int64x2_t half = vdupq_n_s64( FIX_HALF );
-+		for ( ; i + 3 < n; i += 4 )
++		for ( ; i + 4 <= n; i += 4 )
 +		{
-+			int32_t aa[12];
-+			int32_t bb[12];
-+			for ( int k = 0; k < 4; ++k )
-+			{
-+				aa[k * 3 + 0] = (int32_t)a[i + k].x;
-+				aa[k * 3 + 1] = (int32_t)a[i + k].y;
-+				aa[k * 3 + 2] = (int32_t)a[i + k].z;
-+				bb[k * 3 + 0] = (int32_t)b[i + k].x;
-+				bb[k * 3 + 1] = (int32_t)b[i + k].y;
-+				bb[k * 3 + 2] = (int32_t)b[i + k].z;
-+			}
-+			int32x4x3_t av = vld3q_s32( aa );
-+			int32x4x3_t bv = vld3q_s32( bb );
-+			int64x2_t lo = vmull_s32( vget_low_s32( av.val[0] ), vget_low_s32( bv.val[0] ) );
-+			int64x2_t hi = vmull_high_s32( av.val[0], bv.val[0] );
-+			lo = vmlal_s32( lo, vget_low_s32( av.val[1] ), vget_low_s32( bv.val[1] ) );
-+			hi = vmlal_high_s32( hi, av.val[1], bv.val[1] );
-+			lo = vmlal_s32( lo, vget_low_s32( av.val[2] ), vget_low_s32( bv.val[2] ) );
-+			hi = vmlal_high_s32( hi, av.val[2], bv.val[2] );
-+			lo = vshrq_n_s64( vaddq_s64( lo, half ), FIX_FRACTION_BITS );
-+			hi = vshrq_n_s64( vaddq_s64( hi, half ), FIX_FRACTION_BITS );
-+			vst1q_s64( &out[i], lo );
-+			vst1q_s64( &out[i + 2], hi );
++			fixBatchDot4( out + i, fixBatchNarrow4( ax + i ), fixBatchNarrow4( ay + i ), fixBatchNarrow4( az + i ),
++						  fixBatchNarrow4( bx + i ), fixBatchNarrow4( by + i ), fixBatchNarrow4( bz + i ) );
 +		}
 +	}
 +#endif
-+	for ( ; i < n; ++i ) out[i] = fixDot( a[i], b[i] );
++	for ( ; i < n; ++i )
++	{
++		fixVec3 a = { ax[i], ay[i], az[i] };
++		fixVec3 b = { bx[i], by[i], bz[i] };
++		out[i] = fixDot( a, b );
++	}
 +}
-diff --git a/test/neon_batch_test.c b/test/neon_batch_test.c
-new file mode 100644
-index 0000000..cc5a4f5
---- /dev/null
-+++ b/test/neon_batch_test.c
-@@ -0,0 +1,160 @@
-+// SPDX-License-Identifier: MIT
-+// NeonBatchEquivalenceTest (spike-batch-ops-neon experiment, NOT adopted).
-+//
-+// Compares the NEON batch entry points (fixMulBatch, fixDotBatch3) against the scalar
-+// functions bit-for-bit over seeded batches whose magnitudes sit below, at and just above
-+// the exactness gate, the structured edge grid, and n tails 0..9 and 1023. No clock, no
-+// files, no socket: real time never appears, a counter records the comparisons.
-+//
-+// Compiled only on aarch64, where the NEON path exists. Elsewhere this file is NOT built
-+// (the CMake registration is guarded); if it is ever built by hand elsewhere it prints SKIP
-+// and returns 0, and a SKIP is not a pass in the report.
-+#include "fixed/fixed.h"
-+#include "fixed/fixed_vec.h"
-+#include <stdio.h>
-+#include <stdint.h>
 +
-+static int fails = 0;
-+static uint64_t compared = 0;
-+#define CHECK( cond ) \
-+	do { if ( !( cond ) ) { printf( "FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond ); fails++; } } while ( 0 )
-+
-+// Constant-seeded xorshift64*, so the batch is a property of the source, not of a machine.
-+static uint64_t rngState = UINT64_C( 0x9E3779B97F4A7C15 );
-+static uint64_t nextU64( void )
++void fixDotBatch3AoS( fixed_t* out, const fixVec3* a, const fixVec3* b, size_t n )
 +{
-+	uint64_t x = rngState;
++	size_t i = 0;
++#if FIX_BATCH_NEON
++	if ( ( ( fixBatchMagnitudeOr( &a->x, 3 * n ) | fixBatchMagnitudeOr( &b->x, 3 * n ) ) >> 30 ) == 0 )
++	{
++		const uint8x16_t ix = vld1q_u8( fixBatchTblX );
++		const uint8x16_t iy = vld1q_u8( fixBatchTblY );
++		const uint8x16_t iz = vld1q_u8( fixBatchTblZ );
++		for ( ; i + 4 <= n; i += 4 )
++		{
++			int32x4_t pax, pay, paz, pbx, pby, pbz;
++			fixBatchDeswizzleTbl( a + i, ix, iy, iz, &pax, &pay, &paz );
++			fixBatchDeswizzleTbl( b + i, ix, iy, iz, &pbx, &pby, &pbz );
++			fixBatchDot4( out + i, pax, pay, paz, pbx, pby, pbz );
++		}
++	}
++#endif
++	for ( ; i < n; ++i )
++	{
++		out[i] = fixDot( a[i], b[i] );
++	}
++}
++
++void fixDotBatch3AoSLd3( fixed_t* out, const fixVec3* a, const fixVec3* b, size_t n )
++{
++	size_t i = 0;
++#if FIX_BATCH_NEON
++	if ( ( ( fixBatchMagnitudeOr( &a->x, 3 * n ) | fixBatchMagnitudeOr( &b->x, 3 * n ) ) >> 30 ) == 0 )
++	{
++		for ( ; i + 4 <= n; i += 4 )
++		{
++			int32x4_t pax, pay, paz, pbx, pby, pbz;
++			fixBatchDeswizzleLd3( a + i, &pax, &pay, &paz );
++			fixBatchDeswizzleLd3( b + i, &pbx, &pby, &pbz );
++			fixBatchDot4( out + i, pax, pay, paz, pbx, pby, pbz );
++		}
++	}
++#endif
++	for ( ; i < n; ++i )
++	{
++		out[i] = fixDot( a[i], b[i] );
++	}
++}
++
++void fixLengthBatch( fixed_t* out, const fixed_t* x, const fixed_t* y, const fixed_t* z, size_t n )
++{
++	size_t i = 0;
++#if FIX_BATCH_NEON
++	if ( ( ( fixBatchMagnitudeOr( x, n ) | fixBatchMagnitudeOr( y, n ) | fixBatchMagnitudeOr( z, n ) ) >> 31 ) == 0 )
++	{
++		for ( ; i + 4 <= n; i += 4 )
++		{
++			int32x4_t xv = fixBatchNarrow4( x + i );
++			int32x4_t yv = fixBatchNarrow4( y + i );
++			int32x4_t zv = fixBatchNarrow4( z + i );
++			// Each square <= 2^62 and non-negative; the sum < 3 * 2^62 is exact as u64
++			// (the signed lanes wrap, the unsigned reading of the same bits does not).
++			int64x2_t lo = vmull_s32( vget_low_s32( xv ), vget_low_s32( xv ) );
++			int64x2_t hi = vmull_high_s32( xv, xv );
++			lo = vmlal_s32( lo, vget_low_s32( yv ), vget_low_s32( yv ) );
++			hi = vmlal_high_s32( hi, yv, yv );
++			lo = vmlal_s32( lo, vget_low_s32( zv ), vget_low_s32( zv ) );
++			hi = vmlal_high_s32( hi, zv, zv );
++			vst1q_s64( out + i, vreinterpretq_s64_u64( fixBatchISqrt2( vreinterpretq_u64_s64( lo ) ) ) );
++			vst1q_s64( out + i + 2, vreinterpretq_s64_u64( fixBatchISqrt2( vreinterpretq_u64_s64( hi ) ) ) );
++		}
++	}
++#endif
++	for ( ; i < n; ++i )
++	{
++		fixVec3 v = { x[i], y[i], z[i] };
++		out[i] = fixLength( v );
++	}
++}
++
++#if FIX_BATCH_NEON
++static inline int64x2_t fixBatchMulLo( int32x4_t a, int32x4_t b )
++{
++	return vrshrq_n_s64( vmull_s32( vget_low_s32( a ), vget_low_s32( b ) ), FIX_FRACTION_BITS );
++}
++static inline int64x2_t fixBatchMulHi( int32x4_t a, int32x4_t b )
++{
++	return vrshrq_n_s64( vmull_high_s32( a, b ), FIX_FRACTION_BITS );
++}
++#endif
++
++void fixCrossBatch( fixed_t* ox, fixed_t* oy, fixed_t* oz, const fixed_t* ax, const fixed_t* ay, const fixed_t* az,
++					const fixed_t* bx, const fixed_t* by, const fixed_t* bz, size_t n )
++{
++	size_t i = 0;
++#if FIX_BATCH_NEON
++	uint64_t m = fixBatchMagnitudeOr( ax, n ) | fixBatchMagnitudeOr( ay, n ) | fixBatchMagnitudeOr( az, n ) |
++				 fixBatchMagnitudeOr( bx, n ) | fixBatchMagnitudeOr( by, n ) | fixBatchMagnitudeOr( bz, n );
++	if ( ( m >> 31 ) == 0 )
++	{
++		for ( ; i + 4 <= n; i += 4 )
++		{
++			int32x4_t vax = fixBatchNarrow4( ax + i ), vay = fixBatchNarrow4( ay + i ), vaz = fixBatchNarrow4( az + i );
++			int32x4_t vbx = fixBatchNarrow4( bx + i ), vby = fixBatchNarrow4( by + i ), vbz = fixBatchNarrow4( bz + i );
++			// fixCross: each product rounded on its own (fixMul), then one subtraction.
++			int64x2_t xl = vsubq_s64( fixBatchMulLo( vay, vbz ), fixBatchMulLo( vaz, vby ) );
++			int64x2_t xh = vsubq_s64( fixBatchMulHi( vay, vbz ), fixBatchMulHi( vaz, vby ) );
++			int64x2_t yl = vsubq_s64( fixBatchMulLo( vaz, vbx ), fixBatchMulLo( vax, vbz ) );
++			int64x2_t yh = vsubq_s64( fixBatchMulHi( vaz, vbx ), fixBatchMulHi( vax, vbz ) );
++			int64x2_t zl = vsubq_s64( fixBatchMulLo( vax, vby ), fixBatchMulLo( vay, vbx ) );
++			int64x2_t zh = vsubq_s64( fixBatchMulHi( vax, vby ), fixBatchMulHi( vay, vbx ) );
++			vst1q_s64( ox + i, xl );
++			vst1q_s64( ox + i + 2, xh );
++			vst1q_s64( oy + i, yl );
++			vst1q_s64( oy + i + 2, yh );
++			vst1q_s64( oz + i, zl );
++			vst1q_s64( oz + i + 2, zh );
++		}
++	}
++#endif
++	for ( ; i < n; ++i )
++	{
++		fixVec3 a = { ax[i], ay[i], az[i] };
++		fixVec3 b = { bx[i], by[i], bz[i] };
++		fixVec3 c = fixCross( a, b );
++		ox[i] = c.x;
++		oy[i] = c.y;
++		oz[i] = c.z;
++	}
++}
+diff --git a/test/exhaustive_test.c b/test/exhaustive_test.c
+index 412dedc..599dd05 100644
+--- a/test/exhaustive_test.c
++++ b/test/exhaustive_test.c
+@@ -81,6 +81,192 @@ static refInt128 ref_div_128( refInt128 a, refInt128 b )
+ 	#define HAS_NATIVE_INT128 0
+ #endif
+ 
++// ---- NeonBatchEquivalenceTest (spike-batch-ops-neon experiment) -------------------------
++// Every batch entry point is compared, output word by output word, with the scalar function
++// it stands for: seeded batches whose magnitudes sit below, at and just above each gate
++// (int30 for the dot, int32 for the rest), the structured edge grid crossed with itself, and
++// n tails 0..9 and 1023 at every misalignment the main loop can leave. No clock, no files: a
++// counter records the comparisons. On aarch64 a build without the batch API is RED (the test
++// fails, it does not skip). Elsewhere the NEON path does not exist: the test prints SKIP by
++// name, and a SKIP is not a pass.
++#if defined( __aarch64__ ) || defined( _M_ARM64 )
++	#define NEON_BATCH_TARGET 1
++#else
++	#define NEON_BATCH_TARGET 0
++#endif
++
++#if NEON_BATCH_TARGET && defined( FIX_HAVE_BATCH_API )
++static uint64_t nbState = 0x9E3779B97F4A7C15ULL;
++static uint64_t nbNext( void )
++{
++	uint64_t x = nbState;
 +	x ^= x >> 12;
 +	x ^= x << 25;
 +	x ^= x >> 27;
-+	rngState = x;
-+	return x * UINT64_C( 2685821657736338717 );
++	nbState = x;
++	return x * 2685821657736338717ULL;
 +}
-+// A signed draw in the open interval (-bound, bound).
-+static fixed_t drawIn( int64_t bound )
++// Magnitude tiers, as arithmetic right shifts of a full 64-bit draw: >>34 inside int30,
++// >>33 exactly the int30 range, >>32 exactly the int32 range, >>31 just past int32, 0 full.
++static const int nbShifts[5] = { 34, 33, 32, 31, 0 };
++static fixed_t nbDraw( int shift ) { return (fixed_t)( (int64_t)nbNext() >> shift ); }
++
++enum { NB_MAX = 1024 + 8 };
++static uint64_t nbCompared = 0;
++static fixed_t nbA[6][NB_MAX], nbOut[3][NB_MAX];
++static fixVec3 nbVa[NB_MAX], nbVb[NB_MAX];
++
++// Runs every batch entry point on nbA[0..5][off .. off+n) and checks each output word.
++static void nbCheckAll( size_t off, size_t n )
 +{
-+	uint64_t r = nextU64();
-+	// bound is a power of two; magnitude in [0, bound-1], sign from the top bit.
-+	fixed_t m = (fixed_t)( r % ( uint64_t )( bound - 1 ) );
-+	return ( r & UINT64_C( 0x8000000000000000 ) ) ? -m : m;
-+}
-+
-+// The structured edge grid the oracle uses, reduced to the magnitudes a gate cares about.
-+static const fixed_t grid[] = {
-+	0, 1, -1, FIX_ONE, -FIX_ONE, FIX_HALF, INT64_MAX, INT64_MIN, FIX_MAX, FIX_MIN,
-+	( (fixed_t)1 << 29 ), -( (fixed_t)1 << 29 ), ( (fixed_t)( ( (int64_t)1 << 30 ) - 1 ) ),
-+	-( (fixed_t)( ( (int64_t)1 << 30 ) - 1 ) ), (fixed_t)1 << 30, -( (fixed_t)1 << 30 ),
-+	( (fixed_t)1 << 31 ) - 1, -( ( (fixed_t)1 << 31 ) - 1 ), (fixed_t)1 << 31, -( (fixed_t)1 << 31 ),
-+};
-+
-+enum { GRID_N = ( int )( sizeof grid / sizeof grid[0] ) };
-+
-+static void checkMulBatch( const fixed_t* a, const fixed_t* b, int n )
-+{
-+	static fixed_t out[2048];
-+	static fixed_t ref[2048];
-+	fixMulBatch( a, b, out, n );
-+	for ( int i = 0; i < n; ++i ) ref[i] = fixMul( a[i], b[i] );
-+	for ( int i = 0; i < n; ++i )
++	for ( size_t i = 0; i < n; ++i )
 +	{
-+		++compared;
-+		CHECK( out[i] == ref[i] );
++		nbVa[i] = FIX_LITERAL( fixVec3 ){ nbA[0][off + i], nbA[1][off + i], nbA[2][off + i] };
++		nbVb[i] = FIX_LITERAL( fixVec3 ){ nbA[3][off + i], nbA[4][off + i], nbA[5][off + i] };
++	}
++	fixMulBatch( nbOut[0], nbA[0] + off, nbA[3] + off, n );
++	for ( size_t i = 0; i < n; ++i, ++nbCompared ) CHECK( nbOut[0][i] == fixMul( nbA[0][off + i], nbA[3][off + i] ) );
++
++	fixDotBatch3( nbOut[0], nbA[0] + off, nbA[1] + off, nbA[2] + off, nbA[3] + off, nbA[4] + off, nbA[5] + off, n );
++	for ( size_t i = 0; i < n; ++i, ++nbCompared ) CHECK( nbOut[0][i] == fixDot( nbVa[i], nbVb[i] ) );
++	fixDotBatch3AoS( nbOut[1], nbVa, nbVb, n );
++	for ( size_t i = 0; i < n; ++i, ++nbCompared ) CHECK( nbOut[1][i] == fixDot( nbVa[i], nbVb[i] ) );
++	fixDotBatch3AoSLd3( nbOut[2], nbVa, nbVb, n );
++	for ( size_t i = 0; i < n; ++i, ++nbCompared ) CHECK( nbOut[2][i] == fixDot( nbVa[i], nbVb[i] ) );
++
++	fixLengthBatch( nbOut[0], nbA[0] + off, nbA[1] + off, nbA[2] + off, n );
++	for ( size_t i = 0; i < n; ++i, ++nbCompared ) CHECK( nbOut[0][i] == fixLength( nbVa[i] ) );
++
++	fixCrossBatch( nbOut[0], nbOut[1], nbOut[2], nbA[0] + off, nbA[1] + off, nbA[2] + off, nbA[3] + off,
++				   nbA[4] + off, nbA[5] + off, n );
++	for ( size_t i = 0; i < n; ++i, ++nbCompared )
++	{
++		fixVec3 c = fixCross( nbVa[i], nbVb[i] );
++		CHECK( nbOut[0][i] == c.x && nbOut[1][i] == c.y && nbOut[2][i] == c.z );
 +	}
 +}
++#endif
 +
-+static void checkDotBatch( const fixVec3* a, const fixVec3* b, int n )
++static void NeonBatchEquivalenceTest( void )
 +{
-+	static fixed_t out[2048];
-+	static fixed_t ref[2048];
-+	fixDotBatch3( a, b, out, n );
-+	for ( int i = 0; i < n; ++i ) ref[i] = fixDot( a[i], b[i] );
-+	for ( int i = 0; i < n; ++i )
-+	{
-+		++compared;
-+		CHECK( out[i] == ref[i] );
-+	}
-+}
-+
-+int main( void )
-+{
-+#if !defined( __aarch64__ )
-+	printf( "SKIP: NeonBatchEquivalenceTest is compiled only on aarch64 (a SKIP is not a pass).\n" );
-+	return 0;
++#if NEON_BATCH_TARGET && !defined( FIX_HAVE_BATCH_API )
++	printf( "FAIL %s:%d: NeonBatchEquivalenceTest: no batch API (fixMulBatch, fixDotBatch3, ...) on aarch64\n",
++			__FILE__, __LINE__ );
++	fails++;
++#elif !NEON_BATCH_TARGET
++	printf( "SKIP: NeonBatchEquivalenceTest (no NEON on this target; a SKIP is not a pass)\n" );
 +#else
-+	// Seeded batches at four magnitude tiers: well inside int30, at int30, in int32 but
-+	// past int30, and past int32 (the gate must reject the last two and fall back).
-+	enum { N = 1024 };
-+	static fixed_t sa[N], sb[N];
-+	static fixVec3 va[N], vb[N];
-+	const int64_t tiers[4] = { (int64_t)1 << 28, (int64_t)1 << 30, (int64_t)1 << 31, INT64_MAX };
-+	for ( int t = 0; t < 4; ++t )
++	const int failsBefore = fails;
++	// Seeded batches: every lane from one tier, then mixed tiers (one lane past the gate
++	// sends the whole call down the scalar loop).
++	for ( int t = 0; t < 6; ++t )
 +	{
-+		for ( int i = 0; i < N; ++i )
++		for ( int rep = 0; rep < 8; ++rep )
 +		{
-+			sa[i] = drawIn( tiers[t] );
-+			sb[i] = drawIn( tiers[t] );
-+			va[i] = FIX_LITERAL( fixVec3 ){ drawIn( tiers[t] ), drawIn( tiers[t] ), drawIn( tiers[t] ) };
-+			vb[i] = FIX_LITERAL( fixVec3 ){ drawIn( tiers[t] ), drawIn( tiers[t] ), drawIn( tiers[t] ) };
++			for ( int k = 0; k < 6; ++k )
++				for ( int i = 0; i < 1024; ++i )
++					nbA[k][i] = nbDraw( t < 5 ? nbShifts[t] : nbShifts[nbNext() % 5] );
++			nbCheckAll( 0, 1024 );
 +		}
-+		checkMulBatch( sa, sb, N );
-+		checkDotBatch( va, vb, N );
 +	}
-+
-+	// The structured grid crossed with itself (bound the count so the run stays short).
++	// One lane at the boundary, every other lane deep inside: the scan must see it wherever
++	// it sits (main loop, the second accumulator, the tail).
 +	{
-+		static fixed_t ga[GRID_N * GRID_N], gb[GRID_N * GRID_N];
-+		static fixVec3 dg[GRID_N * GRID_N], eg[GRID_N * GRID_N];
-+		int k = 0;
-+		for ( int i = 0; i < GRID_N; ++i )
++		static const fixed_t edge[] = { (fixed_t)1 << 29, -( (fixed_t)1 << 30 ), ( (fixed_t)1 << 30 ) - 1,
++										(fixed_t)1 << 30, -( ( (fixed_t)1 << 30 ) + 1 ), ( (fixed_t)1 << 31 ) - 1,
++										-( (fixed_t)1 << 31 ), (fixed_t)1 << 31, -( ( (fixed_t)1 << 31 ) + 1 ),
++										INT64_MAX, INT64_MIN, FIX_MAX, FIX_MIN };
++		for ( size_t e = 0; e < sizeof edge / sizeof edge[0]; ++e )
 +		{
-+			for ( int j = 0; j < GRID_N; ++j, ++k )
++			for ( size_t pos = 0; pos < 11; ++pos )
 +			{
-+				ga[k] = grid[i];
-+				gb[k] = grid[j];
-+				dg[k] = FIX_LITERAL( fixVec3 ){ grid[i], grid[j], grid[( i + j ) % GRID_N] };
-+				eg[k] = FIX_LITERAL( fixVec3 ){ grid[j], grid[i], grid[( i * j ) % GRID_N] };
++				for ( int k = 0; k < 6; ++k )
++					for ( int i = 0; i < 11; ++i ) nbA[k][i] = nbDraw( 34 );
++				nbA[(int)( e % 6 )][pos] = edge[e];
++				nbCheckAll( 0, 11 );
 +			}
 +		}
-+		checkMulBatch( ga, gb, k );
-+		checkDotBatch( dg, eg, k );
 +	}
-+
-+	// Tails n = 0..9 and n = 1023 exercise the partial-vector remainder of every lane width.
-+	for ( int n = 0; n < 10; ++n )
++	// The structured grid (0, +-1, +-2^k, +-(2^k - 1), the extremes, the saturation values),
++	// crossed with itself: lane j of a batch of the grid's size pairs grid[i] with grid[j].
 +	{
-+		static fixed_t ta[10], tb[10];
-+		static fixVec3 ua[10], ub[10];
-+		for ( int i = 0; i < 10; ++i )
++		static fixed_t grid[300];
++		int g = 0;
++		grid[g++] = 0; grid[g++] = 1; grid[g++] = -1; grid[g++] = FIX_ONE; grid[g++] = -FIX_ONE;
++		grid[g++] = FIX_HALF; grid[g++] = INT64_MAX; grid[g++] = INT64_MIN; grid[g++] = FIX_MIN;
++		for ( int k = 1; k <= 62; ++k )
 +		{
-+			ta[i] = drawIn( (int64_t)1 << 28 );
-+			tb[i] = drawIn( (int64_t)1 << 28 );
-+			ua[i] = FIX_LITERAL( fixVec3 ){ drawIn( (int64_t)1 << 28 ), drawIn( (int64_t)1 << 28 ), drawIn( (int64_t)1 << 28 ) };
-+			ub[i] = FIX_LITERAL( fixVec3 ){ drawIn( (int64_t)1 << 28 ), drawIn( (int64_t)1 << 28 ), drawIn( (int64_t)1 << 28 ) };
++			fixed_t p = (fixed_t)1 << k;
++			grid[g++] = p; grid[g++] = -p; grid[g++] = p - 1; grid[g++] = -( p - 1 );
 +		}
-+		checkMulBatch( ta, tb, n );
-+		checkDotBatch( ua, ub, n );
-+	}
-+	{
-+		static fixed_t la[1023], lb[1023];
-+		static fixVec3 pa[1023], pb[1023];
-+		for ( int i = 0; i < 1023; ++i )
++		for ( int i = 0; i < g; ++i )
 +		{
-+			la[i] = drawIn( (int64_t)1 << 28 );
-+			lb[i] = drawIn( (int64_t)1 << 28 );
-+			pa[i] = FIX_LITERAL( fixVec3 ){ drawIn( (int64_t)1 << 28 ), drawIn( (int64_t)1 << 28 ), drawIn( (int64_t)1 << 28 ) };
-+			pb[i] = FIX_LITERAL( fixVec3 ){ drawIn( (int64_t)1 << 28 ), drawIn( (int64_t)1 << 28 ), drawIn( (int64_t)1 << 28 ) };
++			for ( int j = 0; j < g; ++j )
++			{
++				nbA[0][j] = grid[i];
++				nbA[1][j] = grid[j];
++				nbA[2][j] = grid[( i + j ) % g];
++				nbA[3][j] = grid[j];
++				nbA[4][j] = grid[i];
++				nbA[5][j] = grid[( i * 7 + j * 3 ) % g];
++			}
++			nbCheckAll( 0, (size_t)g );
++			// The same lanes with only the grid values that pass each gate: so the vector
++			// path, and not only the fallback, sees every in-range grid pair.
++			for ( int k = 0; k < 6; ++k )
++				for ( int j = 0; j < g; ++j )
++					if ( ( (uint64_t)nbA[k][j] ^ (uint64_t)( nbA[k][j] < 0 ? -1 : 0 ) ) >> 30 ) nbA[k][j] = (fixed_t)( j - g / 2 );
++			nbCheckAll( 0, (size_t)g );
 +		}
-+		checkMulBatch( la, lb, 1023 );
-+		checkDotBatch( pa, pb, 1023 );
 +	}
-+
-+	printf( "NeonBatchEquivalenceTest: compared=%llu fails=%d\n", (unsigned long long)compared, fails );
-+	if ( fails != 0 )
++	// Perfect squares and their neighbours near the top of the length gate: (k, 0, 0),
++	// (k, +-1, 0) and (k, k, k) for k just below 2^31 and around powers of two. Here the double
++	// seed can land on either side of the exact root, so both repair steps are exercised.
++	for ( int round = 0; round < 4; ++round )
 +	{
-+		printf( "FAIL: NeonBatchEquivalenceTest\n" );
-+		return 1;
++		for ( int d = 0; d < 1024; ++d )
++		{
++			fixed_t k = round < 2 ? (fixed_t)( INT64_C( 2147483647 ) - (int64_t)d * ( round == 0 ? 1 : 2097143 ) )
++								  : (fixed_t)( ( INT64_C( 1 ) << ( 16 + d % 15 ) ) + ( d / 15 ) - 34 );
++			nbA[0][d] = k;
++			nbA[1][d] = round == 3 ? k : (fixed_t)( d % 3 ) - 1;
++			nbA[2][d] = round == 3 ? -k : 0;
++			nbA[3][d] = -k;
++			nbA[4][d] = k >> 1;
++			nbA[5][d] = 1;
++		}
++		nbCheckAll( 0, 1024 );
 +	}
-+	printf( "PASS: NeonBatchEquivalenceTest\n" );
-+	return 0;
++	// One below a perfect square: (2t^2, 2t, 0) has squared length (2t^2 + 1)^2 - 1, and near
++	// 2^62 the double conversion can round it up to (or past) the square, so the seed is one
++	// too high and the downward repair step must fire.
++	for ( int d = 0; d < 1024; ++d )
++	{
++		fixed_t t = 32767 - d;
++		nbA[0][d] = 2 * t * t;
++		nbA[1][d] = 2 * t;
++		nbA[2][d] = 0;
++		nbA[3][d] = t;
++		nbA[4][d] = -2 * t * t;
++		nbA[5][d] = d;
++	}
++	nbCheckAll( 0, 1024 );
++	// Tails n = 0..9 and 1023, at offsets 0..3 (unaligned starts), every tier.
++	for ( int t = 0; t < 5; ++t )
++	{
++		for ( int k = 0; k < 6; ++k )
++			for ( int i = 0; i < NB_MAX; ++i ) nbA[k][i] = nbDraw( nbShifts[t] );
++		for ( size_t off = 0; off < 4; ++off )
++		{
++			for ( size_t n = 0; n <= 9; ++n ) nbCheckAll( off, n );
++			nbCheckAll( off, 1023 );
++		}
++	}
++	printf( "NeonBatchEquivalenceTest: compared=%llu fails=%d %s\n", (unsigned long long)nbCompared,
++			fails - failsBefore, fails == failsBefore ? "PASS" : "FAIL" );
 +#endif
 +}
-\ No newline at end of file
++
+ int main( void )
+ {
+ 	// ---- A. constants -----------------------------------------------------
+@@ -309,6 +495,8 @@ int main( void )
+ 		CHECK( FIX_PI == FIX( 3.14159265359f ) );
+ 	}
+ 
++	NeonBatchEquivalenceTest();
++
+ 	printf( "exhaustive sweep hash = 0x%016llx\n", (unsigned long long)fnv );
+ #if EXPECTED_SWEEP_HASH != 0
+ 	CHECK( fnv == (uint64_t)EXPECTED_SWEEP_HASH );
+diff --git a/test/oracle_unit_test.c b/test/oracle_unit_test.c
+index dd04767..ce697e5 100644
+--- a/test/oracle_unit_test.c
++++ b/test/oracle_unit_test.c
+@@ -73,6 +73,17 @@ static const struct
+ 	{ "fixAABB_Transform", UINT64_C( 0xe49b93d186894fd4 ) },
+ 	{ "fixQuantize", UINT64_C( 0x22e364f7b025cf17 ) },
+ 	{ "fixDequantize", UINT64_C( 0x99e81db2278ac2fd ) },
++	// spike-batch-ops-neon: frozen from the SCALAR functions on the unchanged base tree.
++	{ "fixMulBatch", UINT64_C( 0x36c72285d2b2c496 ) },
++	{ "fixMulBatch_mixed", UINT64_C( 0x486539766d5cbaba ) },
++	{ "fixDotBatch3", UINT64_C( 0xe9752db9c7660fb6 ) },
++	{ "fixDotBatch3_mixed", UINT64_C( 0xbe32bb5c3791a932 ) },
++	{ "fixDotBatch3AoS", UINT64_C( 0xa1e7f2d5f3221007 ) },
++	{ "fixDotBatch3AoSLd3", UINT64_C( 0x947ee2131d062754 ) },
++	{ "fixLengthBatch", UINT64_C( 0x8d44d24359c55521 ) },
++	{ "fixLengthBatch_mixed", UINT64_C( 0x44de340be1ea1097 ) },
++	{ "fixCrossBatch", UINT64_C( 0x5133790b53634632 ) },
++	{ "fixCrossBatch_mixed", UINT64_C( 0xf80a5dcb275d773b ) },
+ };
+ 
+ static int fails = 0;

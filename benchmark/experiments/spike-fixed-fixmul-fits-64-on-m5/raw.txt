@@ -1,0 +1,493 @@
+# raw output, spike-fixed-fixmul-fits-64-on-m5, host mini-m5-1 (ssh), Apple M5 Pro; BASE 8e9cc9d; every build and run on that host with written clang lines (no cmake there); macOS has no core pinning and no PMU counter access without sudo (perf stat equivalent not available)
+
+## sysctl
+hw.optional.arm.FEAT_BF16: 1
+hw.optional.arm.FEAT_EBF16: 1
+hw.optional.arm.FEAT_I8MM: 1
+hw.optional.arm.FEAT_SME: 1
+hw.optional.arm.FEAT_SME2: 1
+hw.optional.arm.FEAT_SME2p1: 1
+hw.optional.arm.SME_F32F32: 1
+hw.optional.arm.SME_BI32I32: 1
+hw.optional.arm.SME_B16F32: 1
+hw.optional.arm.SME_F16F32: 1
+hw.optional.arm.SME_I8I32: 1
+hw.optional.arm.SME_I16I32: 1
+hw.optional.arm.FEAT_SME_F64F64: 1
+hw.optional.arm.FEAT_SME_I16I64: 1
+hw.optional.arm.FEAT_SME_F16F16: 1
+hw.optional.arm.FEAT_SME_B16B16: 1
+hw.optional.arm.FEAT_SME_LUTv2: 0
+hw.optional.arm.FEAT_SME_F8F16: 0
+hw.optional.arm.FEAT_SME_F8F32: 0
+hw.optional.arm.FEAT_SVE_B16B16: 1
+64
+cmake not found
+cmake: not found
+
+## STEP 1: dispatch layer on BASE: 4 FIXED_ISA mentions in include/fixed/fixed_isa.h; test/isa_dispatch_test.c present: test/isa_dispatch_test.c
+
+## STEP 2 RED at BASE (test/fixmul_fits64_arm64_test.c copied onto an unmodified BASE tree; clang -O2 -ffp-contract=off -Iinclude test/fixmul_fits64_arm64_test.c src/*.c -lm)
+## RED at BASE (tree sha: )
+FixMulFits64Arm64EquivalenceTest FAIL: aarch64 native build but the fits-64 arm absent (FIX_MUL_FITS64_ARM64 undefined)
+exit=1
+## GREEN cand native
+FixMulFits64Arm64EquivalenceTest PASS: arm PRESENT, 200068863 scalar pairs checked, fast gate taken on 50810167 (25.4%)
+exit=0
+
+real	0m1.021s
+user	0m0.947s
+sys	0m0.002s
+## cand emulated
+FixMulFits64Arm64EquivalenceTest PASS: arm absent (unchanged route), 20068863 scalar pairs checked, fast gate taken on 5112306 (25.5%)
+exit=0
+## cand saturated
+FixMulFits64Arm64EquivalenceTest PASS: arm absent (unchanged route), 20068863 scalar pairs checked, fast gate taken on 5112306 (25.5%)
+exit=0
+
+## own negative control: gate loosened to >= 64 in the candidate header; the test must go red
+FAIL test/fixmul_fits64_arm64_test.c:85: fixMul( grid[i], grid[j] ) == refMul( grid[i], grid[j] )  (x10 printed)
+FixMulFits64Arm64EquivalenceTest FAIL: 61047 mismatches   exit=1
+
+## mini-ctest (mirrors CMakeLists.txt; clang -O2 -ffp-contract=off -Iinclude; native, emulated, saturated, negative controls WILL_FAIL, oracle_check native+emulated against benchmark/oracle-baseline.txt)
+PASS determinism
+PASS transcendental
+PASS wide_time
+PASS exhaustive
+PASS aabb
+PASS port_equality
+PASS int128
+PASS geometry
+PASS inverse_envelope
+PASS int256_division
+PASS quantize
+PASS usage
+PASS numerical_regression
+PASS override_api
+PASS batch
+PASS batch_saturated
+PASS isa_dispatch
+PASS isa_dispatch_saturated
+PASS oracle_unit
+PASS numerical_saturated
+PASS FixMulFits64Arm64EquivalenceTest
+PASS FixMulFits64Arm64EquivalenceTest_saturated
+PASS negative_control
+PASS port_negative_control
+PASS geometry_negative_control
+PASS quantize_negative_control
+PASS int256_division_negative_control
+PASS inverse_envelope_negative_control
+PASS determinism_emulated
+PASS transcendental_emulated
+PASS wide_time_emulated
+PASS exhaustive_emulated
+PASS aabb_emulated
+PASS port_equality_emulated
+PASS int128_emulated
+PASS geometry_emulated
+PASS inverse_envelope_emulated
+PASS int256_division_emulated
+PASS numerical_regression_emulated
+PASS batch_emulated
+PASS isa_dispatch_emulated
+PASS oracle_unit_emulated
+PASS numerical_saturated_emulated
+PASS FixMulFits64Arm64EquivalenceTest_emulated
+PASS emulated_negative_control
+PASS oracle_check_native
+PASS oracle_check_emulated
+TOTAL pass=47 fail=0
+
+## ab.sh and A/A control, full output
+## pre-measurement quiet check (ps, op_bench/ab.sh/oracle_check/numerical_bench/cc):
+(end list)
+12:37  up 7 days,  1:52, 3 users, load averages: 2.00 2.35 2.33
+## cpu_info BEFORE
+# cpu_info 2026-10-15T16:37:23Z
+uname: Darwin 27.0.0 arm64
+cpu_model: Apple M5 Pro
+logical_cpus: 18
+isa_neon: unknown
+isa_fp16: unknown
+isa_i8mm: unknown
+isa_sme: unknown
+isa_sme2: unknown
+affinity: taskset unavailable
+load_average:{ 2.00 2.35 2.33 }
+benchmarks_running: no
+compiler_cc: Apple clang version 21.0.0 (clang-2100.3.34.2)
+compiler_clang: Apple clang version 21.0.0 (clang-2100.3.34.2)
+compiler_gcc: Apple clang version 21.0.0 (clang-2100.3.34.2)
+make: GNU Make 3.81
+## AB candidate: AB_REPEATS=11 AB_ITERS=2000000 ab.sh ../base . fixMul fixMulBatch fixCross fixDot fixDotBatch3 fixMulQuat fixRotateVector
+# ab.sh 2026-10-15T16:37:23Z
+# compiler: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# flags: -O3 -g -DNDEBUG -ffp-contract=off
+# repeats: 11  iterations: 2000000
+# # cpu_info 2026-10-15T16:37:23Z
+# uname: Darwin 27.0.0 arm64
+# cpu_model: Apple M5 Pro
+# logical_cpus: 18
+# isa_neon: unknown
+# isa_fp16: unknown
+# isa_i8mm: unknown
+# isa_sme: unknown
+# isa_sme2: unknown
+# affinity: taskset unavailable
+# load_average:{ 2.00 2.35 2.33 }
+# benchmarks_running: no
+# compiler_cc: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# compiler_clang: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# compiler_gcc: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# make: GNU Make 3.81
+# side A (../base) isa: scalar (facts: neon sme sme2)
+# side B (.) isa: scalar (facts: neon sme sme2)
+# oracle_check compiled against .:
+# oracle FIXED_ISA=<detected>
+ORACLE OK   fixMul  count=50063756  hash=eb1995a6b21bf036
+ORACLE OK   fixDiv_below2p47  count=50063756  hash=9519544a71a6aee9
+ORACLE OK   fixDiv_above2p47  count=12563756  hash=679bdcc4e27fd523
+ORACLE OK   fixSqrt_small  count=50000252  hash=0a01c17d8970c8c5
+ORACLE OK   fixSqrt_raw_below2p32  count=4344967548  hash=e8cd953f7d9cb442
+ORACLE OK   fixISqrt128High_u64  count=50063756  hash=3f2bde37bd6f7cb0
+ORACLE OK   fixISqrt128High_above104bits  count=2563756  hash=0c9fdfcdcf937183
+ORACLE OK   fixComputeCosSin  count=50823803  hash=75d77c6260933da6
+ORACLE OK   fixSin  count=50823803  hash=ea6b89849492e203
+ORACLE OK   fixCos  count=50823803  hash=92884abbd0d0dfc4
+ORACLE OK   fixAtan2  count=6313756  hash=e783be1aa18a9e6c
+ORACLE OK   fixLog2  count=9395980  hash=7d1ccc520e783eca
+ORACLE OK   fixExp2  count=9395980  hash=a1d52ff7b1ceef98
+ORACLE OK   fixPow  count=2563756  hash=55410e05742068c7
+ORACLE OK   fixLerp  count=50063756  hash=3c3983b96260d159
+ORACLE OK   fixInt128Div  count=2563756  hash=65e492d721fcd5f6
+ORACLE OK   fixUInt256DivMod  count=563756  hash=d6c2bda0c1986a82
+ORACLE OK   fixDot  count=50063756  hash=4392264c082fde77
+ORACLE OK   fixCross  count=50063756  hash=5a5555238d655a2c
+ORACLE OK   fixLength  count=25063756  hash=785da375992b2c05
+ORACLE OK   fixNormalize  count=12563756  hash=44e1c09212bfac1d
+ORACLE OK   fixMulQuat  count=25063756  hash=ff696a9b57ac0860
+ORACLE OK   fixNormalizeQuat  count=12563756  hash=5e439ba2ea83daeb
+ORACLE OK   fixRotateVector  count=12563756  hash=64afce887683c703
+ORACLE OK   fixInvRotateVector  count=12563756  hash=a7d02b0685663640
+ORACLE OK   fixNLerp  count=6313756  hash=315cf27e3e31527e
+ORACLE OK   fixInvertMatrix  count=563756  hash=f7c48d2fcea79473
+ORACLE OK   fixSolve3  count=563756  hash=da2489cbf6193bad
+ORACLE OK   fixAABB_Transform  count=2563756  hash=d105925232ba6473
+ORACLE OK   fixQuantize  count=50063756  hash=8100e7c61c94a956
+ORACLE OK   fixDequantize  count=50063756  hash=1be2b75e26b7a4d1
+ORACLE OK   fixMulBatch  count=50063756  hash=de6fc21fb01df7f2
+ORACLE OK   fixDotBatch3  count=50063756  hash=7fb109655c1745da
+ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMul                         scalar      3.8570     3.9330    91.2%     4.0430     4.2730    35.1%    0.920
+fixMul                         batch       0.9446     0.9761   112.7%     1.2846     1.3076    26.0%    0.746
+fixDot                         scalar      4.5175     4.6175    64.7%     4.4530     4.5500    14.4%    1.015
+fixDot                         batch       1.2487     1.2651    50.0%     1.2447     1.2591     9.2%    1.005
+fixCross                       scalar      1.8490     1.8505    36.5%    11.1600    11.2545     2.0%    0.164
+fixCross                       batch       2.5103     2.5358    29.0%    12.3628    12.3833     0.8%    0.205
+fixMulQuat                     scalar      3.7345     3.7865    12.3%     3.7045     3.7520     3.8%    1.009
+fixMulQuat                     batch       5.2563     5.2937     4.5%     5.2478     5.2652     1.6%    1.005
+fixRotateVector                scalar      6.8710     6.9685     7.7%    29.8320    30.0705     2.7%    0.232
+fixRotateVector                batch       7.4910     7.5594     2.3%    30.6803    30.7677     3.3%    0.246
+fixMulBatch                    scalar      1.3865     1.4005     4.9%     2.5905     2.8185     9.3%    0.497
+fixMulBatch                    batch       0.4513     0.4558     2.7%     0.6910     0.7035     5.0%    0.648
+fixDotBatch3                   scalar      2.4210     2.5770    19.9%     2.4360     2.5665     6.6%    1.004
+fixDotBatch3                   batch       0.9841     0.9925     3.7%     0.9841     0.9970     2.9%    0.995
+# speedup = a_median / b_median; > 1 means the candidate is faster.
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+## A/A control: ab.sh ../base ../base
+# ab.sh 2026-10-15T16:39:04Z
+# compiler: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# flags: -O3 -g -DNDEBUG -ffp-contract=off
+# repeats: 11  iterations: 2000000
+# # cpu_info 2026-10-15T16:39:05Z
+# uname: Darwin 27.0.0 arm64
+# cpu_model: Apple M5 Pro
+# logical_cpus: 18
+# isa_neon: unknown
+# isa_fp16: unknown
+# isa_i8mm: unknown
+# isa_sme: unknown
+# isa_sme2: unknown
+# affinity: taskset unavailable
+# load_average:{ 1.81 2.21 2.28 }
+# benchmarks_running: no
+# compiler_cc: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# compiler_clang: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# compiler_gcc: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# make: GNU Make 3.81
+# side A (.) isa: scalar (facts: neon sme sme2)
+# side B (.) isa: scalar (facts: neon sme sme2)
+# oracle_check compiled against .:
+# oracle FIXED_ISA=<detected>
+ORACLE OK   fixMul  count=50063756  hash=eb1995a6b21bf036
+ORACLE OK   fixDiv_below2p47  count=50063756  hash=9519544a71a6aee9
+ORACLE OK   fixDiv_above2p47  count=12563756  hash=679bdcc4e27fd523
+ORACLE OK   fixSqrt_small  count=50000252  hash=0a01c17d8970c8c5
+ORACLE OK   fixSqrt_raw_below2p32  count=4344967548  hash=e8cd953f7d9cb442
+ORACLE OK   fixISqrt128High_u64  count=50063756  hash=3f2bde37bd6f7cb0
+ORACLE OK   fixISqrt128High_above104bits  count=2563756  hash=0c9fdfcdcf937183
+ORACLE OK   fixComputeCosSin  count=50823803  hash=75d77c6260933da6
+ORACLE OK   fixSin  count=50823803  hash=ea6b89849492e203
+ORACLE OK   fixCos  count=50823803  hash=92884abbd0d0dfc4
+ORACLE OK   fixAtan2  count=6313756  hash=e783be1aa18a9e6c
+ORACLE OK   fixLog2  count=9395980  hash=7d1ccc520e783eca
+ORACLE OK   fixExp2  count=9395980  hash=a1d52ff7b1ceef98
+ORACLE OK   fixPow  count=2563756  hash=55410e05742068c7
+ORACLE OK   fixLerp  count=50063756  hash=3c3983b96260d159
+ORACLE OK   fixInt128Div  count=2563756  hash=65e492d721fcd5f6
+ORACLE OK   fixUInt256DivMod  count=563756  hash=d6c2bda0c1986a82
+ORACLE OK   fixDot  count=50063756  hash=4392264c082fde77
+ORACLE OK   fixCross  count=50063756  hash=5a5555238d655a2c
+ORACLE OK   fixLength  count=25063756  hash=785da375992b2c05
+ORACLE OK   fixNormalize  count=12563756  hash=44e1c09212bfac1d
+ORACLE OK   fixMulQuat  count=25063756  hash=ff696a9b57ac0860
+ORACLE OK   fixNormalizeQuat  count=12563756  hash=5e439ba2ea83daeb
+ORACLE OK   fixRotateVector  count=12563756  hash=64afce887683c703
+ORACLE OK   fixInvRotateVector  count=12563756  hash=a7d02b0685663640
+ORACLE OK   fixNLerp  count=6313756  hash=315cf27e3e31527e
+ORACLE OK   fixInvertMatrix  count=563756  hash=f7c48d2fcea79473
+ORACLE OK   fixSolve3  count=563756  hash=da2489cbf6193bad
+ORACLE OK   fixAABB_Transform  count=2563756  hash=d105925232ba6473
+ORACLE OK   fixQuantize  count=50063756  hash=8100e7c61c94a956
+ORACLE OK   fixDequantize  count=50063756  hash=1be2b75e26b7a4d1
+ORACLE OK   fixMulBatch  count=50063756  hash=de6fc21fb01df7f2
+ORACLE OK   fixDotBatch3  count=50063756  hash=7fb109655c1745da
+ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMul                         scalar      3.7105     3.9465   106.9%     3.7635     3.9470    37.9%    1.000
+fixMul                         batch       0.9616     0.9721    70.2%     0.9681     0.9771    24.8%    0.995
+fixDot                         scalar      4.4660     4.5915    56.2%     4.5125     4.6235    17.0%    0.993
+fixDot                         batch       1.2542     1.2626    38.3%     1.2567     1.2756     5.9%    0.990
+fixCross                       scalar      1.8445     1.8545    30.4%     1.8500     1.8600     5.1%    0.997
+fixCross                       batch       2.5158     2.5243    21.1%     2.5163     2.5378     2.2%    0.995
+fixMulQuat                     scalar      3.7130     3.7825     9.2%     3.7260     3.7595     3.4%    1.006
+fixMulQuat                     batch       5.2443     5.2807     1.9%     5.2488     5.2907     2.1%    0.998
+fixRotateVector                scalar      6.8835     6.9515     6.8%     6.9015     7.2735     6.7%    0.956
+fixRotateVector                batch       7.4790     7.5364     1.6%     7.4850     7.5549     2.0%    0.998
+fixMulBatch                    scalar      1.3700     1.3945     5.5%     1.3215     1.4035     6.9%    0.994
+fixMulBatch                    batch       0.4443     0.4523     3.6%     0.4483     0.4548     2.9%    0.995
+fixDotBatch3                   scalar      2.4075     2.5750     7.7%     2.4235     2.5790     6.5%    0.998
+fixDotBatch3                   batch       0.9895     0.9965     4.3%     0.9786     0.9970     2.9%    0.999
+# speedup = a_median / b_median; > 1 means the candidate is faster.
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+## quiet check after:
+12:40  up 7 days,  1:56, 3 users, load averages: 1.92 2.10 2.23
+## cpu_info AFTER
+load_average:{ 1.92 2.10 2.23 }
+benchmarks_running: no
+
+## disassembly, fixIsaMulBatchScalar (the fixMul batch kernel), BASE then CANDIDATE (clang -O3 -S src/fixed_isa.c)
+_fixIsaMulBatchScalar:                  ; @fixIsaMulBatchScalar
+; %bb.0:
+	cbz	x3, LBB0_2
+LBB0_1:                                 ; =>This Inner Loop Header: Depth=1
+	ldr	x8, [x1], #8
+	ldr	x9, [x2], #8
+	smulh	x10, x9, x8
+	mul	x8, x9, x8
+	adds	x8, x8, #8, lsl #12             ; =32768
+	cinc	x9, x10, hs
+	extr	x8, x9, x8, #16
+	str	x8, [x0], #8
+	subs	x3, x3, #1
+	b.ne	LBB0_1
+LBB0_2:
+	ret
+-----
+_fixIsaMulBatchScalar:                  ; @fixIsaMulBatchScalar
+; %bb.0:
+	cbz	x3, LBB0_8
+; %bb.1:
+	and	x8, x3, #0x3
+	cmp	x3, #4
+	b.hs	LBB0_3
+; %bb.2:
+	mov	x9, #0                          ; =0x0
+	cbnz	x8, LBB0_6
+	b	LBB0_8
+LBB0_3:
+	mov	x9, #0                          ; =0x0
+	and	x10, x3, #0xfffffffffffffffc
+	neg	x10, x10
+	add	x11, x0, #16
+	add	x12, x1, #16
+	add	x13, x2, #16
+	mov	x14, #32768                     ; =0x8000
+LBB0_4:                                 ; =>This Inner Loop Header: Depth=1
+	ldur	x15, [x12, #-16]
+	ldur	x16, [x13, #-16]
+	cmp	x15, #0
+	cneg	x17, x15, mi
+	cmp	x16, #0
+	cneg	x3, x16, mi
+	clz	x17, x17
+	clz	x3, x3
+	add	w17, w3, w17
+	madd	x3, x16, x15, x14
+	asr	x3, x3, #16
+	smulh	x4, x16, x15
+	mul	x15, x16, x15
+	adds	x15, x15, #8, lsl #12           ; =32768
+	cinc	x16, x4, hs
+	extr	x15, x16, x15, #16
+	cmp	w17, #64
+	csel	x15, x3, x15, hi
+	stur	x15, [x11, #-16]
+	ldur	x15, [x12, #-8]
+	ldur	x16, [x13, #-8]
+	cmp	x15, #0
+	cneg	x17, x15, mi
+	cmp	x16, #0
+	cneg	x3, x16, mi
+	clz	x17, x17
+	clz	x3, x3
+	add	w17, w3, w17
+	madd	x3, x16, x15, x14
+	asr	x3, x3, #16
+	smulh	x4, x16, x15
+	mul	x15, x16, x15
+	adds	x15, x15, #8, lsl #12           ; =32768
+	cinc	x16, x4, hs
+	extr	x15, x16, x15, #16
+	cmp	w17, #64
+	csel	x15, x3, x15, hi
+	stur	x15, [x11, #-8]
+	ldr	x15, [x12]
+	ldr	x16, [x13]
+	cmp	x15, #0
+	cneg	x17, x15, mi
+	cmp	x16, #0
+	cneg	x3, x16, mi
+	clz	x17, x17
+	clz	x3, x3
+	add	w17, w3, w17
+	madd	x3, x16, x15, x14
+	asr	x3, x3, #16
+	smulh	x4, x16, x15
+	mul	x15, x16, x15
+	adds	x15, x15, #8, lsl #12           ; =32768
+	cinc	x16, x4, hs
+	extr	x15, x16, x15, #16
+	cmp	w17, #64
+	csel	x15, x3, x15, hi
+	str	x15, [x11]
+	ldr	x15, [x12, #8]
+	ldr	x16, [x13, #8]
+	cmp	x15, #0
+	cneg	x17, x15, mi
+	cmp	x16, #0
+	cneg	x3, x16, mi
+	clz	x17, x17
+	clz	x3, x3
+	add	w17, w3, w17
+	madd	x3, x16, x15, x14
+	asr	x3, x3, #16
+	smulh	x4, x16, x15
+	mul	x15, x16, x15
+	adds	x15, x15, #8, lsl #12           ; =32768
+	cinc	x16, x4, hs
+	extr	x15, x16, x15, #16
+	cmp	w17, #64
+	csel	x15, x3, x15, hi
+	str	x15, [x11, #8]
+	sub	x9, x9, #4
+	add	x11, x11, #32
+	add	x12, x12, #32
+	add	x13, x13, #32
+	cmp	x10, x9
+	b.ne	LBB0_4
+; %bb.5:
+	neg	x9, x9
+	cbz	x8, LBB0_8
+LBB0_6:
+	lsl	x11, x9, #3
+	add	x9, x0, x11
+	add	x10, x2, x11
+	add	x11, x1, x11
+	mov	x12, #32768                     ; =0x8000
+LBB0_7:                                 ; =>This Inner Loop Header: Depth=1
+	ldr	x13, [x11], #8
+	ldr	x14, [x10], #8
+	cmp	x13, #0
+	cneg	x15, x13, mi
+	cmp	x14, #0
+	cneg	x16, x14, mi
+	clz	x15, x15
+	clz	x16, x16
+	add	w15, w16, w15
+	madd	x16, x14, x13, x12
+	smulh	x17, x14, x13
+	mul	x13, x14, x13
+	adds	x13, x13, #8, lsl #12           ; =32768
+	cinc	x14, x17, hs
+	extr	x13, x14, x13, #16
+	asr	x14, x16, #16
+	cmp	w15, #64
+	csel	x13, x14, x13, hi
+	str	x13, [x9], #8
+	subs	x8, x8, #1
+	b.ne	LBB0_7
+LBB0_8:
+	ret
+
+## disassembly, standalone fixMul (candidate): the gate compiles to CSEL, both arms always computed
+_kMul:                                  ; @kMul
+; %bb.0:
+	cmp	x0, #0
+	cneg	x8, x0, mi
+	cmp	x1, #0
+	cneg	x9, x1, mi
+	clz	x8, x8
+	clz	x9, x9
+	add	w8, w9, w8
+	mov	x9, #32768                      ; =0x8000
+	madd	x9, x1, x0, x9
+	asr	x9, x9, #16
+	smulh	x10, x1, x0
+	mul	x11, x1, x0
+	adds	x11, x11, #8, lsl #12           ; =32768
+	cinc	x10, x10, hs
+	extr	x10, x10, x11, #16
+	cmp	w8, #64
+	csel	x0, x9, x10, hi
+	ret
+
+## op_bench applyCross, instruction mix (clang -O3 -g -S benchmark/op_bench.c): BASE inlines all six fixMul; CANDIDATE calls fixCross out of line (bl x3)
+== base
+   6 smulh;   6 mul;   6 extr;   6 cinc;   6 adds;   5 ldp;   4 str;   3 sub;   2 ldr;   1 ret;   1 mov;
+== cand
+  16 str;   9 ldr;   6 mov;   6 ldur;   5 add;   4 sub;   3 bl;   2 stp;   2 ldp;   1 ret;
+
+## llvm-mca (Homebrew LLVM 23.1.3 run on the coordinator Mac, static, -mcpu=apple-m5) over the inner loop of fixIsaMulBatchScalar, branch removed
+=== base
+Iterations:        1000
+Instructions:      9000
+Total Cycles:      2517
+Total uOps:        13000
+
+Dispatch Width:    6
+uOps Per Cycle:    5.16
+IPC:               3.58
+Block RThroughput: 2.5
+
+
+Instruction Info:
+[1]: #uOps
+[2]: Latency
+=== cand
+Iterations:        1000
+Instructions:      20000
+Total Cycles:      5517
+Total uOps:        24000
+
+Dispatch Width:    6
+uOps Per Cycle:    4.35
+IPC:               3.63
+Block RThroughput: 5.5
+
+
+Instruction Info:
+[1]: #uOps
+[2]: Latency

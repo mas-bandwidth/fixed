@@ -1,0 +1,391 @@
+=== raw output: spike-fixed-fixdiv-arm64-native-tier (Apple M5 Pro, ssh mini-m5-1) ===
+--- host facts (sysctl) ---
+hw.optional.arm.FEAT_BF16: 1
+hw.optional.arm.FEAT_EBF16: 1
+hw.optional.arm.FEAT_I8MM: 1
+hw.optional.arm.FEAT_SME: 1
+hw.optional.arm.FEAT_SME2: 1
+hw.optional.arm.FEAT_SME2p1: 1
+hw.optional.arm.SME_F32F32: 1
+hw.optional.arm.SME_BI32I32: 1
+hw.optional.arm.SME_B16F32: 1
+hw.optional.arm.SME_F16F32: 1
+hw.optional.arm.SME_I8I32: 1
+hw.optional.arm.SME_I16I32: 1
+hw.optional.arm.FEAT_SME_F64F64: 1
+hw.optional.arm.FEAT_SME_I16I64: 1
+hw.optional.arm.FEAT_SME_F16F16: 1
+hw.optional.arm.FEAT_SME_B16B16: 1
+hw.optional.arm.FEAT_SME_LUTv2: 0
+hw.optional.arm.FEAT_SME_F8F16: 0
+hw.optional.arm.FEAT_SME_F8F32: 0
+hw.optional.arm.FEAT_SVE_B16B16: 1
+6
+12
+68719476736
+--- pinning: macOS has no taskset; no core pin possible. A second worker's spike (neon-on-m5.w2) shares this Mac; ab.sh refused to start while its op_bench ran, and every run below was started only when pgrep showed none. Load averages: ---
+before_ab: 12:14  up 7 days,  1:30, 3 users, load averages: 2.96 2.39 2.12
+after_ab: 12:17  up 7 days,  1:33, 3 users, load averages: 2.75 2.61 2.26
+before_aa: 12:18  up 7 days,  1:33, 3 users, load averages: 6.53 3.60 2.64
+after_aa: 12:20  up 7 days,  1:35, 3 users, load averages: 3.13 3.20 2.59
+before_emu: 12:20  up 7 days,  1:35, 3 users, load averages: 3.04 3.18 2.58
+after_emu: 12:23  up 7 days,  1:38, 3 users, load averages: 1.92 2.75 2.52
+
+--- RED at BASE (sprint/fixed-perf 29ac749), test copied in, native clang, no cmake on host: ---
+test/fixdiv_arm64_native_tier_test.c:28:3: error: "FIX_INT128_DIV_NATIVE_RECIP_TIER is not defined: the native arm64 division tier is absent from this tree"
+   28 |         #error "FIX_INT128_DIV_NATIVE_RECIP_TIER is not defined: the native arm64 division tier is absent from this tree"
+      |          ^
+
+--- GREEN native, written clang lines mirroring CMakeLists (suite2.sh) ---
+PASS native determinism: fixed-core signed determinism hash = 0x19889034915c2911
+PASS native transcendental: sanity: cos(0)=1.00000 sin(0)=0.00000 cos(pi/2)=0.00000 sin(pi/2)=1.00000
+PASS native wide_time: wide+time tests passed
+PASS native exhaustive: ALL OK
+PASS native aabb: aabb tests passed
+PASS native port_equality: port structured sweep hash is unchanged across platforms
+PASS native int128: int128 sweeps ran in 0.59s
+PASS native geometry: geometry structured sweep hash is unchanged across platforms
+PASS native inverse_envelope: inverse scale envelope holds from side 1 to side 500
+PASS native int256_division: 256-bit division matches the shift-subtract reference on every case
+PASS native numerical_regression: square_roots_64: 0 failures
+PASS native usage: every numeric claim in USAGE.md holds
+PASS native override_api: override_api: a consumer overriding only FIX_API compiles and runs
+PASS native batch: BatchMulLaneEquivalenceTest PASS: variant scalar; 252 structured edges crossed; 100000000 seeded lanes; mul and dot
+PASS native isa_dispatch: IsaDispatchTest PASS
+PASS native fixdiv_arm64_native_tier: PASS FixDivArm64NativeTierEquivalenceTest (tier=1, native_ref=1)
+PASS native oracle_unit: oracle_unit: 33 operations, prefix 1000, hashes stable
+PASS native quantize: quantize sweeps ran in 0.01s
+PASS native fixdiv_arm64_native_tier: PASS FixDivArm64NativeTierEquivalenceTest (tier=1, native_ref=1)
+SUMMARY native pass=25 fail=0
+--- fixdiv test stdout, native ---
+
+--- GREEN emulated and saturated ---
+grid 781 x 781 lanes
+checked 100026227 lanes, 50311671 through the 64-bit-divisor tier, 0 mismatches
+PASS FixDivArm64NativeTierEquivalenceTest (tier=1, native_ref=1)
+PASS emu determinism: fixed-core signed determinism hash = 0x19889034915c2911
+PASS emu transcendental: sanity: cos(0)=1.00000 sin(0)=0.00000 cos(pi/2)=0.00000 sin(pi/2)=1.00000
+PASS emu wide_time: wide+time tests passed
+PASS emu exhaustive: ALL OK
+PASS emu aabb: aabb tests passed
+PASS emu port_equality: port structured sweep hash is unchanged across platforms
+PASS emu int128: int128 sweeps ran in 0.58s
+PASS emu geometry: geometry structured sweep hash is unchanged across platforms
+PASS emu inverse_envelope: inverse scale envelope holds from side 1 to side 500
+PASS emu int256_division: 256-bit division matches the shift-subtract reference on every case
+PASS emu numerical_regression: square_roots_64: 0 failures
+PASS emu usage: every numeric claim in USAGE.md holds
+PASS emu override_api: override_api: a consumer overriding only FIX_API compiles and runs
+PASS emu batch: BatchMulLaneEquivalenceTest PASS: variant scalar; 252 structured edges crossed; 100000000 seeded lanes; mul and dot
+PASS emu isa_dispatch: IsaDispatchTest PASS
+PASS emu fixdiv_arm64_native_tier: PASS FixDivArm64NativeTierEquivalenceTest (tier=0, native_ref=1)
+PASS emu oracle_unit: oracle_unit: 33 operations, prefix 1000, hashes stable
+PASS emu quantize: quantize sweeps ran in 0.01s
+PASS emu fixdiv_arm64_native_tier: PASS FixDivArm64NativeTierEquivalenceTest (tier=0, native_ref=1)
+SUMMARY emu pass=25 fail=0
+PASS sat batch: BatchMulLaneEquivalenceTest PASS: variant scalar; 252 structured edges crossed; 100000000 seeded lanes; mul and dot
+PASS sat isa_dispatch: IsaDispatchTest PASS
+PASS sat fixdiv_arm64_native_tier: PASS FixDivArm64NativeTierEquivalenceTest (tier=1, native_ref=1)
+PASS sat numerical_regression: square_roots_64: 0 failures
+SUMMARY sat pass=4 fail=0
+
+--- A/B native: base (libcall) vs candidate (reciprocal tier), 9 interleaved repeats, 1000000 iters; includes cpu_info and ORACLE OK lines ---
+# ab.sh 2026-10-15T16:14:53Z
+# compiler: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# flags: -O3 -g -DNDEBUG -ffp-contract=off
+# repeats: 9  iterations: 1000000
+# # cpu_info 2026-10-15T16:14:53Z
+# uname: Darwin 27.0.0 arm64
+# cpu_model: Apple M5 Pro
+# logical_cpus: 18
+# isa_neon: unknown
+# isa_fp16: unknown
+# isa_i8mm: unknown
+# isa_sme: unknown
+# isa_sme2: unknown
+# affinity: taskset unavailable
+# load_average:{ 2.96 2.39 2.12 }
+# benchmarks_running: no
+# compiler_cc: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# compiler_clang: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# compiler_gcc: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# make: GNU Make 3.81
+# side A (../fixdiv-base) isa: scalar (facts: neon sme sme2)
+# side B (.) isa: scalar (facts: neon sme sme2)
+# oracle_check compiled against .:
+# oracle FIXED_ISA=<detected>
+ORACLE OK   fixMul  count=50063756  hash=eb1995a6b21bf036
+ORACLE OK   fixDiv_below2p47  count=50063756  hash=9519544a71a6aee9
+ORACLE OK   fixDiv_above2p47  count=12563756  hash=679bdcc4e27fd523
+ORACLE OK   fixSqrt_small  count=50000252  hash=0a01c17d8970c8c5
+ORACLE OK   fixSqrt_raw_below2p32  count=4344967548  hash=e8cd953f7d9cb442
+ORACLE OK   fixISqrt128High_u64  count=50063756  hash=3f2bde37bd6f7cb0
+ORACLE OK   fixISqrt128High_above104bits  count=2563756  hash=0c9fdfcdcf937183
+ORACLE OK   fixComputeCosSin  count=50823803  hash=75d77c6260933da6
+ORACLE OK   fixSin  count=50823803  hash=ea6b89849492e203
+ORACLE OK   fixCos  count=50823803  hash=92884abbd0d0dfc4
+ORACLE OK   fixAtan2  count=6313756  hash=e783be1aa18a9e6c
+ORACLE OK   fixLog2  count=9395980  hash=7d1ccc520e783eca
+ORACLE OK   fixExp2  count=9395980  hash=a1d52ff7b1ceef98
+ORACLE OK   fixPow  count=2563756  hash=55410e05742068c7
+ORACLE OK   fixLerp  count=50063756  hash=3c3983b96260d159
+ORACLE OK   fixInt128Div  count=2563756  hash=65e492d721fcd5f6
+ORACLE OK   fixUInt256DivMod  count=563756  hash=d6c2bda0c1986a82
+ORACLE OK   fixDot  count=50063756  hash=4392264c082fde77
+ORACLE OK   fixCross  count=50063756  hash=5a5555238d655a2c
+ORACLE OK   fixLength  count=25063756  hash=785da375992b2c05
+ORACLE OK   fixNormalize  count=12563756  hash=44e1c09212bfac1d
+ORACLE OK   fixMulQuat  count=25063756  hash=ff696a9b57ac0860
+ORACLE OK   fixNormalizeQuat  count=12563756  hash=5e439ba2ea83daeb
+ORACLE OK   fixRotateVector  count=12563756  hash=64afce887683c703
+ORACLE OK   fixInvRotateVector  count=12563756  hash=a7d02b0685663640
+ORACLE OK   fixNLerp  count=6313756  hash=315cf27e3e31527e
+ORACLE OK   fixInvertMatrix  count=563756  hash=f7c48d2fcea79473
+ORACLE OK   fixSolve3  count=563756  hash=da2489cbf6193bad
+ORACLE OK   fixAABB_Transform  count=2563756  hash=d105925232ba6473
+ORACLE OK   fixQuantize  count=50063756  hash=8100e7c61c94a956
+ORACLE OK   fixDequantize  count=50063756  hash=1be2b75e26b7a4d1
+ORACLE OK   fixMulBatch  count=50063756  hash=de6fc21fb01df7f2
+ORACLE OK   fixDotBatch3  count=50063756  hash=7fb109655c1745da
+ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMul                         scalar      3.9460     3.9510     1.3%     3.9460     3.9680     1.6%    0.996
+fixMul                         batch       0.9576     0.9736     3.4%     0.9676     0.9766     2.5%    0.997
+fixDiv_below2p47               scalar      0.6970     0.6990     1.7%     0.6980     0.7030     3.3%    0.994
+fixDiv_below2p47               batch       0.9437     0.9566    10.7%     0.9477     0.9885     9.6%    0.968
+fixDiv_above2p47               scalar      0.6990     0.7010    61.3%     0.6980     1.0950    38.3%    0.640
+fixDiv_above2p47               batch       4.5171     4.5450     2.0%    22.0594    22.1271     0.7%    0.205
+fixLerp                        scalar      4.4110     4.4280     1.0%     4.4140     4.4310     1.3%    0.999
+fixLerp                        batch       1.2675     1.2795     1.1%     1.2685     1.2795     1.8%    1.000
+fixInt128Div                   scalar      1.8580     1.8640     0.6%     2.3220     2.3250     0.7%    0.802
+fixInt128Div                   batch      30.4717    30.5774     1.5%    31.0049    31.1065     0.9%    0.983
+fixLength                      scalar     10.2720    10.5470     3.3%    10.3960    10.5460     2.0%    1.000
+fixLength                      batch       1.8973     1.9093     1.7%     1.8993     1.9053     0.8%    1.002
+fixNormalize                   scalar     11.6110    11.7380     1.8%    12.1990    12.3700     8.2%    0.949
+fixNormalize                   batch      11.9071    12.0127     2.2%    12.7481    12.8557     7.8%    0.934
+fixNormalizeQuat               scalar     39.3180    39.4260     0.6%    38.8400    38.8720     0.5%    1.014
+fixNormalizeQuat               batch      40.3151    40.3749     0.8%    40.2762    40.3699     0.6%    1.000
+fixNLerp                       scalar     33.0210    33.0970     1.1%    33.1390    33.2100     1.2%    0.997
+fixNLerp                       batch      36.9958    37.1223     1.0%    36.9978    37.1801     1.2%    0.998
+fixInvertMatrix                scalar    343.6730   348.4940     5.4%  1755.4020  1760.7710     0.4%    0.198
+fixInvertMatrix                batch     342.9767   349.3812     4.2%  1757.3800  1761.6550     0.6%    0.198
+fixSolve3                      scalar     56.6480    56.8980     3.0%   216.8080   217.2540     0.5%    0.262
+fixSolve3                      batch      58.4622    60.4691     7.9%   218.3135   219.2064     1.6%    0.276
+# speedup = a_median / b_median; > 1 means the candidate is faster.
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+
+--- A/A native (base vs base), same settings, noise floor ---
+# ab.sh 2026-10-15T16:18:21Z
+# compiler: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# flags: -O3 -g -DNDEBUG -ffp-contract=off
+# repeats: 9  iterations: 1000000
+# # cpu_info 2026-10-15T16:18:21Z
+# uname: Darwin 27.0.0 arm64
+# cpu_model: Apple M5 Pro
+# logical_cpus: 18
+# isa_neon: unknown
+# isa_fp16: unknown
+# isa_i8mm: unknown
+# isa_sme: unknown
+# isa_sme2: unknown
+# affinity: taskset unavailable
+# load_average:{ 6.53 3.60 2.64 }
+# benchmarks_running: no
+# compiler_cc: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# compiler_clang: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# compiler_gcc: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# make: GNU Make 3.81
+# side A (../fixdiv-base) isa: scalar (facts: neon sme sme2)
+# side B (../fixdiv-base) isa: scalar (facts: neon sme sme2)
+# oracle_check compiled against ../fixdiv-base:
+# oracle FIXED_ISA=<detected>
+ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixDiv_above2p47               scalar      0.6820     0.6980   121.5%     0.6860     0.6990     2.4%    0.999
+fixDiv_above2p47               batch       4.5420     4.5879   119.0%     4.5420     4.5888     1.3%    1.000
+fixInt128Div                   scalar      1.7860     1.8590    72.7%     1.8230     1.8590     2.6%    1.000
+fixInt128Div                   batch      29.5769    30.6013    35.8%    29.6626    30.5724     3.5%    1.001
+fixNormalize                   scalar     11.6390    11.7560     1.9%    11.5680    11.6710     1.9%    1.007
+fixNormalize                   batch      11.8852    11.9918     2.9%    11.8772    11.9858     2.6%    1.001
+fixInvertMatrix                scalar    344.0590   346.8230     2.4%   338.5340   343.9370     3.1%    1.008
+fixInvertMatrix                batch     343.5806   346.7116     2.7%   341.8886   347.7529     7.2%    0.997
+fixSolve3                      scalar     56.4020    57.0260     3.6%    56.6240    57.2790    25.4%    0.996
+fixSolve3                      batch      58.9545    60.7223     5.1%    58.8429    61.9091     9.8%    0.981
+# speedup = a_median / b_median; > 1 means the candidate is faster.
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+
+--- A/B emulated arm (CC=cc -DFIX_FORCE_EMULATED_INT128), 9 repeats, 200000 iters ---
+# ab.sh 2026-10-15T16:20:19Z
+# compiler: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# flags: -O3 -g -DNDEBUG -ffp-contract=off
+# repeats: 9  iterations: 200000
+# # cpu_info 2026-10-15T16:20:19Z
+# uname: Darwin 27.0.0 arm64
+# cpu_model: Apple M5 Pro
+# logical_cpus: 18
+# isa_neon: unknown
+# isa_fp16: unknown
+# isa_i8mm: unknown
+# isa_sme: unknown
+# isa_sme2: unknown
+# affinity: taskset unavailable
+# load_average:{ 3.04 3.18 2.58 }
+# benchmarks_running: no
+# compiler_clang: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# compiler_gcc: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# make: GNU Make 3.81
+# side A (../fixdiv-base) isa: scalar (facts: neon sme sme2)
+# side B (.) isa: scalar (facts: neon sme sme2)
+# oracle_check compiled against .:
+# oracle FIXED_ISA=<detected>
+ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixDiv_above2p47               scalar      1.1100     1.1200     7.6%     0.8200     1.1200    30.8%    1.000
+fixDiv_above2p47               batch     155.1588   157.1817    14.7%    23.8959    24.0404    13.2%    6.538
+fixInt128Div                   scalar    108.7250   120.3600    11.0%   107.7550   122.5800    12.6%    0.982
+fixInt128Div                   batch     157.7946   162.3685     4.3%   163.8483   165.8861     2.9%    0.979
+fixNormalize                   scalar     28.4650    28.9150     2.3%    28.0900    28.8950     3.7%    1.001
+fixNormalize                   batch      29.3068    29.7054     2.9%    28.9730    29.4414     4.0%    1.009
+fixInvertMatrix                scalar  10421.9500 10756.7200     3.5%  2049.0800  2052.3150     0.3%    5.241
+fixInvertMatrix                batch   11331.4134 11356.0716     0.5%  2068.2498  2073.9098     0.4%    5.476
+# speedup = a_median / b_median; > 1 means the candidate is faster.
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+
+--- disassembly: slow_div (fixDiv) at BASE, otool -tvV ---
+_slow_div:
+00000001000005e8	cbz	x1, 0x100000610
+00000001000005ec	mov	x2, x1
+00000001000005f0	mov	x8, #0x7fffffffffff
+00000001000005f4	mov	x9, #0xfffffffffffe
+00000001000005f8	add	x8, x0, x8
+00000001000005fc	cmp	x8, x9
+0000000100000600	b.hi	0x100000628
+0000000100000604	lsl	x8, x0, #16
+0000000100000608	sdiv	x0, x8, x2
+000000010000060c	ret
+0000000100000610	mov	x8, #-0x7fffffffffffffff
+0000000100000614	cmp	x0, #0x0
+0000000100000618	csel	x8, xzr, x8, eq
+000000010000061c	mov	x9, #0x7fffffffffffffff
+0000000100000620	csel	x0, x9, x8, gt
+0000000100000624	ret
+0000000100000628	stp	x29, x30, [sp, #-0x10]!
+000000010000062c	mov	x29, sp
+0000000100000630	asr	x9, x0, #63
+0000000100000634	lsl	x8, x0, #16
+0000000100000638	asr	x3, x2, #63
+000000010000063c	extr	x1, x9, x0, #0x30
+0000000100000640	mov	x0, x8
+0000000100000644	bl	0x100002930 ; symbol stub for: ___divti3
+0000000100000648	mov	x8, #0x7fffffffffffffff
+000000010000064c	cmp	x8, x0
+0000000100000650	ngcs	xzr, x1
+0000000100000654	cset	w9, lt
+0000000100000658	mov	x10, #-0x7fffffffffffffff
+000000010000065c	cmp	x10, x0
+0000000100000660	mov	x11, #-0x1
+0000000100000664	sbcs	xzr, x11, x1
+0000000100000668	csel	x10, x0, x10, lt
+000000010000066c	tst	w9, #0x1
+0000000100000670	csel	x0, x8, x10, ne
+0000000100000674	ldp	x29, x30, [sp], #0x10
+0000000100000678	ret
+
+--- disassembly: slow_div (fixDiv) CANDIDATE, first 90 of 318 lines ---
+_slow_div:
+00000001000005e8	cbz	x1, 0x10000060c
+00000001000005ec	mov	x8, #0x7fffffffffff
+00000001000005f0	mov	x9, #0xfffffffffffe
+00000001000005f4	add	x8, x0, x8
+00000001000005f8	cmp	x8, x9
+00000001000005fc	b.hi	0x100000624
+0000000100000600	lsl	x8, x0, #16
+0000000100000604	sdiv	x0, x8, x1
+0000000100000608	ret
+000000010000060c	mov	x8, #-0x7fffffffffffffff
+0000000100000610	cmp	x0, #0x0
+0000000100000614	csel	x8, xzr, x8, eq
+0000000100000618	mov	x9, #0x7fffffffffffffff
+000000010000061c	csel	x0, x9, x8, gt
+0000000100000620	ret
+0000000100000624	asr	x8, x0, #63
+0000000100000628	extr	x8, x8, x0, #0x30
+000000010000062c	lsl	x9, x0, #16
+0000000100000630	negs	x10, x9
+0000000100000634	ngc	x11, x8
+0000000100000638	cmp	x0, #0x0
+000000010000063c	csel	x12, x11, x8, lt
+0000000100000640	csel	x11, x10, x9, lt
+0000000100000644	cmp	x1, #0x0
+0000000100000648	cneg	x10, x1, mi
+000000010000064c	cmp	x12, x10
+0000000100000650	b.hs	0x10000065c
+0000000100000654	mov	x9, #0x0
+0000000100000658	b	0x100000664
+000000010000065c	udiv	x9, x12, x10
+0000000100000660	msub	x12, x9, x10, x12
+0000000100000664	stp	x20, x19, [sp, #-0x10]!
+0000000100000668	clz	x13, x10
+000000010000066c	lsl	x16, x10, x13
+0000000100000670	ucvtf	d0, x16
+0000000100000674	mov	x14, #0x47e0000000000000
+0000000100000678	fmov	d1, x14
+000000010000067c	fdiv	d0, d1, d0
+0000000100000680	fcvtzu	x14, d0
+0000000100000684	mov	x15, #0x43f0000000000000
+0000000100000688	fmov	d1, x15
+000000010000068c	fcmp	d0, d1
+0000000100000690	csinv	x0, x14, xzr, lt
+0000000100000694	mov	w14, w16
+0000000100000698	lsr	x15, x16, #32
+000000010000069c	mov	w2, w0
+00000001000006a0	lsr	x17, x0, #32
+00000001000006a4	umull	x3, w0, w16
+00000001000006a8	umull	x4, w17, w14
+00000001000006ac	umull	x5, w2, w15
+00000001000006b0	lsr	x3, x3, #32
+00000001000006b4	add	x3, x3, w4, uxtw
+00000001000006b8	add	x3, x3, w5, uxtw
+00000001000006bc	add	w6, w4, w5
+00000001000006c0	lsl	x6, x6, #32
+00000001000006c4	umaddl	x6, w2, w14, x6
+00000001000006c8	lsr	x4, x4, #32
+00000001000006cc	umaddl	x4, w17, w15, x4
+00000001000006d0	add	x4, x4, x5, lsr #32
+00000001000006d4	add	x3, x4, x3, lsr #32
+00000001000006d8	mvn	x4, x6
+00000001000006dc	neg	x5, x3
+00000001000006e0	neg	x6, x6
+00000001000006e4	cmp	x6, x4
+00000001000006e8	cset	w4, lo
+00000001000006ec	csinv	x5, x5, x3, lo
+00000001000006f0	sub	w3, w3, w4
+00000001000006f4	mvn	w3, w3
+00000001000006f8	lsr	x4, x5, #32
+00000001000006fc	umull	x5, w0, w3
+0000000100000700	umull	x7, w4, w2
+0000000100000704	umull	x19, w17, w3
+0000000100000708	lsr	x5, x5, #32
+000000010000070c	add	x5, x5, w7, uxtw
+0000000100000710	add	x5, x5, w19, uxtw
+0000000100000714	lsr	x5, x5, #32
+0000000100000718	add	w20, w7, w19
+000000010000071c	lsl	x20, x20, #32
+0000000100000720	umaddl	x3, w2, w3, x20
+0000000100000724	lsr	x7, x7, #32
+0000000100000728	umaddl	x4, w4, w17, x7
+000000010000072c	add	x4, x4, x19, lsr #32
+0000000100000730	mov	w7, w6
+0000000100000734	lsr	x19, x6, #32
+0000000100000738	umull	x0, w6, w0
+000000010000073c	umull	x2, w19, w2
+0000000100000740	umull	x6, w7, w17
+0000000100000744	lsr	x0, x0, #32
+0000000100000748	add	x0, x0, w2, uxtw
+
+--- candidate: counts in slow_div: mul/umulh/madd lines=56, fdiv=1, udiv, clz=1, ___divti3 calls=0 ---
+
+--- fixdiv equivalence test stdout, native build (from build-native/fixdiv_arm64_native_tier.out) ---
+grid 781 x 781 lanes
+checked 100026227 lanes, 50311671 through the 64-bit-divisor tier, 0 mismatches
+PASS FixDivArm64NativeTierEquivalenceTest (tier=1, native_ref=1)

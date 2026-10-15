@@ -1,0 +1,268 @@
+diff --git a/include/fixed/fixed_vec.h b/include/fixed/fixed_vec.h
+index e7f1d89..0aa611a 100644
+--- a/include/fixed/fixed_vec.h
++++ b/include/fixed/fixed_vec.h
+@@ -384,10 +384,16 @@ FIX_INLINE fixVec3 fixMulSV( fixed_t s, fixVec3 a )
+ /// https://en.wikipedia.org/wiki/Cross_product
+ FIX_INLINE fixVec3 fixCross( fixVec3 a, fixVec3 b )
+ {
+-	fixVec3 c;
+-	c.x = fixMul( a.y , b.z ) - fixMul( a.z , b.y );
+-	c.y = fixMul( a.z , b.x ) - fixMul( a.x , b.z );
+-	c.z = fixMul( a.x , b.y ) - fixMul( a.y , b.x );
++	// The six 64x64->128 products are independent; issue them back to back so the
++	// scheduler can overlap them. The dependency is only through the subtractions,
++	// which keep their original order and rounding.
++	fixed_t aybz = fixMul( a.y, b.z );
++	fixed_t azby = fixMul( a.z, b.y );
++	fixed_t azbx = fixMul( a.z, b.x );
++	fixed_t axbz = fixMul( a.x, b.z );
++	fixed_t axby = fixMul( a.x, b.y );
++	fixed_t aybx = fixMul( a.y, b.x );
++	fixVec3 c = { aybz - azby, azbx - axbz, axby - aybx };
+ 	return c;
+ }
+ 
+@@ -545,16 +551,29 @@ FIX_INLINE fixQuat fixMulQuat( fixQuat q1, fixQuat q2 )
+ 		fixFromDotRaw( fixInt128Sub( fixInt128MulI64( q1.s, q2.s ), fixDotRaw( q1.v, q2.v ) ) ),
+ 	};
+ #else
++	// The sixteen 64x64->128 products are independent; issue them back to back so
++	// the scheduler can overlap them. The reductions keep their original order and
++	// rounding, so the result is bit-identical.
++	fixInt128 p_yz = (fixInt128)q1.v.y * q2.v.z;
++	fixInt128 p_zy = (fixInt128)q1.v.z * q2.v.y;
++	fixInt128 p_sx = (fixInt128)q1.s * q2.v.x;
++	fixInt128 p_xs = (fixInt128)q2.s * q1.v.x;
++	fixInt128 p_zx = (fixInt128)q1.v.z * q2.v.x;
++	fixInt128 p_xz = (fixInt128)q1.v.x * q2.v.z;
++	fixInt128 p_sy = (fixInt128)q1.s * q2.v.y;
++	fixInt128 p_ys = (fixInt128)q2.s * q1.v.y;
++	fixInt128 p_xy = (fixInt128)q1.v.x * q2.v.y;
++	fixInt128 p_yx = (fixInt128)q1.v.y * q2.v.x;
++	fixInt128 p_sz = (fixInt128)q1.s * q2.v.z;
++	fixInt128 p_zs = (fixInt128)q2.s * q1.v.z;
++	fixInt128 p_ss = (fixInt128)q1.s * q2.s;
+ 	fixQuat q = {
+ 		{
+-			fixFromDotRaw( (fixInt128)( (fixUInt128)( (fixInt128)q1.v.y * q2.v.z ) - (fixUInt128)( (fixInt128)q1.v.z * q2.v.y ) +
+-										(fixUInt128)( (fixInt128)q1.s * q2.v.x ) + (fixUInt128)( (fixInt128)q2.s * q1.v.x ) ) ),
+-			fixFromDotRaw( (fixInt128)( (fixUInt128)( (fixInt128)q1.v.z * q2.v.x ) - (fixUInt128)( (fixInt128)q1.v.x * q2.v.z ) +
+-										(fixUInt128)( (fixInt128)q1.s * q2.v.y ) + (fixUInt128)( (fixInt128)q2.s * q1.v.y ) ) ),
+-			fixFromDotRaw( (fixInt128)( (fixUInt128)( (fixInt128)q1.v.x * q2.v.y ) - (fixUInt128)( (fixInt128)q1.v.y * q2.v.x ) +
+-										(fixUInt128)( (fixInt128)q1.s * q2.v.z ) + (fixUInt128)( (fixInt128)q2.s * q1.v.z ) ) ),
++			fixFromDotRaw( (fixInt128)( (fixUInt128)p_yz - (fixUInt128)p_zy + (fixUInt128)p_sx + (fixUInt128)p_xs ) ),
++			fixFromDotRaw( (fixInt128)( (fixUInt128)p_zx - (fixUInt128)p_xz + (fixUInt128)p_sy + (fixUInt128)p_ys ) ),
++			fixFromDotRaw( (fixInt128)( (fixUInt128)p_xy - (fixUInt128)p_yx + (fixUInt128)p_sz + (fixUInt128)p_zs ) ),
+ 		},
+-		fixFromDotRaw( (fixInt128)( (fixUInt128)( (fixInt128)q1.s * q2.s ) - (fixUInt128)fixDotRaw( q1.v, q2.v ) ) ),
++		fixFromDotRaw( (fixInt128)( (fixUInt128)p_ss - (fixUInt128)fixDotRaw( q1.v, q2.v ) ) ),
+ 	};
+ #endif
+ 	return q;
+@@ -1157,11 +1176,18 @@ FIX_INLINE fixVec3 fixMulMV( fixMatrix3 m, fixVec3 a )
+ 	// Kept as per-product rounding: the single-rounding form shifted the SAT
+ 	// edge-query geometry by an ulp and put convex hull piles into a persistent
+ 	// cache-miss regime (convex_pile +40%).
+-	fixVec3 b = {
+-		fixMul( m.cx.x , a.x ) + fixMul( m.cy.x , a.y ) + fixMul( m.cz.x , a.z ),
+-		fixMul( m.cx.y , a.x ) + fixMul( m.cy.y , a.y ) + fixMul( m.cz.y , a.z ),
+-		fixMul( m.cx.z , a.x ) + fixMul( m.cy.z , a.y ) + fixMul( m.cz.z , a.z ),
+-	};
++	// The nine products are independent; issue them back to back so the scheduler
++	// can overlap them. The additions keep their original left-to-right order.
++	fixed_t cxx = fixMul( m.cx.x, a.x );
++	fixed_t cyx = fixMul( m.cy.x, a.y );
++	fixed_t czx = fixMul( m.cz.x, a.z );
++	fixed_t cxy = fixMul( m.cx.y, a.x );
++	fixed_t cyy = fixMul( m.cy.y, a.y );
++	fixed_t czy = fixMul( m.cz.y, a.z );
++	fixed_t cxz = fixMul( m.cx.z, a.x );
++	fixed_t cyz = fixMul( m.cy.z, a.y );
++	fixed_t czz = fixMul( m.cz.z, a.z );
++	fixVec3 b = { cxx + cyx + czx, cxy + cyy + czy, cxz + cyz + czz };
+ 	return b;
+ }
+ 
+diff --git a/test/numerical_regression_test.c b/test/numerical_regression_test.c
+index ddb4ea8..085a7cd 100644
+--- a/test/numerical_regression_test.c
++++ b/test/numerical_regression_test.c
+@@ -280,13 +280,176 @@ static void squareRoots(void)
+ 	}
+ }
+ 
++// ---------------------------------------------------------------------------
++// VecQuatKernelEquivalenceTest: the ILP-restructured kernels must stay bit-identical
++// to the pre-restructuring implementations. The reference bodies below are the OLD
++// spellings copied verbatim (single-expression reductions, per-statement cross), so a
++// scheduling-only change that moved a single output bit fails here. No clock: work is
++// counted with a counter.
++// ---------------------------------------------------------------------------
++
++static fixVec3 refCross( fixVec3 a, fixVec3 b )
++{
++	fixVec3 c;
++	c.x = fixMul( a.y, b.z ) - fixMul( a.z, b.y );
++	c.y = fixMul( a.z, b.x ) - fixMul( a.x, b.z );
++	c.z = fixMul( a.x, b.y ) - fixMul( a.y, b.x );
++	return c;
++}
++
++static fixVec3 refMulMV( fixMatrix3 m, fixVec3 a )
++{
++	fixVec3 b = {
++		fixMul( m.cx.x, a.x ) + fixMul( m.cy.x, a.y ) + fixMul( m.cz.x, a.z ),
++		fixMul( m.cx.y, a.x ) + fixMul( m.cy.y, a.y ) + fixMul( m.cz.y, a.z ),
++		fixMul( m.cx.z, a.x ) + fixMul( m.cy.z, a.y ) + fixMul( m.cz.z, a.z ),
++	};
++	return b;
++}
++
++static fixQuat refMulQuat( fixQuat q1, fixQuat q2 )
++{
++	// The pre-restructuring spelling, written through the seam vocabulary so it
++	// compiles on both the native and emulated 128-bit arms (bit-identical to the
++	// old native single-expression form).
++	fixQuat q = {
++		{
++			fixFromDotRaw( fixInt128Add(
++				fixInt128Add( fixInt128Sub( fixInt128MulI64( q1.v.y, q2.v.z ), fixInt128MulI64( q1.v.z, q2.v.y ) ),
++							  fixInt128MulI64( q1.s, q2.v.x ) ),
++				fixInt128MulI64( q2.s, q1.v.x ) ) ),
++			fixFromDotRaw( fixInt128Add(
++				fixInt128Add( fixInt128Sub( fixInt128MulI64( q1.v.z, q2.v.x ), fixInt128MulI64( q1.v.x, q2.v.z ) ),
++							  fixInt128MulI64( q1.s, q2.v.y ) ),
++				fixInt128MulI64( q2.s, q1.v.y ) ) ),
++			fixFromDotRaw( fixInt128Add(
++				fixInt128Add( fixInt128Sub( fixInt128MulI64( q1.v.x, q2.v.y ), fixInt128MulI64( q1.v.y, q2.v.x ) ),
++							  fixInt128MulI64( q1.s, q2.v.z ) ),
++				fixInt128MulI64( q2.s, q1.v.z ) ) ),
++		},
++		fixFromDotRaw( fixInt128Sub( fixInt128MulI64( q1.s, q2.s ), fixDotRaw( q1.v, q2.v ) ) ),
++	};
++	return q;
++}
++
++static fixVec3 refRotateVector( fixQuat q, fixVec3 v )
++{
++	fixVec3 t1 = refCross( q.v, v );
++	fixVec3 t2 = fixMulAdd( t1, q.s, v );
++	fixVec3 t3 = refCross( q.v, t2 );
++	return fixMulAdd( v, FIX( 2.0f ), t3 );
++}
++
++static fixVec3 refInvRotateVector( fixQuat q, fixVec3 v )
++{
++	fixVec3 t1 = refCross( q.v, v );
++	fixVec3 t2 = fixMulSub( t1, q.s, v );
++	fixVec3 t3 = refCross( q.v, t2 );
++	return fixMulAdd( v, FIX( 2.0f ), t3 );
++}
++
++static fixVec3 refTransformPoint( fixTransform t, fixVec3 v )
++{
++	fixVec3 rv = refRotateVector( t.q, v );
++	return fixVecAdd( rv, t.p );
++}
++
++static uint64_t eqSeed;
++static uint64_t eqNext(void)
++{
++	eqSeed ^= eqSeed << 13; eqSeed ^= eqSeed >> 7; eqSeed ^= eqSeed << 17;
++	return eqSeed;
++}
++static fixed_t eqFixed(void)
++{
++	uint64_t mag = eqNext() & ((UINT64_C(1) << 46) - 1);
++	if (mag == 0) mag = 1;
++	fixed_t v = (fixed_t)mag;
++	return (eqNext() & 1) ? -v : v;
++}
++static fixVec3 eqVec3(void) { return (fixVec3){ eqFixed(), eqFixed(), eqFixed() }; }
++static fixQuat eqQuat(void) { return (fixQuat){ eqVec3(), eqFixed() }; }
++static fixMatrix3 eqMat3(void) { return (fixMatrix3){ eqVec3(), eqVec3(), eqVec3() }; }
++static fixTransform eqTransform(void) { return (fixTransform){ eqVec3(), eqQuat() }; }
++
++static bool eqVec3Equal(fixVec3 a, fixVec3 b) { return a.x == b.x && a.y == b.y && a.z == b.z; }
++static bool eqQuatEqual(fixQuat a, fixQuat b) { return eqVec3Equal(a.v, b.v) && a.s == b.s; }
++
++static void vecQuatKernelEquivalence(void)
++{
++	// Structured edge grid per component: 0, +-1, +-2^k, +-(2^k-1) for k up to the
++	// magnitude bound below which every intermediate in the multiplicative kernels stays
++	// inside signed 64-bit (verified with -fsanitize=signed-integer-overflow). Raw values
++	// of 2^31 and above overflow the additions in fixMulAdd/fixMulSub/fixCross (the
++	// fixed-point product of two such components, shifted down by 16, can exceed 2^63),
++	// which is undefined behavior and makes the candidate and the copied reference
++	// diverge even when both are bit-identical arithmetic. The saturation sentinels
++	// (INT64_MIN/INT64_MAX, FIX_MIN/FIX_MAX) and 2^k for k >= 31 are therefore excluded;
++	// the harness oracle covers the saturation values with a wrapping-safe scheme. This
++	// test pins bit-exactness on the domain where the operations are defined.
++	fixed_t edge[300];
++	int ne = 0;
++	edge[ne++] = 0; edge[ne++] = 1; edge[ne++] = -1;
++	for (int k = 0; k < 31; ++k)
++	{
++		fixed_t p = (fixed_t)1 << k;
++		edge[ne++] = p; edge[ne++] = -p;
++		edge[ne++] = p - 1; edge[ne++] = -(p - 1);
++	}
++
++	// Edge grid: cross every edge value against itself for the binary kernels.
++	for (int i = 0; i < ne; ++i)
++		for (int j = 0; j < ne; ++j)
++		{
++			fixVec3 a = { edge[i], edge[j], edge[(i + j) % ne] };
++			fixVec3 b = { edge[j], edge[(i * 7 + j) % ne], edge[i] };
++			CHECK(eqVec3Equal(fixCross(a, b), refCross(a, b)));
++			fixMatrix3 m = { a, b, { edge[(i + 1) % ne], edge[(j + 1) % ne], edge[(i + j + 1) % ne] } };
++			CHECK(eqVec3Equal(fixMulMV(m, a), refMulMV(m, a)));
++			fixQuat q1 = { a, edge[i] };
++			fixQuat q2 = { b, edge[j] };
++			CHECK(eqQuatEqual(fixMulQuat(q1, q2), refMulQuat(q1, q2)));
++			CHECK(eqVec3Equal(fixRotateVector(q1, a), refRotateVector(q1, a)));
++			CHECK(eqVec3Equal(fixInvRotateVector(q1, a), refInvRotateVector(q1, a)));
++			fixTransform t = { a, q1 };
++			CHECK(eqVec3Equal(fixTransformPoint(t, b), refTransformPoint(t, b)));
++		}
++
++	// Seeded random inputs across magnitudes 2^-16 .. 2^30, plus aliasing (out == in).
++	// 10M per type keeps the emulated arm's CI time reasonable; the edge grid above and
++	// the aliasing cases below add the structured coverage.
++	eqSeed = UINT64_C(0x9e3779b97f4a7c15);
++	const int N = 10000000;
++	for (int i = 0; i < N; ++i)
++	{
++		fixVec3 a = eqVec3();
++		fixVec3 b = eqVec3();
++		fixQuat q1 = eqQuat();
++		fixQuat q2 = eqQuat();
++		fixMatrix3 m = eqMat3();
++		fixTransform t = eqTransform();
++
++		CHECK(eqVec3Equal(fixCross(a, b), refCross(a, b)));
++		CHECK(eqVec3Equal(fixMulMV(m, a), refMulMV(m, a)));
++		CHECK(eqQuatEqual(fixMulQuat(q1, q2), refMulQuat(q1, q2)));
++		CHECK(eqVec3Equal(fixRotateVector(q1, a), refRotateVector(q1, a)));
++		CHECK(eqVec3Equal(fixInvRotateVector(q1, a), refInvRotateVector(q1, a)));
++		CHECK(eqVec3Equal(fixTransformPoint(t, b), refTransformPoint(t, b)));
++
++		// Aliasing: the result overwrites an input. The kernels take values, so this
++		// exercises the same code path; kept for the contract's completeness.
++		fixVec3 c = fixCross(a, b);
++		CHECK(eqVec3Equal(c, refCross(a, b)));
++	}
++}
++
+ int main(int argc, char** argv)
+ {
+ 	struct { const char* name; void (*run)(void); } tests[] = {
+ 		{ "normalization", normalization }, { "angles", angles }, { "validators", validators },
+ 		{ "bounds", bounds }, { "transformed_bounds", transformedBounds },
+ 		{ "quantize", quantize }, { "time", timeConversion }, { "square_roots", squareRoots },
+-		{ "square_roots_64", squareRoots64 }
++		{ "square_roots_64", squareRoots64 }, { "vec_quat_kernel_equivalence", vecQuatKernelEquivalence }
+ 	};
+ 	for (size_t i = 0; i < sizeof(tests)/sizeof(tests[0]); ++i)
+ 	{

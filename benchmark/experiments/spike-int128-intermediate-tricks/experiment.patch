@@ -1,0 +1,156 @@
+diff --git a/include/fixed/fixed.h b/include/fixed/fixed.h
+index a76db23..34fa8e0 100644
+--- a/include/fixed/fixed.h
++++ b/include/fixed/fixed.h
+@@ -199,13 +199,19 @@ FIX_ALWAYS_INLINE fixInt128 fixInt128Div( fixInt128 a, fixInt128 b )
+ /// on, and duplicating it would buy nothing.
+ FIX_ALWAYS_INLINE fixed_t fixMul( fixed_t a, fixed_t b )
+ {
+-	// Round half up, then shift out the fraction bits (arithmetic shift)
++	// Round half up, then shift out the fraction bits (arithmetic shift).
++	//
++	// SPIKE (int128-intermediate-tricks, candidate (a)): instead of a 128-bit add of the
++	// rounding half followed by a 128-bit arithmetic shift, widen once, add the half to
++	// the low lane with an explicit carry into the high lane, and assemble the shifted
++	// result from the two lanes: (hi << 48) | (lo >> 16). This is bit-identical to the
++	// reference because the low 64 bits of (product + HALF) >> 16 are bits [16, 80) of
++	// (product + HALF), which is exactly (hi << 48) | (lo >> 16) under two's complement.
++	// On x86-64 the compiler already emits this shape (imulq; addq $32768; adcq $0; shrdq
++	// $16) for the ORIGINAL spelling, so the rewrite is a transcription, not a speedup.
+ #if FIX_INT128_EMULATED
+ 	fixInt128 product = fixInt128MulI64( a, b );
+ 	fixInt128 r = fixInt128Shr( fixInt128Add( product, fixInt128FromI64( FIX_HALF ) ), FIX_FRACTION_BITS );
+-#else
+-	fixInt128 r = (fixInt128)( (fixUInt128)( (fixInt128)a * b ) + (fixUInt128)(fixInt128)FIX_HALF ) >> FIX_FRACTION_BITS;
+-#endif
+ #if defined( FIX_SATURATE )
+ 	if ( fixInt128Gt( r, fixInt128FromI64( INT64_MAX ) ) )
+ 	{
+@@ -217,6 +223,27 @@ FIX_ALWAYS_INLINE fixed_t fixMul( fixed_t a, fixed_t b )
+ 	}
+ #endif
+ 	return (fixed_t)fixInt128ToI64( r );
++#else
++	fixUInt128 product = (fixUInt128)( (fixInt128)a * b );
++	uint64_t lo = (uint64_t)product;
++	uint64_t hi = (uint64_t)( product >> 64 );
++	uint64_t rlo = lo + (uint64_t)FIX_HALF;
++	uint64_t rhi = hi + ( rlo < lo ? 1 : 0 );
++#if defined( FIX_SATURATE )
++	fixInt128 r = (fixInt128)( ( (fixUInt128)rhi << 64 ) | (fixUInt128)rlo ) >> FIX_FRACTION_BITS;
++	if ( fixInt128Gt( r, fixInt128FromI64( INT64_MAX ) ) )
++	{
++		return FIX_MAX;
++	}
++	if ( fixInt128Lt( r, fixInt128FromI64( -INT64_MAX ) ) )
++	{
++		return FIX_MIN;
++	}
++	return (fixed_t)fixInt128ToI64( r );
++#else
++	return (fixed_t)( ( rhi << 48 ) | ( rlo >> 16 ) );
++#endif
++#endif
+ }
+ 
+ /// Divide two fixed-point numbers with truncation toward zero and saturation.
+diff --git a/test/int128_test.c b/test/int128_test.c
+index d68a931..fe12e3c 100644
+--- a/test/int128_test.c
++++ b/test/int128_test.c
+@@ -239,6 +239,16 @@ static REF_NOINLINE int refSCmp( nativeInt128 a, nativeInt128 b )
+ 	return ( a == b ? 1 : 0 ) | ( a < b ? 2 : 0 ) | ( a > b ? 4 : 0 ) | ( a <= b ? 8 : 0 ) | ( a >= b ? 16 : 0 );
+ }
+ 
++// The plain __int128 spelling of fixMul's rounding, forced out of line so the optimizer
++// cannot fold it into the candidate it is checking. This is the reference the
++// Int128SeamTricksEquivalenceTest holds the shift-free-rounding candidate to: widen,
++// add half, shift out the fraction bits, narrow. No saturation, exactly like the
++// default (FIX_SATURATE-undefined) fixMul the spike measures.
++static REF_NOINLINE int64_t refMulRound( int64_t a, int64_t b )
++{
++	return (int64_t)( ( (nativeInt128)a * b + (nativeInt128)FIX_HALF ) >> FIX_FRACTION_BITS );
++}
++
+ static bool sameU( fixEmuUInt128 emu, nativeUInt128 nat )
+ {
+ 	return emu.lo == (uint64_t)nat && emu.hi == (uint64_t)( nat >> 64 );
+@@ -927,6 +937,70 @@ static uint64_t sweepConversions( int perturb, uint64_t samples )
+ 	return bad;
+ }
+ 
++// ================================================================================
++// Int128SeamTricksEquivalenceTest: the shift-free-rounding fixMul candidate held to the
++// plain __int128 reference. The structured edge grid crosses itself, then a seeded
++// random sample of full int64 pairs (negative operands included: round-half-up is not
++// odd-symmetric, so -(a*b) rounding cannot be inferred from (a*b) rounding). The
++// perturbed arms add `perturb` to the candidate's result, so the comparison is provably
++// live (a blind loop would find zero mismatches and fail).
++// ================================================================================
++
++static uint64_t sweepMulRoundFast( int perturb, uint64_t samples )
++{
++	uint64_t bad = 0;
++
++	// The edge grid as raw bits so that -2^k never forms a signed-overflow value: negating
++	// a 64-bit unsigned lane is exactly the two's-complement edge it names.
++	uint64_t edges[ 4 * 64 + 8 ];
++	int n = 0;
++	edges[n++] = 0;                            // 0
++	edges[n++] = 1;                            // +1
++	edges[n++] = 0xFFFFFFFFFFFFFFFFULL;        // -1
++	edges[n++] = 0x8000000000000000ULL;        // INT64_MIN
++	edges[n++] = 0x7FFFFFFFFFFFFFFFULL;        // INT64_MAX
++	edges[n++] = 0x8000000000000001ULL;        // -INT64_MAX (FIX_MIN)
++	for ( int k = 0; k < 63; k++ )
++	{
++		uint64_t p = 1ULL << k;                // 2^k
++		edges[n++] = p;                        // +2^k
++		edges[n++] = 0ULL - p;                 // -(2^k)
++		edges[n++] = p - 1;                    // +(2^k - 1)
++		edges[n++] = 0ULL - ( p - 1 );         // -(2^k - 1)
++	}
++	// k == 63: 2^63 is INT64_MIN and 2^63 - 1 is INT64_MAX, both already in the grid.
++
++	for ( int ai = 0; ai < n; ai++ )
++	{
++		for ( int bi = 0; bi < n; bi++ )
++		{
++			int64_t a = (int64_t)edges[ai];
++			int64_t b = (int64_t)edges[bi];
++			int64_t got = (int64_t)( (uint64_t)fixMul( a, b ) + (uint64_t)perturb );
++#if HAS_NATIVE
++			bad += ( got == refMulRound( a, b ) ) ? 0 : 1;
++#else
++			(void)got;
++#endif
++		}
++	}
++
++	rngState = 0xB7000000ULL + (uint64_t)perturb;
++	for ( uint64_t i = 0; i < samples; i++ )
++	{
++		int64_t a = (int64_t)nextRandom();
++		int64_t b = (int64_t)nextRandom();
++		int64_t got = (int64_t)( (uint64_t)fixMul( a, b ) + (uint64_t)perturb );
++#if HAS_NATIVE
++		bad += ( got == refMulRound( a, b ) ) ? 0 : 1;
++#else
++		(void)got;
++#endif
++	}
++
++	return bad;
++}
++
+ // ================================================================================
+ 
+ typedef uint64_t ( *SweepFcn )( int perturb, uint64_t samples );
+@@ -1041,6 +1115,7 @@ int main( int argc, char** argv )
+ 	run( "emulated signed comparisons match native", sweepSignedCompare, SAMPLES( 200000 ), 1 );
+ 	run( "emulated signed divide and modulo match native", sweepSignedDivMod, SAMPLES( 20000 ), 1 );
+ 	run( "emulated conversions and lane accessors match native", sweepConversions, SAMPLES( 200000 ), 1 );
++	run( "fixMul shift-free-rounding candidate matches the plain __int128 reference", sweepMulRoundFast, SAMPLES( 300000 ), 1 );
+ 
+ 	checkDocumentedEdges();
+ 

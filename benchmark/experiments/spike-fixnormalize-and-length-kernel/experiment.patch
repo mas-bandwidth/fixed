@@ -1,0 +1,294 @@
+diff --git a/include/fixed/fixed_vec.h b/include/fixed/fixed_vec.h
+index e7f1d89..9a073c2 100644
+--- a/include/fixed/fixed_vec.h
++++ b/include/fixed/fixed_vec.h
+@@ -257,6 +257,51 @@ FIX_INLINE fixed_t fixNormalizeByLength( fixed_t component, uint64_t length )
+ 		fixInt128FromU64( length ) ) );
+ }
+ 
++// Exact reciprocal of a 64-bit divisor in [1, 2^47): R = floor(2^64 / d). The one
++// divide on the normalization hot path; the three per-component quotients are then
++// formed by multiplication and corrected exactly (see fixNormalizeComponentByRecip).
++FIX_INLINE uint64_t fixReciprocal64( uint64_t d )
++{
++	uint64_t ignored;
++	return fixUInt128DivRemBy64( fixUInt128Make( 1, 0 ), d, &ignored );
++}
++
++// trunc(component * 2^16 / d), computed from the precomputed R = floor(2^64/d) instead
++// of a hardware divide. R underestimates the true quotient by at most one for every
++// component magnitude below 2^48, and the remainder test below repairs that exactly, so
++// the result is bit-identical to fixDiv's truncation for every such input.
++FIX_INLINE fixed_t fixNormalizeComponentByRecip( fixed_t component, uint64_t d, uint64_t r )
++{
++	uint64_t mag = component < 0 ? (uint64_t)( -( component + 1 ) ) + 1 : (uint64_t)component;
++	uint64_t n = mag << FIX_FRACTION_BITS;
++	uint64_t q = fixUInt128Hi( fixUInt128MulU64( n, r ) );
++	uint64_t rem = n - q * d;
++	if ( rem >= d )
++	{
++		++q;
++	}
++	return component < 0 ? -(int64_t)q : (int64_t)q;
++}
++
++// The three divides of fixNormalizeWithLength's lifted path, folded into one reciprocal
++// and three multiply-and-correct quotients. The lifted components are below 2^46, well
++// inside the 2^48 precondition of fixNormalizeComponentByRecip.
++FIX_INLINE fixVec3 fixNormalizeThreeByRecip( fixVec3 a, uint64_t length )
++{
++	uint64_t r = fixReciprocal64( length );
++	return FIX_LITERAL( fixVec3 ){ fixNormalizeComponentByRecip( a.x, length, r ),
++		fixNormalizeComponentByRecip( a.y, length, r ), fixNormalizeComponentByRecip( a.z, length, r ) };
++}
++
++// The four divides of fixNormalizeQuat's near-unit path, folded into one reciprocal.
++FIX_INLINE fixQuat fixNormalizeQuatByRecip( fixQuat q, uint64_t length )
++{
++	uint64_t r = fixReciprocal64( length );
++	return FIX_LITERAL( fixQuat ){ { fixNormalizeComponentByRecip( q.v.x, length, r ),
++		fixNormalizeComponentByRecip( q.v.y, length, r ), fixNormalizeComponentByRecip( q.v.z, length, r ) },
++		fixNormalizeComponentByRecip( q.s, length, r ) };
++}
++
+ // Specialize away the optional output on the normalize-only hot path.
+ FIX_FORCE_INLINE fixVec3 fixNormalizeWithLength( fixVec3 a, fixed_t* originalLength )
+ {
+@@ -280,6 +325,10 @@ FIX_FORCE_INLINE fixVec3 fixNormalizeWithLength( fixVec3 a, fixed_t* originalLen
+ 		uint64_t unlifted = length >> lift;
+ 		*originalLength = unlifted > (uint64_t)FIX_MAX ? FIX_MAX : (fixed_t)unlifted;
+ 	}
++	if ( length < ( UINT64_C( 1 ) << 47 ) )
++	{
++		return fixNormalizeThreeByRecip( a, length );
++	}
+ 	return FIX_LITERAL( fixVec3 ){ fixNormalizeByLength( a.x, length ), fixNormalizeByLength( a.y, length ),
+ 		fixNormalizeByLength( a.z, length ) };
+ }
+@@ -312,10 +361,8 @@ FIX_INLINE fixVec3 fixGetLengthAndNormalize( fixed_t* length, fixVec3 a )
+ 	// numerators fit int64, so one range check replaces three fixDiv guards.
+ 	if ( rawLength >= FIX_HALF && rawLength < ( UINT64_C( 1 ) << 47 ) )
+ 	{
+-		fixed_t divisor = (fixed_t)rawLength;
+-		*length = divisor;
+-		return FIX_LITERAL( fixVec3 ){ fixShiftLeft( a.x, FIX_FRACTION_BITS ) / divisor,
+-			fixShiftLeft( a.y, FIX_FRACTION_BITS ) / divisor, fixShiftLeft( a.z, FIX_FRACTION_BITS ) / divisor };
++		*length = (fixed_t)rawLength;
++		return fixNormalizeThreeByRecip( a, rawLength );
+ 	}
+ 	// At half a unit or above, flooring the length contributes less than
+ 	// 1/32768 relative error. Keep this common one-sqrt path and its existing
+@@ -619,9 +666,7 @@ FIX_INLINE fixQuat fixNormalizeQuat( fixQuat q )
+ 	uint64_t length = fixISqrt128High( fixInt128Hi( ls ), fixInt128Lo( ls ) );
+ 	if ( length >= FIX_HALF && length < ( UINT64_C( 1 ) << 47 ) )
+ 	{
+-		fixed_t divisor = (fixed_t)length;
+-		return FIX_LITERAL( fixQuat ){ { fixShiftLeft( q.v.x, FIX_FRACTION_BITS ) / divisor, fixShiftLeft( q.v.y, FIX_FRACTION_BITS ) / divisor,
+-			fixShiftLeft( q.v.z, FIX_FRACTION_BITS ) / divisor }, fixShiftLeft( q.s, FIX_FRACTION_BITS ) / divisor };
++		return fixNormalizeQuatByRecip( q, length );
+ 	}
+ 	// Preserve the common near-unit path, including one-quantum rotation
+ 	// components that unnecessary rescaling could truncate away.
+diff --git a/test/numerical_regression_test.c b/test/numerical_regression_test.c
+index ddb4ea8..2eb084a 100644
+--- a/test/numerical_regression_test.c
++++ b/test/numerical_regression_test.c
+@@ -255,6 +255,189 @@ static void squareRoots64(void)
+ 	}
+ }
+ 
++// ---- fixNormalize kernel equivalence ----------------------------------------------
++// Reference bodies: the pre-spike normalization, rebuilt from the still-present
++// fixNormalizeByLength and fixDiv helpers (unchanged by the spike). The candidate kernel
++// must equal these bit-for-bit on every input.
++static fixVec3 referenceNormalizeWithLength( fixVec3 a, fixed_t* originalLength )
++{
++	uint64_t ux = a.x < 0 ? -(uint64_t)a.x : (uint64_t)a.x;
++	uint64_t uy = a.y < 0 ? -(uint64_t)a.y : (uint64_t)a.y;
++	uint64_t uz = a.z < 0 ? -(uint64_t)a.z : (uint64_t)a.z;
++	if ( ( ux | uy | uz ) == 0 )
++	{
++		if ( originalLength != NULL ) *originalLength = 0;
++		return fixVec3_zero;
++	}
++	int lift = fixNormalizationLift( ux | uy | uz );
++	a.x = fixShiftLeft( a.x, lift ); a.y = fixShiftLeft( a.y, lift ); a.z = fixShiftLeft( a.z, lift );
++	fixInt128 ls = fixDotRaw( a, a );
++	uint64_t length = fixISqrt128High( fixInt128Hi( ls ), fixInt128Lo( ls ) );
++	if ( originalLength != NULL )
++	{
++		uint64_t unlifted = length >> lift;
++		*originalLength = unlifted > (uint64_t)FIX_MAX ? FIX_MAX : (fixed_t)unlifted;
++	}
++	return FIX_LITERAL( fixVec3 ){ fixNormalizeByLength( a.x, length ), fixNormalizeByLength( a.y, length ),
++		fixNormalizeByLength( a.z, length ) };
++}
++
++static fixVec3 referenceNormalize( fixVec3 a )
++{
++	return referenceNormalizeWithLength( a, NULL );
++}
++
++static fixVec3 referenceGetLengthAndNormalize( fixed_t* length, fixVec3 a )
++{
++	fixInt128 ls = fixDotRaw( a, a );
++	uint64_t rawLength = fixISqrt128High( fixInt128Hi( ls ), fixInt128Lo( ls ) );
++	if ( rawLength >= FIX_HALF && rawLength < ( UINT64_C( 1 ) << 47 ) )
++	{
++		fixed_t divisor = (fixed_t)rawLength;
++		*length = divisor;
++		return FIX_LITERAL( fixVec3 ){ fixShiftLeft( a.x, FIX_FRACTION_BITS ) / divisor,
++			fixShiftLeft( a.y, FIX_FRACTION_BITS ) / divisor, fixShiftLeft( a.z, FIX_FRACTION_BITS ) / divisor };
++	}
++	if ( rawLength >= FIX_HALF )
++	{
++		*length = rawLength > (uint64_t)FIX_MAX ? FIX_MAX : (fixed_t)rawLength;
++		return FIX_LITERAL( fixVec3 ){ fixNormalizeByLength( a.x, rawLength ),
++			fixNormalizeByLength( a.y, rawLength ), fixNormalizeByLength( a.z, rawLength ) };
++	}
++	return referenceNormalizeWithLength( a, length );
++}
++
++static fixQuat referenceNormalizeQuat( fixQuat q )
++{
++	fixInt128 ls = fixInt128Add( fixDotRaw( q.v, q.v ), fixInt128MulI64( q.s, q.s ) );
++	uint64_t length = fixISqrt128High( fixInt128Hi( ls ), fixInt128Lo( ls ) );
++	if ( length >= FIX_HALF && length < ( UINT64_C( 1 ) << 47 ) )
++	{
++		fixed_t divisor = (fixed_t)length;
++		return FIX_LITERAL( fixQuat ){ { fixShiftLeft( q.v.x, FIX_FRACTION_BITS ) / divisor,
++			fixShiftLeft( q.v.y, FIX_FRACTION_BITS ) / divisor, fixShiftLeft( q.v.z, FIX_FRACTION_BITS ) / divisor },
++			fixShiftLeft( q.s, FIX_FRACTION_BITS ) / divisor };
++	}
++	if ( length >= FIX_HALF )
++	{
++		return FIX_LITERAL( fixQuat ){ { fixNormalizeByLength( q.v.x, length ), fixNormalizeByLength( q.v.y, length ),
++			fixNormalizeByLength( q.v.z, length ) }, fixNormalizeByLength( q.s, length ) };
++	}
++	uint64_t ux = q.v.x < 0 ? -(uint64_t)q.v.x : (uint64_t)q.v.x;
++	uint64_t uy = q.v.y < 0 ? -(uint64_t)q.v.y : (uint64_t)q.v.y;
++	uint64_t uz = q.v.z < 0 ? -(uint64_t)q.v.z : (uint64_t)q.v.z;
++	uint64_t us = q.s < 0 ? -(uint64_t)q.s : (uint64_t)q.s;
++	if ( ( ux | uy | uz | us ) == 0 ) return fixQuat_identity;
++	int lift = fixNormalizationLift( ux | uy | uz | us );
++	q.v.x = fixShiftLeft( q.v.x, lift ); q.v.y = fixShiftLeft( q.v.y, lift );
++	q.v.z = fixShiftLeft( q.v.z, lift ); q.s = fixShiftLeft( q.s, lift );
++	ls = fixInt128Add( fixDotRaw( q.v, q.v ), fixInt128MulI64( q.s, q.s ) );
++	if ( !fixInt128Eq( ls, FIX_INT128_ZERO ) )
++	{
++		length = fixISqrt128High( fixInt128Hi( ls ), fixInt128Lo( ls ) );
++		return FIX_LITERAL( fixQuat ){ { fixNormalizeByLength( q.v.x, length ), fixNormalizeByLength( q.v.y, length ),
++			fixNormalizeByLength( q.v.z, length ) }, fixNormalizeByLength( q.s, length ) };
++	}
++	return fixQuat_identity;
++}
++
++static uint64_t kernSeed;
++static uint64_t kernRng( void )
++{
++	kernSeed ^= kernSeed << 13; kernSeed ^= kernSeed >> 7; kernSeed ^= kernSeed << 17;
++	return kernSeed;
++}
++
++static void fixNormalizeKernelEquivalence( void )
++{
++	kernSeed = UINT64_C( 0x9e3779b97f4a7c15 );
++	int checked = 0;
++
++	// Tiny vectors whose squared length is one raw unit.
++	{
++		const fixVec3 tiny[] = { { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 }, { 0, -1, 0 },
++			{ 0, 0, 1 }, { 0, 0, -1 } };
++		for ( size_t i = 0; i < sizeof( tiny ) / sizeof( tiny[0] ); ++i )
++		{
++			CHECK( equalVec( fixNormalize( tiny[i] ), referenceNormalize( tiny[i] ) ) );
++			fixed_t la, lb; fixVec3 ga = fixGetLengthAndNormalize( &la, tiny[i] );
++			fixVec3 gb = referenceGetLengthAndNormalize( &lb, tiny[i] );
++			CHECK( equalVec( ga, gb ) && la == lb );
++			++checked;
++		}
++	}
++
++	// Structured edge grid per component: 0, +-1, +-2^k, +-(2^k - 1), INT64_MIN/MAX,
++	// saturation. Vectors take three draws from the grid.
++	{
++		int64_t grid[300];
++		int gn = 0;
++		grid[gn++] = 0; grid[gn++] = 1; grid[gn++] = -1;
++		for ( int k = 0; k <= 63; ++k )
++		{
++			grid[gn++] = (int64_t)( UINT64_C(1) << k );
++			grid[gn++] = -(int64_t)( UINT64_C(1) << k );
++			grid[gn++] = (int64_t)( ( UINT64_C(1) << k ) - 1 );
++			grid[gn++] = -(int64_t)( ( UINT64_C(1) << k ) - 1 );
++		}
++		grid[gn++] = INT64_MAX; grid[gn++] = INT64_MIN;
++		grid[gn++] = FIX_MAX; grid[gn++] = FIX_MIN;
++		for ( int i = 0; i < gn; ++i )
++			for ( int j = i; j < gn; j += 37 )
++				for ( int k = j; k < gn; k += 53 )
++				{
++					fixVec3 v = { (fixed_t)grid[i], (fixed_t)grid[j], (fixed_t)grid[k] };
++					CHECK( equalVec( fixNormalize( v ), referenceNormalize( v ) ) );
++					fixed_t la, lb; fixVec3 ga = fixGetLengthAndNormalize( &la, v );
++					fixVec3 gb = referenceGetLengthAndNormalize( &lb, v );
++					CHECK( equalVec( ga, gb ) && la == lb );
++					++checked;
++				}
++	}
++
++	// Seeded random vectors across magnitudes 2^-16 .. 2^47.
++	for ( int i = 0; i < 1000000; ++i )
++	{
++		int mag = (int)( kernRng() % 64 ) - 16;             // 2^-16 .. 2^47
++		fixVec3 v = { 0, 0, 0 };
++		for ( int c = 0; c < 3; ++c )
++		{
++			uint64_t m = ( kernRng() % 1048576 ) + 1;        // mantissa in [1, 2^20)
++			int64_t w = (int64_t)( m << 31 );                // 20-bit mantissa at bit 31
++			if ( mag > 0 ) w = (int64_t)( (uint64_t)w << mag );
++			else if ( mag < 0 ) w = w >> ( -mag );
++			if ( kernRng() & 1 ) w = -w;
++			if ( c == 0 ) v.x = (fixed_t)w; else if ( c == 1 ) v.y = (fixed_t)w; else v.z = (fixed_t)w;
++		}
++		if ( ( v.x | v.y | v.z ) == 0 ) { v.x = 1; }
++		if ( !equalVec( fixNormalize( v ), referenceNormalize( v ) ) )
++		{
++			CHECK( 0 ); // report once, then keep the first differing input
++			if ( failures < 30 ) printf( "first differing vec: %lld %lld %lld\n",
++				(long long)v.x, (long long)v.y, (long long)v.z );
++		}
++		++checked;
++	}
++
++	// Near-unit quaternions: components within 2^-14 of unit (2^-14 unit = 4 raw).
++	for ( int i = 0; i < 1000000; ++i )
++	{
++		const int64_t span = 4; // 2^-14 of one Q48.16 unit
++		int64_t dx = (int64_t)( kernRng() % ( 2 * span + 1 ) ) - span;
++		int64_t dy = (int64_t)( kernRng() % ( 2 * span + 1 ) ) - span;
++		int64_t dz = (int64_t)( kernRng() % ( 2 * span + 1 ) ) - span;
++		int64_t ds = (int64_t)( kernRng() % ( 2 * span + 1 ) ) - span;
++		fixQuat q = { { (fixed_t)( 37837 + dx ), (fixed_t)( 37837 + dy ), (fixed_t)( 37837 + dz ) },
++			(fixed_t)( 37837 + ds ) }; // 0.577350... = 37837/65536
++		fixQuat a = fixNormalizeQuat( q );
++		fixQuat b = referenceNormalizeQuat( q );
++		CHECK( a.v.x == b.v.x && a.v.y == b.v.y && a.v.z == b.v.z && a.s == b.s );
++		++checked;
++	}
++
++	printf( "fixNormalizeKernelEquivalence: %d inputs compared\n", checked );
++}
++
+ static void squareRoots(void)
+ {
+ 	const uint64_t highs[] = { 0, 1, (UINT64_C(1) << 30), (UINT64_C(1) << 40) - 1,
+@@ -286,7 +469,7 @@ int main(int argc, char** argv)
+ 		{ "normalization", normalization }, { "angles", angles }, { "validators", validators },
+ 		{ "bounds", bounds }, { "transformed_bounds", transformedBounds },
+ 		{ "quantize", quantize }, { "time", timeConversion }, { "square_roots", squareRoots },
+-		{ "square_roots_64", squareRoots64 }
++		{ "square_roots_64", squareRoots64 }, { "fixNormalizeKernelEquivalence", fixNormalizeKernelEquivalence }
+ 	};
+ 	for (size_t i = 0; i < sizeof(tests)/sizeof(tests[0]); ++i)
+ 	{

@@ -1,0 +1,155 @@
+# ==== cpu_info.sh ====
+# cpu_info 2026-10-15T02:26:57Z
+uname: Linux 7.0.0-34-generic x86_64
+cpu_model: AMD Ryzen Threadripper 2990WX 32-Core Processor
+isa_avx2: yes
+isa_avx512f: no
+isa_avx512dq: no
+isa_avx512vl: no
+isa_avx512ifma: no
+isa_bmi2: yes
+isa_adx: yes
+isa_fma: yes
+isa_sse4_2: yes
+isa_neon: no
+isa_sme: no
+logical_cpus: 64
+affinity: 0-63
+load_average:3.54 3.94 5.41 8/1646 1738682
+benchmarks_running: no
+compiler_cc: cc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+compiler_clang: Ubuntu clang version 21.1.8 (6ubuntu1)
+compiler_gcc: gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+cmake: cmake version 4.2.3
+make: GNU Make 4.4.1
+
+# ==== ab.sh native (baseline vs candidate), fixMul fixDot ====
+# ab.sh 2026-10-15T02:20:18Z
+# compiler: cc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+# flags: -O3 -g -DNDEBUG -ffp-contract=off
+# repeats: 7  iterations: 200000
+# # cpu_info 2026-10-15T02:20:18Z
+# uname: Linux 7.0.0-34-generic x86_64
+# cpu_model: AMD Ryzen Threadripper 2990WX 32-Core Processor
+# isa_avx2: yes
+# isa_avx512f: no
+# isa_avx512dq: no
+# isa_avx512vl: no
+# isa_avx512ifma: no
+# isa_bmi2: yes
+# isa_adx: yes
+# isa_fma: yes
+# isa_sse4_2: yes
+# isa_neon: no
+# isa_sme: no
+# logical_cpus: 64
+# affinity: 0-63
+# load_average:1.91 4.43 6.26 1/1397 1709144
+# benchmarks_running: no
+# compiler_cc: cc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+# compiler_clang: Ubuntu clang version 21.1.8 (6ubuntu1)
+# compiler_gcc: gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+# cmake: cmake version 4.2.3
+# make: GNU Make 4.4.1
+# oracle_check compiled against .:
+ORACLE OK   fixMul  count=50063756  hash=eb1995a6b21bf036
+ORACLE OK   fixDiv_below2p47  count=50063756  hash=9519544a71a6aee9
+ORACLE OK   fixDiv_above2p47  count=12563756  hash=679bdcc4e27fd523
+ORACLE OK   fixSqrt_small  count=50000252  hash=0a01c17d8970c8c5
+ORACLE OK   fixSqrt_raw_below2p32  count=4344967548  hash=e8cd953f7d9cb442
+ORACLE OK   fixISqrt128High_u64  count=50063756  hash=3f2bde37bd6f7cb0
+ORACLE OK   fixISqrt128High_above104bits  count=2563756  hash=0c9fdfcdcf937183
+ORACLE OK   fixComputeCosSin  count=50823803  hash=75d77c6260933da6
+ORACLE OK   fixSin  count=50823803  hash=ea6b89849492e203
+ORACLE OK   fixCos  count=50823803  hash=92884abbd0d0dfc4
+ORACLE OK   fixAtan2  count=6313756  hash=e783be1aa18a9e6c
+ORACLE OK   fixLog2  count=9395980  hash=7d1ccc520e783eca
+ORACLE OK   fixExp2  count=9395980  hash=a1d52ff7b1ceef98
+ORACLE OK   fixPow  count=2563756  hash=55410e05742068c7
+ORACLE OK   fixLerp  count=50063756  hash=3c3983b96260d159
+ORACLE OK   fixInt128Div  count=2563756  hash=65e492d721fcd5f6
+ORACLE OK   fixUInt256DivMod  count=563756  hash=d6c2bda0c1986a82
+ORACLE OK   fixDot  count=50063756  hash=4392264c082fde77
+ORACLE OK   fixCross  count=50063756  hash=5a5555238d655a2c
+ORACLE OK   fixLength  count=25063756  hash=785da375992b2c05
+ORACLE OK   fixNormalize  count=12563756  hash=44e1c09212bfac1d
+ORACLE OK   fixMulQuat  count=25063756  hash=ff696a9b57ac0860
+ORACLE OK   fixNormalizeQuat  count=12563756  hash=5e439ba2ea83daeb
+ORACLE OK   fixRotateVector  count=12563756  hash=64afce887683c703
+ORACLE OK   fixInvRotateVector  count=12563756  hash=a7d02b0685663640
+ORACLE OK   fixNLerp  count=6313756  hash=315cf27e3e31527e
+ORACLE OK   fixInvertMatrix  count=563756  hash=f7c48d2fcea79473
+ORACLE OK   fixSolve3  count=563756  hash=da2489cbf6193bad
+ORACLE OK   fixAABB_Transform  count=2563756  hash=d105925232ba6473
+ORACLE OK   fixQuantize  count=50063756  hash=f27ed579335213a8
+ORACLE OK   fixDequantize  count=50063756  hash=1be2b75e26b7a4d1
+ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMul                         scalar      5.6600     5.8657     6.4%     5.6737     5.8856    14.9%    0.997
+fixMul                         batch       2.0639     2.1736    11.2%     2.1379     2.2013     9.8%    0.987
+fixDot                         scalar      6.1913     6.3113     7.7%     6.4212     6.6190     8.6%    0.954
+fixDot                         batch       3.0087     3.1826     8.4%     3.0502     3.2376     8.1%    0.983
+# speedup = a_median / b_median; > 1 means the candidate is faster.
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+
+# ==== emulated A/B (FIX_FORCE_EMULATED_INT128), fixMul fixDot, 7 interleaved ====
+# a = baseline tree, b = candidate tree; checksums must be identical
+fixMul,scalar,15.5076,15.5076,15.5076,6147586388597479916
+fixMul,batch,8.8961,8.8961,8.8961,2701586523624746469
+fixDot,scalar,18.4656,18.4656,18.4656,1491924509133835468
+fixDot,batch,18.5288,18.5288,18.5288,8015697193
+fixMul,scalar,16.3953,16.3953,16.3953,6147586388597479916
+fixMul,batch,9.0339,9.0339,9.0339,2701586523624746469
+fixDot,scalar,17.6635,17.6635,17.6635,1491924509133835468
+fixDot,batch,17.6650,17.6650,17.6650,8015697193
+fixMul,scalar,16.2596,16.2596,16.2596,6147586388597479916
+fixMul,batch,8.9666,8.9666,8.9666,2701586523624746469
+fixDot,scalar,18.1323,18.1323,18.1323,1491924509133835468
+fixDot,batch,17.8071,17.8071,17.8071,8015697193
+fixMul,scalar,16.7725,16.7725,16.7725,6147586388597479916
+fixMul,batch,8.2846,8.2846,8.2846,2701586523624746469
+fixDot,scalar,18.7178,18.7178,18.7178,1491924509133835468
+fixDot,batch,18.8538,18.8538,18.8538,8015697193
+fixMul,scalar,17.0585,17.0585,17.0585,6147586388597479916
+fixMul,batch,9.1654,9.1654,9.1654,2701586523624746469
+fixDot,scalar,18.2364,18.2364,18.2364,1491924509133835468
+fixDot,batch,16.1663,16.1663,16.1663,8015697193
+fixMul,scalar,15.9787,15.9787,15.9787,6147586388597479916
+fixMul,batch,8.4432,8.4432,8.4432,2701586523624746469
+fixDot,scalar,17.8032,17.8032,17.8032,1491924509133835468
+fixDot,batch,17.3690,17.3690,17.3690,8015697193
+fixMul,scalar,15.5240,15.5240,15.5240,6147586388597479916
+fixMul,batch,8.4004,8.4004,8.4004,2701586523624746469
+fixDot,scalar,17.6744,17.6744,17.6744,1491924509133835468
+fixDot,batch,17.5140,17.5140,17.5140,8015697193
+fixMul,scalar,15.8568,15.8568,15.8568,6147586388597479916
+fixMul,batch,8.4996,8.4996,8.4996,2701586523624746469
+fixDot,scalar,17.6750,17.6750,17.6750,1491924509133835468
+fixDot,batch,17.3609,17.3609,17.3609,8015697193
+fixMul,scalar,15.5087,15.5087,15.5087,6147586388597479916
+fixMul,batch,8.3069,8.3069,8.3069,2701586523624746469
+fixDot,scalar,17.6262,17.6262,17.6262,1491924509133835468
+fixDot,batch,17.5975,17.5975,17.5975,8015697193
+fixMul,scalar,15.5500,15.5500,15.5500,6147586388597479916
+fixMul,batch,8.2442,8.2442,8.2442,2701586523624746469
+fixDot,scalar,17.6434,17.6434,17.6434,1491924509133835468
+fixDot,batch,17.3007,17.3007,17.3007,8015697193
+fixMul,scalar,15.5183,15.5183,15.5183,6147586388597479916
+fixMul,batch,8.3523,8.3523,8.3523,2701586523624746469
+fixDot,scalar,17.6194,17.6194,17.6194,1491924509133835468
+fixDot,batch,17.7520,17.7520,17.7520,8015697193
+fixMul,scalar,17.1656,17.1656,17.1656,6147586388597479916
+fixMul,batch,8.8819,8.8819,8.8819,2701586523624746469
+fixDot,scalar,17.6638,17.6638,17.6638,1491924509133835468
+fixDot,batch,17.3739,17.3739,17.3739,8015697193
+fixMul,scalar,15.5162,15.5162,15.5162,6147586388597479916
+fixMul,batch,8.4945,8.4945,8.4945,2701586523624746469
+fixDot,scalar,17.6029,17.6029,17.6029,1491924509133835468
+fixDot,batch,17.5742,17.5742,17.5742,8015697193
+fixMul,scalar,15.5474,15.5474,15.5474,6147586388597479916
+fixMul,batch,8.6208,8.6208,8.6208,2701586523624746469
+fixDot,scalar,17.6323,17.6323,17.6323,1491924509133835468
+fixDot,batch,17.8007,17.8007,17.8007,8015697193
+
+# ==== ctest summary (candidate tree) ====
+100% tests passed, 0 tests failed out of 36 (native + emulated arms, oracle_unit + oracle_unit_emulated + determinism hashes unchanged)

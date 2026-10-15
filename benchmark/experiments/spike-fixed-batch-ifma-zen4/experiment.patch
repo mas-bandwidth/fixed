@@ -1,0 +1,461 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 6c7f627..1cbe60a 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -21,7 +21,7 @@ endif()
+ # variant of the batch kernels, whose functions carry their own target attribute. No -m or
+ # -march flag is added anywhere: the baseline objects stay baseline, and every variant is
+ # selected at run time on the host that can run it (include/fixed/fixed_isa.h).
+-set(FIX_SOURCES src/fixed_math.c src/fixed_vec.c src/fixed_isa.c src/fixed_isa_avx512.c)
++set(FIX_SOURCES src/fixed_math.c src/fixed_vec.c src/fixed_isa.c src/fixed_isa_avx512.c src/fixed_isa_avx512ifma.c)
+ 
+ add_library(fixed STATIC ${FIX_SOURCES})
+ target_include_directories(fixed PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+@@ -96,6 +96,30 @@ if (NOT WIN32)
+ endif()
+ add_test(NAME batch_saturated COMMAND fixed_batch_saturated_test)
+ 
++# THE IFMA VARIANT'S EQUIVALENCE TEST (spike-fixed-batch-ifma-zen4): the batch lane test on the
++# avx512ifma variant forced by name. Red when the build lacks the variant; SKIP on a host without IFMA.
++add_executable(fixed_batch_ifma_test test/batch_ifma_test.c)
++target_link_libraries(fixed_batch_ifma_test PRIVATE fixed)
++add_test(NAME batch_ifma COMMAND fixed_batch_ifma_test)
++
++add_executable(fixed_batch_ifma_emulated_test test/batch_ifma_test.c)
++if (TARGET fixed_emulated)
++    target_link_libraries(fixed_batch_ifma_emulated_test PRIVATE fixed_emulated)
++    add_test(NAME batch_ifma_emulated COMMAND fixed_batch_ifma_emulated_test)
++else()
++    target_link_libraries(fixed_batch_ifma_emulated_test PRIVATE fixed)
++endif()
++
++add_executable(fixed_batch_ifma_saturated_test test/batch_ifma_test.c ${FIX_SOURCES})
++target_include_directories(fixed_batch_ifma_saturated_test PRIVATE include)
++target_compile_definitions(fixed_batch_ifma_saturated_test PRIVATE FIX_SATURATE)
++if (NOT WIN32)
++    target_link_libraries(fixed_batch_ifma_saturated_test PRIVATE m)
++endif()
++# A FIX_SATURATE build compiles scalar only, so the variant must be reported absent there.
++add_test(NAME batch_ifma_saturated COMMAND fixed_batch_ifma_saturated_test)
++set_tests_properties(batch_ifma_saturated PROPERTIES WILL_FAIL TRUE)
++
+ # THE ISA DISPATCH. The pure detection parsers on faked cpuid/XCR0/hwcap/sysctl words, the
+ # selection and refusal rules, then EVERY compiled variant this host can run against scalar
+ # on the frozen batch oracle rows and on seeded lanes (the count is the argument; 100 million
+diff --git a/benchmark/experiments/spike-fixed-batch-ifma-zen4/ifma_micro.c b/benchmark/experiments/spike-fixed-batch-ifma-zen4/ifma_micro.c
+new file mode 100644
+index 0000000..b1197c1
+--- /dev/null
++++ b/benchmark/experiments/spike-fixed-batch-ifma-zen4/ifma_micro.c
+@@ -0,0 +1,65 @@
++// SPDX-FileCopyrightText: 2026 Más Bandwidth LLC
++// SPDX-License-Identifier: MIT
++// Micro benchmark for spike-fixed-batch-ifma-zen4: fixMulBatch and fixDotBatch3 through scalar,
++// avx512 and avx512ifma at n = 16, 256, 4096, interleaved variant by variant within one
++// binary, repeated R times. NOT a unit test: it reads the clock. Iteration counts are arguments.
++//
++//   cc -O3 -DNDEBUG -ffp-contract=off -I include benchmark/experiments/spike-fixed-batch-ifma-zen4/ifma_micro.c src/*.c -lm -o ifma_micro
++//   taskset -c N ./ifma_micro <repeats> <elements-per-rep>
++// Output CSV: op,n,variant,rep,ns_per_element,checksum
++#include "fixed/fixed_isa.h"
++#include "fixed/fixed_vec.h"
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <time.h>
++
++enum { MAXN = 4096 };
++static fixed_t in[6][MAXN + 8], out[MAXN + 8];
++
++static uint64_t rng = UINT64_C( 0x9e3779b97f4a7c15 );
++static uint64_t next( void ) { rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17; return rng; }
++
++static double nowNs( void )
++{
++	struct timespec t;
++	clock_gettime( CLOCK_MONOTONIC, &t );
++	return ( double )t.tv_sec * 1e9 + ( double )t.tv_nsec;
++}
++
++int main( int argc, char** argv )
++{
++	const int repeats = argc > 1 ? atoi( argv[1] ) : 9;
++	const uint64_t elements = argc > 2 ? strtoull( argv[2], NULL, 10 ) : UINT64_C( 40000000 );
++	const char* variants[] = { "scalar", "avx512", "avx512ifma" };
++	const size_t sizes[] = { 16, 256, 4096 };
++	// Realistic fixed-point magnitudes: values around 1000.0 in the library's format.
++	for ( int j = 0; j < 6; ++j )
++		for ( int i = 0; i < MAXN; ++i ) in[j][i] = ( fixed_t )( ( int64_t )( next() >> 20 ) - ( INT64_C( 1 ) << 42 ) );
++	printf( "op,n,variant,rep,ns_per_element,checksum\n" );
++	for ( int op = 0; op < 2; ++op )
++		for ( size_t s = 0; s < 3; ++s )
++			for ( int rep = 0; rep < repeats; ++rep )
++				for ( int v = 0; v < 3; ++v )
++				{
++					if ( fixForceIsa( variants[v] ) != FIX_ISA_OK ) { fprintf( stderr, "cannot force %s\n", variants[v] ); return 2; }
++					const size_t n = sizes[s];
++					const uint64_t calls = elements / n;
++					uint64_t sum = 0;
++					// warm
++					for ( uint64_t c = 0; c < calls / 20 + 1; ++c )
++						op ? fixDotBatch3( out, in[0], in[1], in[2], in[3], in[4], in[5], n ) : fixMulBatch( out, in[0], in[1], n );
++					double t0 = nowNs();
++					for ( uint64_t c = 0; c < calls; ++c )
++					{
++						if ( op ) fixDotBatch3( out, in[0], in[1], in[2], in[3], in[4], in[5], n );
++						else fixMulBatch( out, in[0], in[1], n );
++						__asm__ volatile( "" : : "r"( out ) : "memory" ); // the call is opaque already; belt and braces
++					}
++					double t1 = nowNs();
++					for ( size_t i = 0; i < n; ++i ) sum = sum * 31 + ( uint64_t )out[i];
++					printf( "%s,%zu,%s,%d,%.4f,%llu\n", op ? "fixDotBatch3" : "fixMulBatch", n, variants[v], rep,
++							( t1 - t0 ) / ( double )( calls * n ), ( unsigned long long )sum );
++				}
++	return 0;
++}
+diff --git a/src/fixed_isa.c b/src/fixed_isa.c
+index 8db324e..fa3a804 100644
+--- a/src/fixed_isa.c
++++ b/src/fixed_isa.c
+@@ -22,6 +22,13 @@
+ 	#define FIX_ISA_HAVE_AVX512 0
+ #endif
+ 
++// The IFMA variant uses GNU-style target attributes, so MSVC (cl) does not compile it.
++#if FIX_ISA_HAVE_AVX512 && ( defined( __GNUC__ ) || defined( __clang__ ) )
++	#define FIX_ISA_HAVE_AVX512IFMA 1
++#else
++	#define FIX_ISA_HAVE_AVX512IFMA 0
++#endif
++
+ #if defined( __x86_64__ ) || defined( _M_X64 ) || defined( __i386__ ) || defined( _M_IX86 )
+ 	#define FIX_ISA_X86 1
+ 	#if defined( _MSC_VER ) && !defined( __clang__ )
+@@ -81,6 +88,13 @@ void fixIsaDotBatch3Avx512( fixed_t* out, const fixed_t* ax, const fixed_t* ay,
+ 							const fixed_t* bx, const fixed_t* by, const fixed_t* bz, size_t n );
+ #endif
+ 
++#if FIX_ISA_HAVE_AVX512IFMA
++// src/fixed_isa_avx512ifma.c
++void fixIsaMulBatchAvx512Ifma( fixed_t* out, const fixed_t* a, const fixed_t* b, size_t n );
++void fixIsaDotBatch3Avx512Ifma( fixed_t* out, const fixed_t* ax, const fixed_t* ay, const fixed_t* az,
++								const fixed_t* bx, const fixed_t* by, const fixed_t* bz, size_t n );
++#endif
++
+ // THE KERNEL TABLE: one pointer per batch operation. It starts on scalar, which every host
+ // can run, so a batch call made before init (from another static constructor, say) is
+ // still correct; it is rewritten only by the init and by fixForceIsa.
+@@ -136,6 +150,7 @@ int fixIsaCompiled( fixIsa isa )
+ 	{
+ 		case FIX_ISA_SCALAR: return 1;
+ 		case FIX_ISA_AVX512: return FIX_ISA_HAVE_AVX512;
++		case FIX_ISA_AVX512IFMA: return FIX_ISA_HAVE_AVX512IFMA;
+ 		default: return 0;
+ 	}
+ }
+@@ -286,6 +301,12 @@ static void fixIsaInstall( fixIsa isa )
+ 			fixIsaTable.mulBatch = fixIsaMulBatchAvx512;
+ 			fixIsaTable.dotBatch3 = fixIsaDotBatch3Avx512;
+ 			break;
++#endif
++#if FIX_ISA_HAVE_AVX512IFMA
++		case FIX_ISA_AVX512IFMA:
++			fixIsaTable.mulBatch = fixIsaMulBatchAvx512Ifma;
++			fixIsaTable.dotBatch3 = fixIsaDotBatch3Avx512Ifma;
++			break;
+ #endif
+ 		default:
+ 			fixIsaTable.mulBatch = fixIsaMulBatchScalar;
+diff --git a/src/fixed_isa_avx512ifma.c b/src/fixed_isa_avx512ifma.c
+new file mode 100644
+index 0000000..321a4ac
+--- /dev/null
++++ b/src/fixed_isa_avx512ifma.c
+@@ -0,0 +1,94 @@
++// SPDX-FileCopyrightText: 2026 Más Bandwidth LLC
++// SPDX-License-Identifier: MIT
++// THE AVX-512 IFMA VARIANT of the batch kernels (spike benchmark/findings/spike-fixed-batch-ifma-zen4.md).
++// vpmadd52luq / vpmadd52huq multiply the low 52 bits of two lanes and add the low or high 52 bits
++// of the 104-bit product to a 64-bit accumulator. Per-function target attribute, reached only
++// through the kernel table after detection found F, DQ, IFMA and the OS zmm state.
++//
++// THE BIT ARGUMENT. Write a = a0 + a1*2^52 and b = b0 + b1*2^52 for the UNSIGNED 64-bit
++// patterns (a0, b0 52 bits; a1, b1 12 bits). Modulo 2^80, which is all that bits 16..79 of
++// the 128-bit product need,
++//   a_u*b_u = a0*b0 + 2^52*(a0*b1 + a1*b0)
++//           = lo52(a0*b0) + 2^52*(hi52(a0*b0) + lo52(a0*b1) + lo52(a1*b0))   (mod 2^80),
++// because only the low 28 bits of the bracket survive and lo52 keeps them. The signed product
++// differs from the unsigned one by 2^64*(sa*b + sb*a) (mod 2^80), sa and sb the sign bits, and
++// only the low 16 bits of that bracket survive. With M = the bracket and S = lo52(a0*b0) + half,
++//   (a*b + half) >> 16 = (S >> 16) + ((M - 2^12*c) << 36)   (mod 2^64),  c = sa*b + sb*a,
++// since M*2^52 is a multiple of 2^16 so the shift is exact on it. For the dot the three
++// products share one accumulator pair (the IFMA add is free): sum of lo52 parts plus half,
++// and the sum of every bracket, rounded once, as fixDot does, including when the 128-bit sum wraps.
++// FIX_SATURATE builds compile none of this: saturation is a different function.
++#include "fixed/fixed_vec.h"
++
++#if ( defined( __x86_64__ ) || defined( _M_X64 ) ) && !defined( FIX_SATURATE ) && \
++	( defined( __GNUC__ ) || defined( __clang__ ) )
++
++	#include <immintrin.h>
++
++	#define FIX_ISA_IFMA_TARGET __attribute__( ( target( "avx512f,avx512dq,avx512ifma" ) ) )
++
++void fixIsaMulBatchScalar( fixed_t* out, const fixed_t* a, const fixed_t* b, size_t n );
++void fixIsaDotBatch3Scalar( fixed_t* out, const fixed_t* ax, const fixed_t* ay, const fixed_t* az,
++							const fixed_t* bx, const fixed_t* by, const fixed_t* bz, size_t n );
++void fixIsaMulBatchAvx512Ifma( fixed_t* out, const fixed_t* a, const fixed_t* b, size_t n );
++void fixIsaDotBatch3Avx512Ifma( fixed_t* out, const fixed_t* ax, const fixed_t* ay, const fixed_t* az,
++								const fixed_t* bx, const fixed_t* by, const fixed_t* bz, size_t n );
++
++// Accumulate one product into (low, mid, corr): low += lo52(a0*b0); mid += hi52(a0*b0) +
++// lo52(a0*b1) + lo52(a1*b0); corr += sa*b + sb*a.
++FIX_ISA_IFMA_TARGET static inline void fixIsaIfmaAccumulate( __m512i a, __m512i b, __m512i* low, __m512i* mid,
++															 __m512i* corr )
++{
++	const __m512i a1 = _mm512_srli_epi64( a, 52 ), b1 = _mm512_srli_epi64( b, 52 );
++	*low = _mm512_madd52lo_epu64( *low, a, b );
++	*mid = _mm512_madd52hi_epu64( *mid, a, b );
++	*mid = _mm512_madd52lo_epu64( *mid, a, b1 );
++	*mid = _mm512_madd52lo_epu64( *mid, a1, b );
++	*corr = _mm512_add_epi64( *corr, _mm512_add_epi64( _mm512_and_si512( _mm512_srai_epi64( a, 63 ), b ),
++													   _mm512_and_si512( _mm512_srai_epi64( b, 63 ), a ) ) );
++}
++
++FIX_ISA_IFMA_TARGET static inline __m512i fixIsaIfmaFinish( __m512i low, __m512i mid, __m512i corr )
++{
++	mid = _mm512_sub_epi64( mid, _mm512_slli_epi64( corr, 12 ) );
++	return _mm512_add_epi64( _mm512_srli_epi64( low, 16 ), _mm512_slli_epi64( mid, 36 ) );
++}
++
++FIX_ISA_IFMA_TARGET void fixIsaMulBatchAvx512Ifma( fixed_t* out, const fixed_t* a, const fixed_t* b, size_t n )
++{
++	const __m512i half = _mm512_set1_epi64( ( int64_t )FIX_HALF );
++	size_t i = 0;
++	for ( ; i + 8 <= n; i += 8 )
++	{
++		__m512i x = _mm512_loadu_si512( ( const void* )( a + i ) );
++		__m512i y = _mm512_loadu_si512( ( const void* )( b + i ) );
++		__m512i low = half, mid = _mm512_setzero_si512(), corr = _mm512_setzero_si512();
++		fixIsaIfmaAccumulate( x, y, &low, &mid, &corr );
++		_mm512_storeu_si512( ( void* )( out + i ), fixIsaIfmaFinish( low, mid, corr ) );
++	}
++	fixIsaMulBatchScalar( out + i, a + i, b + i, n - i );
++}
++
++FIX_ISA_IFMA_TARGET void fixIsaDotBatch3Avx512Ifma( fixed_t* out, const fixed_t* ax, const fixed_t* ay,
++													const fixed_t* az, const fixed_t* bx, const fixed_t* by,
++													const fixed_t* bz, size_t n )
++{
++	const __m512i half = _mm512_set1_epi64( ( int64_t )FIX_HALF );
++	size_t i = 0;
++	for ( ; i + 8 <= n; i += 8 )
++	{
++		__m512i low = half, mid = _mm512_setzero_si512(), corr = _mm512_setzero_si512();
++		fixIsaIfmaAccumulate( _mm512_loadu_si512( ( const void* )( ax + i ) ), _mm512_loadu_si512( ( const void* )( bx + i ) ),
++							  &low, &mid, &corr );
++		fixIsaIfmaAccumulate( _mm512_loadu_si512( ( const void* )( ay + i ) ), _mm512_loadu_si512( ( const void* )( by + i ) ),
++							  &low, &mid, &corr );
++		fixIsaIfmaAccumulate( _mm512_loadu_si512( ( const void* )( az + i ) ), _mm512_loadu_si512( ( const void* )( bz + i ) ),
++							  &low, &mid, &corr );
++		_mm512_storeu_si512( ( void* )( out + i ), fixIsaIfmaFinish( low, mid, corr ) );
++	}
++	fixIsaDotBatch3Scalar( out + i, ax + i, ay + i, az + i, bx + i, by + i, bz + i, n - i );
++}
++
++#else
++typedef int fixIsaAvx512IfmaNotCompiled;
++#endif
+diff --git a/test/batch_ifma_test.c b/test/batch_ifma_test.c
+new file mode 100644
+index 0000000..b05afec
+--- /dev/null
++++ b/test/batch_ifma_test.c
+@@ -0,0 +1,142 @@
++// SPDX-FileCopyrightText: 2026 Más Bandwidth LLC
++// SPDX-License-Identifier: MIT
++// BatchIfmaEquivalenceTest (spike-fixed-batch-ifma-zen4): the batch_test.c body, run on the
++// avx512ifma variant FORCED by name. If the build does not carry the variant the test FAILS
++// naming it absent (red at BASE); if the host lacks IFMA it prints SKIP and exits 0 (a SKIP is
++// not red and not evidence). Lanes mix full-width draws with draws of random magnitude.
++// BatchIfmaEquivalenceTest: all SIMD lanes, tails, unaligned data and large seeded
++// coverage of fixMulBatch and fixDotBatch3 against the scalar public operations, through
++// whichever variant the runtime dispatch selected on this host (printed on the PASS line).
++// Adopted from benchmark/experiments/spike-batch-mul-avx2-avx512. test/isa_dispatch_test.c
++// runs every variant the host can run; this one runs the default selection, on both 128-bit
++// arms and in the FIX_SATURATE build. The seeded lane count is the optional argument.
++#include "fixed/fixed_isa.h"
++#include "fixed/fixed_vec.h"
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++
++enum { CAP = 4096 };
++static fixed_t aa[CAP + 1], bb[CAP + 1], cc[CAP + 1];
++static fixed_t dd[CAP + 1], ee[CAP + 1], ff[CAP + 1], gotMul[CAP + 1], gotDot[CAP + 1];
++static fixed_t edges[280];
++static size_t edgeCount;
++static uint64_t rngState = UINT64_C( 0x243f6a8885a308d3 );
++
++static uint64_t nextRand( void )
++{
++	uint64_t x = rngState;
++	x ^= x << 13;
++	x ^= x >> 7;
++	x ^= x << 17;
++	return rngState = x;
++}
++
++static void addEdge( fixed_t value )
++{
++	for ( size_t i = 0; i < edgeCount; ++i ) if ( edges[i] == value ) return;
++	edges[edgeCount++] = value;
++}
++
++static fixed_t drawLane( void )
++{
++	// Half the lanes full width, half with a random magnitude (random bit count, random sign).
++	uint64_t r = nextRand();
++	if ( r & 1 ) return ( fixed_t )nextRand();
++	unsigned bits = ( unsigned )( ( r >> 8 ) % 64 );
++	uint64_t v = nextRand() >> bits;
++	return ( fixed_t )( ( r & 4 ) ? UINT64_C( 0 ) - v : v ); // negation in unsigned arithmetic
++}
++
++static int check( size_t n, uint64_t base )
++{
++	// +1 makes all eight input and output pointers 8-byte aligned but unaligned
++	// relative to either vector register width. The zero-length call is valid.
++	fixed_t *a = aa + 1, *b = bb + 1, *c = cc + 1;
++	fixed_t *d = dd + 1, *e = ee + 1, *f = ff + 1;
++	gotMul[1] = INT64_C( 0x1020304050607080 );
++	gotDot[1] = INT64_C( 0x1020304050607080 );
++	fixMulBatch( gotMul + 1, a, b, n );
++	fixDotBatch3( gotDot + 1, a, b, c, d, e, f, n );
++	if ( n == 0 && ( gotMul[1] != INT64_C( 0x1020304050607080 ) || gotDot[1] != INT64_C( 0x1020304050607080 ) ) ) return 1;
++	for ( size_t i = 0; i < n; ++i )
++	{
++		fixed_t mul = fixMul( a[i], b[i] );
++		fixVec3 v = { a[i], b[i], c[i] }, w = { d[i], e[i], f[i] };
++		fixed_t dot = fixDot( v, w );
++		if ( gotMul[i + 1] != mul || gotDot[i + 1] != dot )
++		{
++			fprintf( stderr, "BatchIfmaEquivalenceTest FAIL at %llu: a=%lld b=%lld mul=%lld expected=%lld dot=%lld expected=%lld\n",
++				(unsigned long long)( base + i ), (long long)a[i], (long long)b[i],
++				(long long)gotMul[i + 1], (long long)mul, (long long)gotDot[i + 1], (long long)dot );
++			return 1;
++		}
++	}
++	return 0;
++}
++
++int main( int argc, char** argv )
++{
++	const uint64_t lanes = argc > 1 ? strtoull( argv[1], NULL, 10 ) : UINT64_C( 100000000 );
++	fixIsaResult forced = fixForceIsa( "avx512ifma" );
++	if ( forced == FIX_ISA_NOT_COMPILED )
++	{
++		printf( "BatchIfmaEquivalenceTest FAIL: variant avx512ifma absent (not compiled into this build)\n" );
++		return 1;
++	}
++	if ( forced == FIX_ISA_HOST_LACKS )
++	{
++		printf( "BatchIfmaEquivalenceTest SKIP: host lacks avx512ifma\n" );
++		return 0;
++	}
++	if ( forced != FIX_ISA_OK ) return 1;
++	addEdge( 0 ); addEdge( 1 ); addEdge( -1 );
++	addEdge( INT64_MIN ); addEdge( INT64_MAX ); addEdge( FIX_MIN ); addEdge( FIX_MAX );
++	for ( unsigned k = 1; k < 63; ++k )
++	{
++		int64_t p = INT64_C( 1 ) << k;
++		addEdge( p ); addEdge( -p ); addEdge( p - 1 ); addEdge( -( p - 1 ) );
++	}
++	const size_t tails[] = { 0, 1, 3, 4, 5, 7, 8, 9, 4095 };
++	for ( size_t t = 0; t < sizeof tails / sizeof tails[0]; ++t )
++	{
++		for ( size_t i = 0; i < tails[t]; ++i )
++		{
++			aa[i + 1] = edges[i % edgeCount]; bb[i + 1] = edges[( i * 19 ) % edgeCount];
++			cc[i + 1] = edges[( i * 29 ) % edgeCount]; dd[i + 1] = edges[( i * 37 ) % edgeCount];
++			ee[i + 1] = edges[( i * 43 ) % edgeCount]; ff[i + 1] = edges[( i * 59 ) % edgeCount];
++		}
++		if ( check( tails[t], 0 ) ) return 1;
++	}
++	uint64_t index = 0;
++	for ( size_t i = 0; i < edgeCount; ++i )
++	{
++		for ( size_t j = 0; j < edgeCount; ++j )
++		{
++			size_t slot = (size_t)( index % 4095 );
++			aa[slot + 1] = edges[i]; bb[slot + 1] = edges[j];
++			cc[slot + 1] = edges[( i + j ) % edgeCount];
++			dd[slot + 1] = edges[j]; ee[slot + 1] = edges[i];
++			ff[slot + 1] = edges[( i * 7 + j * 11 ) % edgeCount];
++			++index;
++			if ( slot == 4094 && check( 4095, index - 4095 ) ) return 1;
++		}
++	}
++	if ( index % 4095 && check( (size_t)( index % 4095 ), index - index % 4095 ) ) return 1;
++	for ( uint64_t base = 0; base < lanes; base += 4095 )
++	{
++		size_t n = (size_t)( lanes - base );
++		if ( n > 4095 ) n = 4095;
++		for ( size_t i = 0; i < n; ++i )
++		{
++			const int mixed = ( base / 4095 ) & 1;
++			aa[i + 1] = mixed ? drawLane() : (fixed_t)nextRand(); bb[i + 1] = mixed ? drawLane() : (fixed_t)nextRand();
++			cc[i + 1] = mixed ? drawLane() : (fixed_t)nextRand(); dd[i + 1] = mixed ? drawLane() : (fixed_t)nextRand();
++			ee[i + 1] = mixed ? drawLane() : (fixed_t)nextRand(); ff[i + 1] = mixed ? drawLane() : (fixed_t)nextRand();
++		}
++		if ( check( n, base ) ) return 1;
++	}
++	printf( "BatchIfmaEquivalenceTest PASS: variant %s; %zu structured edges crossed; %llu seeded lanes; mul and dot\n",
++		fixIsaName(), edgeCount, (unsigned long long)lanes );
++	return 0;
++}
+diff --git a/test/isa_dispatch_test.c b/test/isa_dispatch_test.c
+index 3972605..4efedad 100644
+--- a/test/isa_dispatch_test.c
++++ b/test/isa_dispatch_test.c
+@@ -40,6 +40,13 @@ extern uint64_t fixOracleHashOp( int opIndex, uint64_t baseRandom, uint64_t limi
+ 	#define EXPECT_AVX512_COMPILED 0
+ #endif
+ 
++// And the IFMA variant (spike-fixed-batch-ifma-zen4): AVX-512 compiled, and a GNU-style compiler.
++#if EXPECT_AVX512_COMPILED && ( defined( __GNUC__ ) || defined( __clang__ ) )
++	#define EXPECT_IFMA_COMPILED 1
++#else
++	#define EXPECT_IFMA_COMPILED 0
++#endif
++
+ static int fails = 0;
+ 
+ #define CHECK( cond )                                                            \
+@@ -151,14 +158,15 @@ static void IsaRulesTest( void )
+ 	CHECK( fixIsaCompiled( FIX_ISA_SCALAR ) );
+ 	CHECK( fixIsaCompiled( FIX_ISA_AVX512 ) == EXPECT_AVX512_COMPILED );
+ 	CHECK( !fixIsaCompiled( FIX_ISA_AVX2 ) );
+-	CHECK( !fixIsaCompiled( FIX_ISA_AVX512IFMA ) );
++	CHECK( fixIsaCompiled( FIX_ISA_AVX512IFMA ) == EXPECT_IFMA_COMPILED );
+ 	CHECK( !fixIsaCompiled( FIX_ISA_NEON ) );
+ 	CHECK( !fixIsaCompiled( FIX_ISA_SME2 ) );
+ 
+ 	// Scalar runs anywhere; the best variant for no facts is scalar.
+ 	CHECK( fixIsaCheck( FIX_ISA_SCALAR, 0, NULL ) == FIX_ISA_OK );
+ 	CHECK( fixIsaBest( 0 ) == FIX_ISA_SCALAR );
+-	CHECK( fixIsaBest( allX86 ) == ( EXPECT_AVX512_COMPILED ? FIX_ISA_AVX512 : FIX_ISA_SCALAR ) );
++	CHECK( fixIsaBest( allX86 ) ==
++		   ( EXPECT_IFMA_COMPILED ? FIX_ISA_AVX512IFMA : EXPECT_AVX512_COMPILED ? FIX_ISA_AVX512 : FIX_ISA_SCALAR ) );
+ 	CHECK( fixIsaCheck( FIX_ISA_COUNT, allX86, NULL ) == FIX_ISA_UNKNOWN_NAME );
+ 
+ 	// REFUSED BY NAME, NEVER SILENTLY REPLACED: each refusal leaves the table as it was.
+@@ -167,7 +175,7 @@ static void IsaRulesTest( void )
+ 	CHECK( fixIsaSelected() == before );
+ 	CHECK( fixForceIsa( NULL ) == FIX_ISA_UNKNOWN_NAME );
+ 	CHECK( fixIsaSelected() == before );
+-	const char* reserved[] = { "avx2", "avx512ifma", "neon", "sme2" };
++	const char* reserved[] = { "avx2", "neon", "sme2" };
+ 	for ( size_t i = 0; i < sizeof reserved / sizeof reserved[0]; ++i )
+ 	{
+ 		CHECK( fixForceIsa( reserved[i] ) == FIX_ISA_NOT_COMPILED );

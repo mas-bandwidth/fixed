@@ -1,0 +1,808 @@
+# raw output, spike-fixed-batch-ifma-zen4, attempt 3 (w2.g3.e21), host hetzner2 (Ryzen 9 7950X3D), 2026-10-15
+# HOST CAVEAT: hetzner2 is a shared bench running other sprint workers: load average 29-39 on 32 threads, every core ~90% busy before and during every measurement. Pinned to core 14 with taskset. perf stat/record could not run (kernel.perf_event_paranoid=4, no sudo). b1 (Ryzen 7 255, 8 threads) was at load 43, so no quiet Zen 4 host existed.
+
+## RED at BASE (sprint/fixed-perf be0df4e plus only the new test and its CMake registration)
+BatchIfmaEquivalenceTest FAIL: variant avx512ifma absent (not compiled into this build)   [exit=1]
+
+## reversed witness: kernel broken on purpose (correction shift 12 -> 13)
+BatchIfmaEquivalenceTest FAIL at 1: a=1 b=-15 mul=-281474976710656 expected=0 dot=4939322891318591520 expected=32
+
+## cpu_info
+# cpu_info 2026-10-15T15:08:18Z
+uname: Linux 6.8.0-139-generic x86_64
+cpu_model: AMD Ryzen 9 7950X3D 16-Core Processor
+isa_avx2: yes
+isa_avx512f: yes
+isa_avx512dq: yes
+isa_avx512vl: yes
+isa_avx512ifma: yes
+isa_bmi2: yes
+isa_adx: yes
+isa_fma: yes
+isa_sse4_2: yes
+isa_neon: no
+isa_sme: no
+logical_cpus: 32
+affinity: 0-31
+load_average:31.61 28.99 21.88 12/2422 455410
+benchmarks_running: no
+compiler_cc: cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+compiler_clang: Ubuntu clang version 18.1.3 (1ubuntu1)
+compiler_gcc: gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+cmake: cmake version 3.28.3
+make: GNU Make 4.3
+
+## GATE: ctest native build: 100% tests passed, 0 tests failed out of 45 (Total Test time 9.27 sec); build-emu (-DFIX_FORCE_EMULATED_INT128): 100% tests passed, 0 tests failed out of 45 (13.66 sec); FIX_SATURATE targets are inside the same ctest runs
+## build
+default variant: avx512ifma
+VARIANT scalar RAN: batch oracle rows and 100000000 seeded lanes bit-identical to scalar
+VARIANT avx2 SKIP not compiled into this build
+VARIANT avx512 RAN: batch oracle rows and 100000000 seeded lanes bit-identical to scalar
+VARIANT avx512ifma RAN: batch oracle rows and 100000000 seeded lanes bit-identical to scalar
+VARIANT neon SKIP not compiled into this build
+VARIANT sme2 SKIP not compiled into this build
+IsaDispatchTest PASS
+BatchIfmaEquivalenceTest PASS: variant avx512ifma; 252 structured edges crossed; 100000000 seeded lanes; mul and dot
+## build-emu
+default variant: avx512ifma
+VARIANT scalar RAN: batch oracle rows and 100000000 seeded lanes bit-identical to scalar
+VARIANT avx2 SKIP not compiled into this build
+VARIANT avx512 RAN: batch oracle rows and 100000000 seeded lanes bit-identical to scalar
+VARIANT avx512ifma RAN: batch oracle rows and 100000000 seeded lanes bit-identical to scalar
+VARIANT neon SKIP not compiled into this build
+VARIANT sme2 SKIP not compiled into this build
+IsaDispatchTest PASS
+BatchIfmaEquivalenceTest PASS: variant avx512ifma; 252 structured edges crossed; 100000000 seeded lanes; mul and dot
+## saturated (build)
+VARIANT scalar RAN: batch oracle rows and 1000000 seeded lanes bit-identical to scalar
+VARIANT avx2 SKIP not compiled into this build
+VARIANT avx512 SKIP not compiled into this build
+VARIANT avx512ifma SKIP not compiled into this build
+VARIANT neon SKIP not compiled into this build
+VARIANT sme2 SKIP not compiled into this build
+IsaDispatchTest PASS
+BatchIfmaEquivalenceTest FAIL: variant avx512ifma absent (not compiled into this build)
+exit=1 (WILL_FAIL expected nonzero)
+BatchIfmaEquivalenceTest PASS: variant avx512ifma; 252 structured edges crossed; 100000000 seeded lanes; mul and dot
+BatchIfmaEquivalenceTest PASS: variant avx512ifma; 252 structured edges crossed; 100000000 seeded lanes; mul and dot
+
+## llvm-mca -mcpu=znver4 (prediction, written before the measurement)
+=== llvm-mca -mcpu=znver4 MulBatchAvx512 (8-lane loop body x100)
+Iterations:        100
+Instructions:      1400
+Total Cycles:      523
+Total uOps:        1400
+
+Dispatch Width:    6
+uOps Per Cycle:    2.68
+IPC:               2.68
+Block RThroughput: 3.0
+=== llvm-mca -mcpu=znver4 MulBatchAvx512Ifma (8-lane loop body x100)
+Iterations:        100
+Instructions:      2300
+Total Cycles:      1165
+Total uOps:        2300
+
+Dispatch Width:    6
+uOps Per Cycle:    1.97
+IPC:               1.97
+Block RThroughput: 11.5
+=== llvm-mca -mcpu=znver4 DotBatch3Avx512 (8-lane loop body x100)
+Iterations:        100
+Instructions:      4900
+Total Cycles:      2017
+Total uOps:        4900
+
+Dispatch Width:    6
+uOps Per Cycle:    2.43
+IPC:               2.43
+Block RThroughput: 12.0
+=== llvm-mca -mcpu=znver4 DotBatch3Avx512Ifma (8-lane loop body x100)
+Iterations:        100
+Instructions:      5100
+Total Cycles:      3272
+Total uOps:        5100
+
+Dispatch Width:    6
+uOps Per Cycle:    1.56
+IPC:               1.56
+Block RThroughput: 31.5
+
+## inner-loop disassembly (objdump -d --no-show-raw-insn, gcc 13.3 -O3), one 8-lane iteration
+### inner loop: fixIsaMulBatchAvx512
+vpsrlq $0x20,-0x40(%rsi,%rax,8),%zmm2
+vpandd -0x40(%rdx,%rax,8),%zmm4,%zmm0
+vpsraq $0x10,-0x40(%rdx,%rax,8),%zmm1
+vpmullq -0x40(%rsi,%rax,8),%zmm1,%zmm1
+vpmuldq %zmm0,%zmm2,%zmm2
+vpmuludq -0x40(%rsi,%rax,8),%zmm0,%zmm0
+vpaddq %zmm3,%zmm0,%zmm0
+vpsrlq $0x10,%zmm0,%zmm0
+vpsllq $0x10,%zmm2,%zmm2
+vpaddq %zmm0,%zmm2,%zmm0
+vpaddq %zmm0,%zmm1,%zmm0
+vmovdqu64 %zmm0,-0x40(%rdi,%rax,8)
+add    $0x8,%rax
+cmp    %rax,%rcx
+### inner loop: fixIsaMulBatchAvx512Ifma
+vmovdqu64 -0x40(%rsi,%rax,8),%zmm2
+vmovdqu64 -0x40(%rdx,%rax,8),%zmm3
+vmovdqa64 %zmm7,%zmm0
+vmovdqa64 %zmm6,%zmm4
+vpmadd52huq %zmm3,%zmm2,%zmm0
+vpsrlq $0x34,%zmm3,%zmm5
+vpsrlq $0x34,%zmm2,%zmm1
+vpmadd52luq %zmm3,%zmm2,%zmm4
+vpmadd52luq %zmm5,%zmm2,%zmm0
+vpsraq $0x3f,%zmm3,%zmm5
+vpmadd52luq %zmm3,%zmm1,%zmm0
+vpsraq $0x3f,%zmm2,%zmm1
+vpandd %zmm2,%zmm5,%zmm2
+vpandd %zmm3,%zmm1,%zmm1
+vpaddq %zmm2,%zmm1,%zmm1
+vpsllq $0xc,%zmm1,%zmm1
+vpsubq %zmm1,%zmm0,%zmm0
+vpsrlq $0x10,%zmm4,%zmm1
+vpsllq $0x24,%zmm0,%zmm0
+vpaddq %zmm0,%zmm1,%zmm0
+vmovdqu64 %zmm0,-0x40(%rdi,%rax,8)
+add    $0x8,%rax
+cmp    %rax,%rcx
+### inner loop: fixIsaDotBatch3Avx512
+vpandd -0x40(%r11,%rax,8),%zmm6,%zmm0
+vpandd -0x40(%r9,%rax,8),%zmm6,%zmm1
+vpsrlq $0x20,-0x40(%rcx,%rax,8),%zmm3
+vpsrlq $0x20,-0x40(%rsi,%rax,8),%zmm2
+vmovdqu32 -0x40(%rcx,%rax,8),%zmm4
+vpsraq $0x10,-0x40(%r11,%rax,8),%zmm9
+vpsraq $0x10,-0x40(%r9,%rax,8),%zmm11
+vpmuldq %zmm0,%zmm3,%zmm3
+vpmuludq -0x40(%rcx,%rax,8),%zmm0,%zmm0
+vpsraq $0x10,-0x40(%r8,%rax,8),%zmm12
+vpsrlq $0x10,%zmm0,%zmm8
+vpsrlq $0x20,-0x40(%rdx,%rax,8),%zmm0
+vpmuldq %zmm1,%zmm0,%zmm0
+vpmuludq -0x40(%rdx,%rax,8),%zmm1,%zmm1
+vpsrlq $0x10,%zmm1,%zmm10
+vpandd -0x40(%r8,%rax,8),%zmm6,%zmm1
+vpsllq $0x10,%zmm3,%zmm13
+vpmuludq -0x40(%r11,%rax,8),%zmm4,%zmm3
+vmovdqu32 -0x40(%rdx,%rax,8),%zmm4
+vpandd %zmm3,%zmm6,%zmm3
+vpmuldq %zmm1,%zmm2,%zmm2
+vpmuludq -0x40(%rsi,%rax,8),%zmm1,%zmm1
+vpsrlq $0x10,%zmm1,%zmm5
+vpmuludq -0x40(%r9,%rax,8),%zmm4,%zmm1
+vmovdqu32 -0x40(%rsi,%rax,8),%zmm4
+vpandd %zmm1,%zmm6,%zmm1
+vpmuludq -0x40(%r8,%rax,8),%zmm4,%zmm4
+vpandd %zmm4,%zmm6,%zmm4
+vpaddq %zmm7,%zmm3,%zmm3
+vpaddq %zmm4,%zmm1,%zmm1
+vpaddq %zmm3,%zmm1,%zmm1
+vpsllq $0x10,%zmm0,%zmm0
+vpaddq %zmm8,%zmm13,%zmm3
+vpsrlq $0x10,%zmm1,%zmm1
+vpaddq %zmm10,%zmm0,%zmm0
+vpsllq $0x10,%zmm2,%zmm2
+vpaddq %zmm3,%zmm0,%zmm0
+vpaddq %zmm5,%zmm2,%zmm2
+vpaddq %zmm1,%zmm2,%zmm1
+vpmullq -0x40(%rcx,%rax,8),%zmm9,%zmm2
+vpaddq %zmm1,%zmm0,%zmm0
+vpmullq -0x40(%rdx,%rax,8),%zmm11,%zmm1
+vpaddq %zmm2,%zmm1,%zmm1
+vpmullq -0x40(%rsi,%rax,8),%zmm12,%zmm2
+vpaddq %zmm2,%zmm1,%zmm1
+vpaddq %zmm1,%zmm0,%zmm0
+vmovdqu64 %zmm0,-0x40(%rdi,%rax,8)
+add    $0x8,%rax
+cmp    %rax,%r10
+### inner loop: fixIsaDotBatch3Avx512Ifma
+vmovdqu64 -0x40(%r8,%rax,8),%zmm5
+vmovdqu64 -0x40(%rsi,%rax,8),%zmm4
+vmovdqa64 %zmm11,%zmm0
+vmovdqa64 %zmm10,%zmm8
+vmovdqu64 -0x40(%r9,%rax,8),%zmm7
+vmovdqu64 -0x40(%rdx,%rax,8),%zmm6
+vpmadd52huq %zmm5,%zmm4,%zmm0
+vpsrlq $0x34,%zmm5,%zmm2
+vmovdqu64 -0x40(%r11,%rax,8),%zmm3
+vpsrlq $0x34,%zmm4,%zmm1
+vpmadd52luq %zmm5,%zmm4,%zmm8
+vpsrlq $0x34,%zmm3,%zmm13
+vpsraq $0x3f,%zmm5,%zmm14
+vpsraq $0x3f,%zmm4,%zmm12
+vpsraq $0x3f,%zmm7,%zmm15
+vpmadd52luq %zmm2,%zmm4,%zmm0
+vpsrlq $0x34,%zmm7,%zmm2
+vpandd %zmm4,%zmm14,%zmm4
+vpmadd52luq %zmm7,%zmm6,%zmm8
+vpmadd52luq %zmm5,%zmm1,%zmm0
+vpsrlq $0x34,%zmm6,%zmm1
+vpandd %zmm5,%zmm12,%zmm5
+vpaddq %zmm4,%zmm5,%zmm4
+vpmadd52huq %zmm7,%zmm6,%zmm0
+vpmadd52luq %zmm2,%zmm6,%zmm0
+vmovdqu64 -0x40(%rcx,%rax,8),%zmm2
+vpsrlq $0x34,%zmm2,%zmm9
+vpmadd52luq %zmm3,%zmm2,%zmm8
+vpmadd52luq %zmm7,%zmm1,%zmm0
+vpsraq $0x3f,%zmm6,%zmm1
+vpandd %zmm6,%zmm15,%zmm6
+vpandd %zmm7,%zmm1,%zmm1
+vpaddq %zmm6,%zmm1,%zmm1
+vpaddq %zmm4,%zmm1,%zmm1
+vpmadd52huq %zmm3,%zmm2,%zmm0
+vpmadd52luq %zmm13,%zmm2,%zmm0
+vpsraq $0x3f,%zmm3,%zmm13
+vpmadd52luq %zmm3,%zmm9,%zmm0
+vpsraq $0x3f,%zmm2,%zmm9
+vpandd %zmm2,%zmm13,%zmm2
+vpandd %zmm3,%zmm9,%zmm3
+vpaddq %zmm2,%zmm3,%zmm2
+vpaddq %zmm2,%zmm1,%zmm1
+vpsllq $0xc,%zmm1,%zmm1
+vpsubq %zmm1,%zmm0,%zmm0
+vpsrlq $0x10,%zmm8,%zmm1
+vpsllq $0x24,%zmm0,%zmm0
+vpaddq %zmm0,%zmm1,%zmm0
+vmovdqu64 %zmm0,-0x40(%rdi,%rax,8)
+add    $0x8,%rax
+cmp    %rax,%r10
+
+## micro run 1 (ifma_micro, 11 interleaved repeats, 200M elements per repeat, taskset -c 14, load 34 before / 34 after)
+op                n variant          min   median  spread vs scalar
+fixMulBatch      16 scalar        0.8604   0.8809   61.5%     1.00x
+fixMulBatch      16 avx512        0.2189   0.2372   45.9%     3.71x
+fixMulBatch      16 avx512ifma    0.2216   0.2509   80.9%     3.51x
+   ifma vs avx512 median: 0.945x  (checksums per variant agree: True)
+fixMulBatch     256 scalar        1.2382   1.3179   33.2%     1.00x
+fixMulBatch     256 avx512        0.1800   0.1881    8.7%     7.01x
+fixMulBatch     256 avx512ifma    0.2324   0.2493   11.3%     5.29x
+   ifma vs avx512 median: 0.755x  (checksums per variant agree: True)
+fixMulBatch    4096 scalar        0.9344   1.1532   36.0%     1.00x
+fixMulBatch    4096 avx512        0.1751   0.2003   18.2%     5.76x
+fixMulBatch    4096 avx512ifma    0.2309   0.2404    9.6%     4.80x
+   ifma vs avx512 median: 0.833x  (checksums per variant agree: True)
+fixDotBatch3     16 scalar        1.9176   2.5079   75.2%     1.00x
+fixDotBatch3     16 avx512        0.7489   0.8536   24.4%     2.94x
+fixDotBatch3     16 avx512ifma    0.6442   0.7642   21.6%     3.28x
+   ifma vs avx512 median: 1.117x  (checksums per variant agree: True)
+fixDotBatch3    256 scalar        2.0427   2.5547   50.9%     1.00x
+fixDotBatch3    256 avx512        0.6745   0.7601   17.6%     3.36x
+fixDotBatch3    256 avx512ifma    0.5910   0.6511   21.5%     3.92x
+   ifma vs avx512 median: 1.167x  (checksums per variant agree: True)
+fixDotBatch3   4096 scalar        1.7027   1.8997   50.9%     1.00x
+fixDotBatch3   4096 avx512        0.6863   0.7204   24.8%     2.64x
+fixDotBatch3   4096 avx512ifma    0.5364   0.5636   24.1%     3.37x
+   ifma vs avx512 median: 1.278x  (checksums per variant agree: True)
+
+## micro run 2 (load 36 before / 39 after)
+# micro run 2 2026-10-15T15:23:10Z load_before: 35.91 32.88 28.00 22/2709 2327767
+# load_after: 38.84 33.58 28.42 111/3150 2386768
+op                n variant          min   median  spread vs scalar
+fixMulBatch      16 scalar        0.9469   1.0211   81.2%     1.00x
+fixMulBatch      16 avx512        0.2374   0.2818   23.0%     3.62x
+fixMulBatch      16 avx512ifma    0.2553   0.2801   42.7%     3.65x
+   ifma vs avx512 median: 1.006x  (checksums per variant agree: True)
+fixMulBatch     256 scalar        0.9464   1.0494   48.2%     1.00x
+fixMulBatch     256 avx512        0.1612   0.1814   19.8%     5.79x
+fixMulBatch     256 avx512ifma    0.2253   0.2387    8.8%     4.40x
+   ifma vs avx512 median: 0.760x  (checksums per variant agree: True)
+fixMulBatch    4096 scalar        0.8925   1.0091   37.1%     1.00x
+fixMulBatch    4096 avx512        0.1687   0.1834   17.3%     5.50x
+fixMulBatch    4096 avx512ifma    0.2185   0.2286   17.2%     4.41x
+   ifma vs avx512 median: 0.802x  (checksums per variant agree: True)
+fixDotBatch3     16 scalar        1.8757   2.6323   61.1%     1.00x
+fixDotBatch3     16 avx512        0.7269   0.8631   29.9%     3.05x
+fixDotBatch3     16 avx512ifma    0.6034   0.7656   25.6%     3.44x
+   ifma vs avx512 median: 1.127x  (checksums per variant agree: True)
+fixDotBatch3    256 scalar        1.7361   1.9448   38.8%     1.00x
+fixDotBatch3    256 avx512        0.6381   0.7016   20.2%     2.77x
+fixDotBatch3    256 avx512ifma    0.5520   0.6099   18.9%     3.19x
+   ifma vs avx512 median: 1.150x  (checksums per variant agree: True)
+fixDotBatch3   4096 scalar        2.5218   2.5876   22.4%     1.00x
+fixDotBatch3   4096 avx512        0.7688   0.7854    9.6%     3.29x
+fixDotBatch3   4096 avx512ifma    0.6401   0.6671   26.7%     3.88x
+   ifma vs avx512 median: 1.177x  (checksums per variant agree: True)
+
+## ab.sh, avx512 (A) vs avx512ifma (B), 11 repeats, taskset -c 14 (op_bench harness, n = 4096 batch rows, ns per element)
+load_before: 31.77 30.30 23.00 18/2303 829101
+# ab.sh 2026-10-15T15:09:42Z
+# compiler: cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+# flags: -O3 -g -DNDEBUG -ffp-contract=off
+# repeats: 11  iterations: 200000
+# # cpu_info 2026-10-15T15:09:42Z
+# uname: Linux 6.8.0-139-generic x86_64
+# cpu_model: AMD Ryzen 9 7950X3D 16-Core Processor
+# isa_avx2: yes
+# isa_avx512f: yes
+# isa_avx512dq: yes
+# isa_avx512vl: yes
+# isa_avx512ifma: yes
+# isa_bmi2: yes
+# isa_adx: yes
+# isa_fma: yes
+# isa_sse4_2: yes
+# isa_neon: no
+# isa_sme: no
+# logical_cpus: 32
+# affinity: 14
+# load_average:31.77 30.30 23.00 27/2301 829721
+# benchmarks_running: no
+# compiler_cc: cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+# compiler_clang: Ubuntu clang version 18.1.3 (1ubuntu1)
+# compiler_gcc: gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+# cmake: cmake version 3.28.3
+# make: GNU Make 4.3
+# side A (.) isa: avx512 (facts: avx2 os-ymm-state avx512f avx512dq avx512vl avx512ifma os-zmm-state)
+# side B (.) isa: avx512ifma (facts: avx2 os-ymm-state avx512f avx512dq avx512vl avx512ifma os-zmm-state)
+# oracle_check compiled against .:
+# oracle FIXED_ISA=avx512ifma
+ORACLE OK   fixMul  count=50063756  hash=eb1995a6b21bf036
+ORACLE OK   fixDiv_below2p47  count=50063756  hash=9519544a71a6aee9
+ORACLE OK   fixDiv_above2p47  count=12563756  hash=679bdcc4e27fd523
+ORACLE OK   fixSqrt_small  count=50000252  hash=0a01c17d8970c8c5
+ORACLE OK   fixSqrt_raw_below2p32  count=4344967548  hash=e8cd953f7d9cb442
+ORACLE OK   fixISqrt128High_u64  count=50063756  hash=3f2bde37bd6f7cb0
+ORACLE OK   fixISqrt128High_above104bits  count=2563756  hash=0c9fdfcdcf937183
+ORACLE OK   fixComputeCosSin  count=50823803  hash=75d77c6260933da6
+ORACLE OK   fixSin  count=50823803  hash=ea6b89849492e203
+ORACLE OK   fixCos  count=50823803  hash=92884abbd0d0dfc4
+ORACLE OK   fixAtan2  count=6313756  hash=e783be1aa18a9e6c
+ORACLE OK   fixLog2  count=9395980  hash=7d1ccc520e783eca
+ORACLE OK   fixExp2  count=9395980  hash=a1d52ff7b1ceef98
+ORACLE OK   fixPow  count=2563756  hash=55410e05742068c7
+ORACLE OK   fixLerp  count=50063756  hash=3c3983b96260d159
+ORACLE OK   fixInt128Div  count=2563756  hash=65e492d721fcd5f6
+ORACLE OK   fixUInt256DivMod  count=563756  hash=d6c2bda0c1986a82
+ORACLE OK   fixDot  count=50063756  hash=4392264c082fde77
+ORACLE OK   fixCross  count=50063756  hash=5a5555238d655a2c
+ORACLE OK   fixLength  count=25063756  hash=785da375992b2c05
+ORACLE OK   fixNormalize  count=12563756  hash=44e1c09212bfac1d
+ORACLE OK   fixMulQuat  count=25063756  hash=ff696a9b57ac0860
+ORACLE OK   fixNormalizeQuat  count=12563756  hash=5e439ba2ea83daeb
+ORACLE OK   fixRotateVector  count=12563756  hash=64afce887683c703
+ORACLE OK   fixInvRotateVector  count=12563756  hash=a7d02b0685663640
+ORACLE OK   fixNLerp  count=6313756  hash=315cf27e3e31527e
+ORACLE OK   fixInvertMatrix  count=563756  hash=f7c48d2fcea79473
+ORACLE OK   fixSolve3  count=563756  hash=da2489cbf6193bad
+ORACLE OK   fixAABB_Transform  count=2563756  hash=d105925232ba6473
+ORACLE OK   fixQuantize  count=50063756  hash=8100e7c61c94a956
+ORACLE OK   fixDequantize  count=50063756  hash=1be2b75e26b7a4d1
+ORACLE OK   fixMulBatch  count=50063756  hash=de6fc21fb01df7f2
+ORACLE OK   fixDotBatch3  count=50063756  hash=7fb109655c1745da
+ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMulBatch                    scalar      2.7610     2.8014     2.7%     2.7715     2.7980    13.5%    1.001
+fixMulBatch                    batch       0.2710     0.2728     8.5%     0.3232     0.3261     7.9%    0.837
+fixDotBatch3                   scalar      2.0707     2.1137     4.7%     2.0692     2.0963     8.9%    1.008
+fixDotBatch3                   batch       0.6953     0.7010     7.5%     0.6579     0.6648    14.3%    1.054
+# speedup = a_median / b_median; > 1 means the candidate is faster.
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+load_after: 29.04 33.18 25.60 7/2106 1524862
+
+=== scalar vs avx512ifma
+fixMulBatch                    scalar      2.6215     2.6530     3.6%     2.6303     2.6597     3.7%    0.997
+fixMulBatch                    batch       0.9076     0.9272    37.4%     0.3080     0.3108     9.1%    2.983
+fixDotBatch3                   scalar      1.9650     2.0304    11.5%     1.9678     2.0044    14.9%    1.013
+fixDotBatch3                   batch       1.7148     1.7520    51.4%     0.6292     0.6435    49.2%    2.723
+# speedup = a_median / b_median; > 1 means the candidate is faster.
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+
+## 5 A/A passes of the harness: avx512 vs avx512 on both sides, 11 interleaved repeats each, taskset -c 14, load 36
+fixMulBatch a med=0.3061 min=0.2674 spread=15.5%  fixMulBatch b med=0.3036 min=0.2677 spread=23.4%  
+fixDotBatch3 a med=0.8019 min=0.6918 spread=31.0%  fixDotBatch3 b med=0.8030 min=0.6864 spread=67.1%  
+fixMulBatch a med=0.2725 min=0.2685 spread=8.7%  fixMulBatch b med=0.2741 min=0.2688 spread=17.3%  
+fixDotBatch3 a med=0.7006 min=0.6902 spread=13.4%  fixDotBatch3 b med=0.7006 min=0.6824 spread=18.4%  
+fixMulBatch a med=0.2725 min=0.2667 spread=26.9%  fixMulBatch b med=0.2838 min=0.2661 spread=16.1%  
+fixDotBatch3 a med=0.7141 min=0.6873 spread=39.8%  fixDotBatch3 b med=0.7919 min=0.6828 spread=20.7%  
+fixMulBatch a med=0.2726 min=0.2684 spread=28.4%  fixMulBatch b med=0.2941 min=0.2707 spread=16.7%  
+fixDotBatch3 a med=0.7082 min=0.6908 spread=74.9%  fixDotBatch3 b med=0.7207 min=0.6957 spread=19.6%  
+fixMulBatch a med=0.2741 min=0.2654 spread=13.8%  fixMulBatch b med=0.2728 min=0.2686 spread=11.8%  
+fixDotBatch3 a med=0.8054 min=0.6801 spread=59.9%  fixDotBatch3 b med=0.7200 min=0.6898 spread=36.4%  
+
+## micro raw CSV, run 1
+op,n,variant,rep,ns_per_element,checksum
+fixMulBatch,16,scalar,0,0.8809,328940483179598213
+fixMulBatch,16,avx512,0,0.2372,328940483179598213
+fixMulBatch,16,avx512ifma,0,0.2509,328940483179598213
+fixMulBatch,16,scalar,1,0.8965,328940483179598213
+fixMulBatch,16,avx512,1,0.2662,328940483179598213
+fixMulBatch,16,avx512ifma,1,0.4245,328940483179598213
+fixMulBatch,16,scalar,2,1.2847,328940483179598213
+fixMulBatch,16,avx512,2,0.2561,328940483179598213
+fixMulBatch,16,avx512ifma,2,0.2243,328940483179598213
+fixMulBatch,16,scalar,3,0.8758,328940483179598213
+fixMulBatch,16,avx512,3,0.2195,328940483179598213
+fixMulBatch,16,avx512ifma,3,0.2242,328940483179598213
+fixMulBatch,16,scalar,4,0.8763,328940483179598213
+fixMulBatch,16,avx512,4,0.2193,328940483179598213
+fixMulBatch,16,avx512ifma,4,0.2224,328940483179598213
+fixMulBatch,16,scalar,5,0.8691,328940483179598213
+fixMulBatch,16,avx512,5,0.2280,328940483179598213
+fixMulBatch,16,avx512ifma,5,0.2273,328940483179598213
+fixMulBatch,16,scalar,6,0.8604,328940483179598213
+fixMulBatch,16,avx512,6,0.2189,328940483179598213
+fixMulBatch,16,avx512ifma,6,0.2216,328940483179598213
+fixMulBatch,16,scalar,7,0.8612,328940483179598213
+fixMulBatch,16,avx512,7,0.2263,328940483179598213
+fixMulBatch,16,avx512ifma,7,0.2753,328940483179598213
+fixMulBatch,16,scalar,8,1.2206,328940483179598213
+fixMulBatch,16,avx512,8,0.3022,328940483179598213
+fixMulBatch,16,avx512ifma,8,0.3958,328940483179598213
+fixMulBatch,16,scalar,9,1.4023,328940483179598213
+fixMulBatch,16,avx512,9,0.3278,328940483179598213
+fixMulBatch,16,avx512ifma,9,0.3851,328940483179598213
+fixMulBatch,16,scalar,10,1.2702,328940483179598213
+fixMulBatch,16,avx512,10,0.2727,328940483179598213
+fixMulBatch,16,avx512ifma,10,0.2591,328940483179598213
+fixMulBatch,256,scalar,0,1.6751,15559834032895816247
+fixMulBatch,256,avx512,0,0.1963,15559834032895816247
+fixMulBatch,256,avx512ifma,0,0.2324,15559834032895816247
+fixMulBatch,256,scalar,1,1.2806,15559834032895816247
+fixMulBatch,256,avx512,1,0.1835,15559834032895816247
+fixMulBatch,256,avx512ifma,1,0.2474,15559834032895816247
+fixMulBatch,256,scalar,2,1.2467,15559834032895816247
+fixMulBatch,256,avx512,2,0.1868,15559834032895816247
+fixMulBatch,256,avx512ifma,2,0.2540,15559834032895816247
+fixMulBatch,256,scalar,3,1.3059,15559834032895816247
+fixMulBatch,256,avx512,3,0.1835,15559834032895816247
+fixMulBatch,256,avx512ifma,3,0.2413,15559834032895816247
+fixMulBatch,256,scalar,4,1.2382,15559834032895816247
+fixMulBatch,256,avx512,4,0.1800,15559834032895816247
+fixMulBatch,256,avx512ifma,4,0.2464,15559834032895816247
+fixMulBatch,256,scalar,5,1.3179,15559834032895816247
+fixMulBatch,256,avx512,5,0.1828,15559834032895816247
+fixMulBatch,256,avx512ifma,5,0.2506,15559834032895816247
+fixMulBatch,256,scalar,6,1.3692,15559834032895816247
+fixMulBatch,256,avx512,6,0.1910,15559834032895816247
+fixMulBatch,256,avx512ifma,6,0.2486,15559834032895816247
+fixMulBatch,256,scalar,7,1.3638,15559834032895816247
+fixMulBatch,256,avx512,7,0.1881,15559834032895816247
+fixMulBatch,256,avx512ifma,7,0.2606,15559834032895816247
+fixMulBatch,256,scalar,8,1.3741,15559834032895816247
+fixMulBatch,256,avx512,8,0.1913,15559834032895816247
+fixMulBatch,256,avx512ifma,8,0.2493,15559834032895816247
+fixMulBatch,256,scalar,9,1.3977,15559834032895816247
+fixMulBatch,256,avx512,9,0.1886,15559834032895816247
+fixMulBatch,256,avx512ifma,9,0.2503,15559834032895816247
+fixMulBatch,256,scalar,10,1.2517,15559834032895816247
+fixMulBatch,256,avx512,10,0.1946,15559834032895816247
+fixMulBatch,256,avx512ifma,10,0.2511,15559834032895816247
+fixMulBatch,4096,scalar,0,1.3310,18415375126911734799
+fixMulBatch,4096,avx512,0,0.1996,18415375126911734799
+fixMulBatch,4096,avx512ifma,0,0.2457,18415375126911734799
+fixMulBatch,4096,scalar,1,1.2492,18415375126911734799
+fixMulBatch,4096,avx512,1,0.2013,18415375126911734799
+fixMulBatch,4096,avx512ifma,1,0.2539,18415375126911734799
+fixMulBatch,4096,scalar,2,1.3490,18415375126911734799
+fixMulBatch,4096,avx512,2,0.2008,18415375126911734799
+fixMulBatch,4096,avx512ifma,2,0.2522,18415375126911734799
+fixMulBatch,4096,scalar,3,1.3027,18415375126911734799
+fixMulBatch,4096,avx512,3,0.2101,18415375126911734799
+fixMulBatch,4096,avx512ifma,3,0.2450,18415375126911734799
+fixMulBatch,4096,scalar,4,1.2020,18415375126911734799
+fixMulBatch,4096,avx512,4,0.2116,18415375126911734799
+fixMulBatch,4096,avx512ifma,4,0.2443,18415375126911734799
+fixMulBatch,4096,scalar,5,0.9838,18415375126911734799
+fixMulBatch,4096,avx512,5,0.1808,18415375126911734799
+fixMulBatch,4096,avx512ifma,5,0.2314,18415375126911734799
+fixMulBatch,4096,scalar,6,1.1532,18415375126911734799
+fixMulBatch,4096,avx512,6,0.2003,18415375126911734799
+fixMulBatch,4096,avx512ifma,6,0.2380,18415375126911734799
+fixMulBatch,4096,scalar,7,1.0037,18415375126911734799
+fixMulBatch,4096,avx512,7,0.2043,18415375126911734799
+fixMulBatch,4096,avx512ifma,7,0.2404,18415375126911734799
+fixMulBatch,4096,scalar,8,0.9344,18415375126911734799
+fixMulBatch,4096,avx512,8,0.1831,18415375126911734799
+fixMulBatch,4096,avx512ifma,8,0.2309,18415375126911734799
+fixMulBatch,4096,scalar,9,0.9690,18415375126911734799
+fixMulBatch,4096,avx512,9,0.1751,18415375126911734799
+fixMulBatch,4096,avx512ifma,9,0.2352,18415375126911734799
+fixMulBatch,4096,scalar,10,0.9696,18415375126911734799
+fixMulBatch,4096,avx512,10,0.1928,18415375126911734799
+fixMulBatch,4096,avx512ifma,10,0.2322,18415375126911734799
+fixDotBatch3,16,scalar,0,1.9707,6539145522318665820
+fixDotBatch3,16,avx512,0,0.8209,6539145522318665820
+fixDotBatch3,16,avx512ifma,0,0.6872,6539145522318665820
+fixDotBatch3,16,scalar,1,1.9176,6539145522318665820
+fixDotBatch3,16,avx512,1,0.7489,6539145522318665820
+fixDotBatch3,16,avx512ifma,1,0.7332,6539145522318665820
+fixDotBatch3,16,scalar,2,2.8788,6539145522318665820
+fixDotBatch3,16,avx512,2,0.9371,6539145522318665820
+fixDotBatch3,16,avx512ifma,2,0.7698,6539145522318665820
+fixDotBatch3,16,scalar,3,2.6684,6539145522318665820
+fixDotBatch3,16,avx512,3,0.8781,6539145522318665820
+fixDotBatch3,16,avx512ifma,3,0.6982,6539145522318665820
+fixDotBatch3,16,scalar,4,2.0621,6539145522318665820
+fixDotBatch3,16,avx512,4,0.9569,6539145522318665820
+fixDotBatch3,16,avx512ifma,4,0.8091,6539145522318665820
+fixDotBatch3,16,scalar,5,2.5094,6539145522318665820
+fixDotBatch3,16,avx512,5,0.8536,6539145522318665820
+fixDotBatch3,16,avx512ifma,5,0.7642,6539145522318665820
+fixDotBatch3,16,scalar,6,3.8043,6539145522318665820
+fixDotBatch3,16,avx512,6,0.9504,6539145522318665820
+fixDotBatch3,16,avx512ifma,6,0.7816,6539145522318665820
+fixDotBatch3,16,scalar,7,2.9292,6539145522318665820
+fixDotBatch3,16,avx512,7,0.8623,6539145522318665820
+fixDotBatch3,16,avx512ifma,7,0.7736,6539145522318665820
+fixDotBatch3,16,scalar,8,2.5079,6539145522318665820
+fixDotBatch3,16,avx512,8,0.7980,6539145522318665820
+fixDotBatch3,16,avx512ifma,8,0.6575,6539145522318665820
+fixDotBatch3,16,scalar,9,2.0566,6539145522318665820
+fixDotBatch3,16,avx512,9,0.7750,6539145522318665820
+fixDotBatch3,16,avx512ifma,9,0.6442,6539145522318665820
+fixDotBatch3,16,scalar,10,2.1702,6539145522318665820
+fixDotBatch3,16,avx512,10,0.8514,6539145522318665820
+fixDotBatch3,16,avx512ifma,10,0.7795,6539145522318665820
+fixDotBatch3,256,scalar,0,2.5173,7222016421785659638
+fixDotBatch3,256,avx512,0,0.7488,7222016421785659638
+fixDotBatch3,256,avx512ifma,0,0.6432,7222016421785659638
+fixDotBatch3,256,scalar,1,2.5478,7222016421785659638
+fixDotBatch3,256,avx512,1,0.7565,7222016421785659638
+fixDotBatch3,256,avx512ifma,1,0.6511,7222016421785659638
+fixDotBatch3,256,scalar,2,2.8809,7222016421785659638
+fixDotBatch3,256,avx512,2,0.7601,7222016421785659638
+fixDotBatch3,256,avx512ifma,2,0.6499,7222016421785659638
+fixDotBatch3,256,scalar,3,2.7744,7222016421785659638
+fixDotBatch3,256,avx512,3,0.7627,7222016421785659638
+fixDotBatch3,256,avx512ifma,3,0.6503,7222016421785659638
+fixDotBatch3,256,scalar,4,2.9045,7222016421785659638
+fixDotBatch3,256,avx512,4,0.8083,7222016421785659638
+fixDotBatch3,256,avx512ifma,4,0.6460,7222016421785659638
+fixDotBatch3,256,scalar,5,2.4424,7222016421785659638
+fixDotBatch3,256,avx512,5,0.7685,7222016421785659638
+fixDotBatch3,256,avx512ifma,5,0.6716,7222016421785659638
+fixDotBatch3,256,scalar,6,3.3436,7222016421785659638
+fixDotBatch3,256,avx512,6,0.7784,7222016421785659638
+fixDotBatch3,256,avx512ifma,6,0.6616,7222016421785659638
+fixDotBatch3,256,scalar,7,2.5547,7222016421785659638
+fixDotBatch3,256,avx512,7,0.7843,7222016421785659638
+fixDotBatch3,256,avx512ifma,7,0.6516,7222016421785659638
+fixDotBatch3,256,scalar,8,2.7579,7222016421785659638
+fixDotBatch3,256,avx512,8,0.7256,7222016421785659638
+fixDotBatch3,256,avx512ifma,8,0.7311,7222016421785659638
+fixDotBatch3,256,scalar,9,2.0427,7222016421785659638
+fixDotBatch3,256,avx512,9,0.6745,7222016421785659638
+fixDotBatch3,256,avx512ifma,9,0.5910,7222016421785659638
+fixDotBatch3,256,scalar,10,2.1587,7222016421785659638
+fixDotBatch3,256,avx512,10,0.7544,7222016421785659638
+fixDotBatch3,256,avx512ifma,10,0.6706,7222016421785659638
+fixDotBatch3,4096,scalar,0,2.6423,16202535880580838066
+fixDotBatch3,4096,avx512,0,0.8425,16202535880580838066
+fixDotBatch3,4096,avx512ifma,0,0.6414,16202535880580838066
+fixDotBatch3,4096,scalar,1,1.7782,16202535880580838066
+fixDotBatch3,4096,avx512,1,0.7204,16202535880580838066
+fixDotBatch3,4096,avx512ifma,1,0.6273,16202535880580838066
+fixDotBatch3,4096,scalar,2,1.8997,16202535880580838066
+fixDotBatch3,4096,avx512,2,0.8646,16202535880580838066
+fixDotBatch3,4096,avx512ifma,2,0.6722,16202535880580838066
+fixDotBatch3,4096,scalar,3,2.6698,16202535880580838066
+fixDotBatch3,4096,avx512,3,0.7113,16202535880580838066
+fixDotBatch3,4096,avx512ifma,3,0.5512,16202535880580838066
+fixDotBatch3,4096,scalar,4,1.7254,16202535880580838066
+fixDotBatch3,4096,avx512,4,0.6863,16202535880580838066
+fixDotBatch3,4096,avx512ifma,4,0.5463,16202535880580838066
+fixDotBatch3,4096,scalar,5,1.7027,16202535880580838066
+fixDotBatch3,4096,avx512,5,0.6932,16202535880580838066
+fixDotBatch3,4096,avx512ifma,5,0.5791,16202535880580838066
+fixDotBatch3,4096,scalar,6,1.7452,16202535880580838066
+fixDotBatch3,4096,avx512,6,0.6989,16202535880580838066
+fixDotBatch3,4096,avx512ifma,6,0.5636,16202535880580838066
+fixDotBatch3,4096,scalar,7,1.9508,16202535880580838066
+fixDotBatch3,4096,avx512,7,0.7284,16202535880580838066
+fixDotBatch3,4096,avx512ifma,7,0.6098,16202535880580838066
+fixDotBatch3,4096,scalar,8,1.8513,16202535880580838066
+fixDotBatch3,4096,avx512,8,0.7040,16202535880580838066
+fixDotBatch3,4096,avx512ifma,8,0.5597,16202535880580838066
+fixDotBatch3,4096,scalar,9,2.1316,16202535880580838066
+fixDotBatch3,4096,avx512,9,0.7284,16202535880580838066
+fixDotBatch3,4096,avx512ifma,9,0.5472,16202535880580838066
+fixDotBatch3,4096,scalar,10,2.0594,16202535880580838066
+fixDotBatch3,4096,avx512,10,0.7301,16202535880580838066
+fixDotBatch3,4096,avx512ifma,10,0.5364,16202535880580838066
+
+## micro raw CSV, run 2
+op,n,variant,rep,ns_per_element,checksum
+fixMulBatch,16,scalar,0,0.9847,328940483179598213
+fixMulBatch,16,avx512,0,0.2374,328940483179598213
+fixMulBatch,16,avx512ifma,0,0.2801,328940483179598213
+fixMulBatch,16,scalar,1,1.0662,328940483179598213
+fixMulBatch,16,avx512,1,0.2950,328940483179598213
+fixMulBatch,16,avx512ifma,1,0.3413,328940483179598213
+fixMulBatch,16,scalar,2,1.0021,328940483179598213
+fixMulBatch,16,avx512,2,0.2818,328940483179598213
+fixMulBatch,16,avx512ifma,2,0.2593,328940483179598213
+fixMulBatch,16,scalar,3,1.0370,328940483179598213
+fixMulBatch,16,avx512,3,0.2396,328940483179598213
+fixMulBatch,16,avx512ifma,3,0.3282,328940483179598213
+fixMulBatch,16,scalar,4,1.7758,328940483179598213
+fixMulBatch,16,avx512,4,0.2414,328940483179598213
+fixMulBatch,16,avx512ifma,4,0.2795,328940483179598213
+fixMulBatch,16,scalar,5,1.0211,328940483179598213
+fixMulBatch,16,avx512,5,0.3004,328940483179598213
+fixMulBatch,16,avx512ifma,5,0.2581,328940483179598213
+fixMulBatch,16,scalar,6,0.9469,328940483179598213
+fixMulBatch,16,avx512,6,0.2821,328940483179598213
+fixMulBatch,16,avx512ifma,6,0.2553,328940483179598213
+fixMulBatch,16,scalar,7,0.9503,328940483179598213
+fixMulBatch,16,avx512,7,0.2637,328940483179598213
+fixMulBatch,16,avx512ifma,7,0.2864,328940483179598213
+fixMulBatch,16,scalar,8,0.9783,328940483179598213
+fixMulBatch,16,avx512,8,0.3023,328940483179598213
+fixMulBatch,16,avx512ifma,8,0.3750,328940483179598213
+fixMulBatch,16,scalar,9,1.0452,328940483179598213
+fixMulBatch,16,avx512,9,0.2870,328940483179598213
+fixMulBatch,16,avx512ifma,9,0.2644,328940483179598213
+fixMulBatch,16,scalar,10,1.0230,328940483179598213
+fixMulBatch,16,avx512,10,0.2529,328940483179598213
+fixMulBatch,16,avx512ifma,10,0.2951,328940483179598213
+fixMulBatch,256,scalar,0,1.0054,15559834032895816247
+fixMulBatch,256,avx512,0,0.1738,15559834032895816247
+fixMulBatch,256,avx512ifma,0,0.2356,15559834032895816247
+fixMulBatch,256,scalar,1,1.4525,15559834032895816247
+fixMulBatch,256,avx512,1,0.1827,15559834032895816247
+fixMulBatch,256,avx512ifma,1,0.2463,15559834032895816247
+fixMulBatch,256,scalar,2,1.1458,15559834032895816247
+fixMulBatch,256,avx512,2,0.1849,15559834032895816247
+fixMulBatch,256,avx512ifma,2,0.2387,15559834032895816247
+fixMulBatch,256,scalar,3,1.0494,15559834032895816247
+fixMulBatch,256,avx512,3,0.1713,15559834032895816247
+fixMulBatch,256,avx512ifma,3,0.2385,15559834032895816247
+fixMulBatch,256,scalar,4,1.0278,15559834032895816247
+fixMulBatch,256,avx512,4,0.1732,15559834032895816247
+fixMulBatch,256,avx512ifma,4,0.2394,15559834032895816247
+fixMulBatch,256,scalar,5,1.1145,15559834032895816247
+fixMulBatch,256,avx512,5,0.1814,15559834032895816247
+fixMulBatch,256,avx512ifma,5,0.2388,15559834032895816247
+fixMulBatch,256,scalar,6,1.0627,15559834032895816247
+fixMulBatch,256,avx512,6,0.1705,15559834032895816247
+fixMulBatch,256,avx512ifma,6,0.2321,15559834032895816247
+fixMulBatch,256,scalar,7,0.9464,15559834032895816247
+fixMulBatch,256,avx512,7,0.1827,15559834032895816247
+fixMulBatch,256,avx512ifma,7,0.2406,15559834032895816247
+fixMulBatch,256,scalar,8,0.9769,15559834032895816247
+fixMulBatch,256,avx512,8,0.1971,15559834032895816247
+fixMulBatch,256,avx512ifma,8,0.2454,15559834032895816247
+fixMulBatch,256,scalar,9,1.0079,15559834032895816247
+fixMulBatch,256,avx512,9,0.1612,15559834032895816247
+fixMulBatch,256,avx512ifma,9,0.2253,15559834032895816247
+fixMulBatch,256,scalar,10,1.1114,15559834032895816247
+fixMulBatch,256,avx512,10,0.1826,15559834032895816247
+fixMulBatch,256,avx512ifma,10,0.2363,15559834032895816247
+fixMulBatch,4096,scalar,0,0.9773,18415375126911734799
+fixMulBatch,4096,avx512,0,0.1834,18415375126911734799
+fixMulBatch,4096,avx512ifma,0,0.2286,18415375126911734799
+fixMulBatch,4096,scalar,1,1.0192,18415375126911734799
+fixMulBatch,4096,avx512,1,0.1844,18415375126911734799
+fixMulBatch,4096,avx512ifma,1,0.2302,18415375126911734799
+fixMulBatch,4096,scalar,2,0.9830,18415375126911734799
+fixMulBatch,4096,avx512,2,0.1897,18415375126911734799
+fixMulBatch,4096,avx512ifma,2,0.2283,18415375126911734799
+fixMulBatch,4096,scalar,3,0.9844,18415375126911734799
+fixMulBatch,4096,avx512,3,0.1696,18415375126911734799
+fixMulBatch,4096,avx512ifma,3,0.2216,18415375126911734799
+fixMulBatch,4096,scalar,4,0.9828,18415375126911734799
+fixMulBatch,4096,avx512,4,0.1995,18415375126911734799
+fixMulBatch,4096,avx512ifma,4,0.2452,18415375126911734799
+fixMulBatch,4096,scalar,5,1.1624,18415375126911734799
+fixMulBatch,4096,avx512,5,0.1943,18415375126911734799
+fixMulBatch,4096,avx512ifma,5,0.2578,18415375126911734799
+fixMulBatch,4096,scalar,6,1.2668,18415375126911734799
+fixMulBatch,4096,avx512,6,0.2004,18415375126911734799
+fixMulBatch,4096,avx512ifma,6,0.2465,18415375126911734799
+fixMulBatch,4096,scalar,7,1.0601,18415375126911734799
+fixMulBatch,4096,avx512,7,0.1771,18415375126911734799
+fixMulBatch,4096,avx512ifma,7,0.2277,18415375126911734799
+fixMulBatch,4096,scalar,8,1.1434,18415375126911734799
+fixMulBatch,4096,avx512,8,0.1791,18415375126911734799
+fixMulBatch,4096,avx512ifma,8,0.2290,18415375126911734799
+fixMulBatch,4096,scalar,9,0.8925,18415375126911734799
+fixMulBatch,4096,avx512,9,0.1687,18415375126911734799
+fixMulBatch,4096,avx512ifma,9,0.2185,18415375126911734799
+fixMulBatch,4096,scalar,10,1.0091,18415375126911734799
+fixMulBatch,4096,avx512,10,0.1764,18415375126911734799
+fixMulBatch,4096,avx512ifma,10,0.2257,18415375126911734799
+fixDotBatch3,16,scalar,0,1.9441,6539145522318665820
+fixDotBatch3,16,avx512,0,0.7269,6539145522318665820
+fixDotBatch3,16,avx512ifma,0,0.6233,6539145522318665820
+fixDotBatch3,16,scalar,1,1.8757,6539145522318665820
+fixDotBatch3,16,avx512,1,0.7270,6539145522318665820
+fixDotBatch3,16,avx512ifma,1,0.6034,6539145522318665820
+fixDotBatch3,16,scalar,2,1.8944,6539145522318665820
+fixDotBatch3,16,avx512,2,0.8930,6539145522318665820
+fixDotBatch3,16,avx512ifma,2,0.7885,6539145522318665820
+fixDotBatch3,16,scalar,3,3.4843,6539145522318665820
+fixDotBatch3,16,avx512,3,0.9392,6539145522318665820
+fixDotBatch3,16,avx512ifma,3,0.7994,6539145522318665820
+fixDotBatch3,16,scalar,4,3.4148,6539145522318665820
+fixDotBatch3,16,avx512,4,0.9853,6539145522318665820
+fixDotBatch3,16,avx512ifma,4,0.7911,6539145522318665820
+fixDotBatch3,16,scalar,5,2.8388,6539145522318665820
+fixDotBatch3,16,avx512,5,0.8411,6539145522318665820
+fixDotBatch3,16,avx512ifma,5,0.7632,6539145522318665820
+fixDotBatch3,16,scalar,6,2.6323,6539145522318665820
+fixDotBatch3,16,avx512,6,0.8431,6539145522318665820
+fixDotBatch3,16,avx512ifma,6,0.7487,6539145522318665820
+fixDotBatch3,16,scalar,7,2.7577,6539145522318665820
+fixDotBatch3,16,avx512,7,0.9096,6539145522318665820
+fixDotBatch3,16,avx512ifma,7,0.7972,6539145522318665820
+fixDotBatch3,16,scalar,8,2.6615,6539145522318665820
+fixDotBatch3,16,avx512,8,0.8610,6539145522318665820
+fixDotBatch3,16,avx512ifma,8,0.7420,6539145522318665820
+fixDotBatch3,16,scalar,9,2.5300,6539145522318665820
+fixDotBatch3,16,avx512,9,0.8705,6539145522318665820
+fixDotBatch3,16,avx512ifma,9,0.7656,6539145522318665820
+fixDotBatch3,16,scalar,10,2.3514,6539145522318665820
+fixDotBatch3,16,avx512,10,0.8631,6539145522318665820
+fixDotBatch3,16,avx512ifma,10,0.7779,6539145522318665820
+fixDotBatch3,256,scalar,0,2.4899,7222016421785659638
+fixDotBatch3,256,avx512,0,0.7048,7222016421785659638
+fixDotBatch3,256,avx512ifma,0,0.6444,7222016421785659638
+fixDotBatch3,256,scalar,1,2.4163,7222016421785659638
+fixDotBatch3,256,avx512,1,0.7795,7222016421785659638
+fixDotBatch3,256,avx512ifma,1,0.6424,7222016421785659638
+fixDotBatch3,256,scalar,2,2.4130,7222016421785659638
+fixDotBatch3,256,avx512,2,0.7016,7222016421785659638
+fixDotBatch3,256,avx512ifma,2,0.6099,7222016421785659638
+fixDotBatch3,256,scalar,3,2.2438,7222016421785659638
+fixDotBatch3,256,avx512,3,0.7422,7222016421785659638
+fixDotBatch3,256,avx512ifma,3,0.6505,7222016421785659638
+fixDotBatch3,256,scalar,4,1.9375,7222016421785659638
+fixDotBatch3,256,avx512,4,0.7248,7222016421785659638
+fixDotBatch3,256,avx512ifma,4,0.5952,7222016421785659638
+fixDotBatch3,256,scalar,5,1.9448,7222016421785659638
+fixDotBatch3,256,avx512,5,0.6994,7222016421785659638
+fixDotBatch3,256,avx512ifma,5,0.5633,7222016421785659638
+fixDotBatch3,256,scalar,6,1.9172,7222016421785659638
+fixDotBatch3,256,avx512,6,0.6476,7222016421785659638
+fixDotBatch3,256,avx512ifma,6,0.5737,7222016421785659638
+fixDotBatch3,256,scalar,7,1.7823,7222016421785659638
+fixDotBatch3,256,avx512,7,0.6381,7222016421785659638
+fixDotBatch3,256,avx512ifma,7,0.5520,7222016421785659638
+fixDotBatch3,256,scalar,8,1.7361,7222016421785659638
+fixDotBatch3,256,avx512,8,0.6524,7222016421785659638
+fixDotBatch3,256,avx512ifma,8,0.5669,7222016421785659638
+fixDotBatch3,256,scalar,9,1.8186,7222016421785659638
+fixDotBatch3,256,avx512,9,0.6763,7222016421785659638
+fixDotBatch3,256,avx512ifma,9,0.6202,7222016421785659638
+fixDotBatch3,256,scalar,10,2.2923,7222016421785659638
+fixDotBatch3,256,avx512,10,0.7537,7222016421785659638
+fixDotBatch3,256,avx512ifma,10,0.6673,7222016421785659638
+fixDotBatch3,4096,scalar,0,2.5343,16202535880580838066
+fixDotBatch3,4096,avx512,0,0.7713,16202535880580838066
+fixDotBatch3,4096,avx512ifma,0,0.6640,16202535880580838066
+fixDotBatch3,4096,scalar,1,2.5919,16202535880580838066
+fixDotBatch3,4096,avx512,1,0.8439,16202535880580838066
+fixDotBatch3,4096,avx512ifma,1,0.6505,16202535880580838066
+fixDotBatch3,4096,scalar,2,2.5243,16202535880580838066
+fixDotBatch3,4096,avx512,2,0.7688,16202535880580838066
+fixDotBatch3,4096,avx512ifma,2,0.6615,16202535880580838066
+fixDotBatch3,4096,scalar,3,2.5218,16202535880580838066
+fixDotBatch3,4096,avx512,3,0.7842,16202535880580838066
+fixDotBatch3,4096,avx512ifma,3,0.6885,16202535880580838066
+fixDotBatch3,4096,scalar,4,2.5674,16202535880580838066
+fixDotBatch3,4096,avx512,4,0.8230,16202535880580838066
+fixDotBatch3,4096,avx512ifma,4,0.6876,16202535880580838066
+fixDotBatch3,4096,scalar,5,2.7108,16202535880580838066
+fixDotBatch3,4096,avx512,5,0.8158,16202535880580838066
+fixDotBatch3,4096,avx512ifma,5,0.8183,16202535880580838066
+fixDotBatch3,4096,scalar,6,2.8630,16202535880580838066
+fixDotBatch3,4096,avx512,6,0.8068,16202535880580838066
+fixDotBatch3,4096,avx512ifma,6,0.6671,16202535880580838066
+fixDotBatch3,4096,scalar,7,2.5224,16202535880580838066
+fixDotBatch3,4096,avx512,7,0.7854,16202535880580838066
+fixDotBatch3,4096,avx512ifma,7,0.6709,16202535880580838066
+fixDotBatch3,4096,scalar,8,2.5876,16202535880580838066
+fixDotBatch3,4096,avx512,8,0.7819,16202535880580838066
+fixDotBatch3,4096,avx512ifma,8,0.6966,16202535880580838066
+fixDotBatch3,4096,scalar,9,3.1024,16202535880580838066
+fixDotBatch3,4096,avx512,9,0.7752,16202535880580838066
+fixDotBatch3,4096,avx512ifma,9,0.6401,16202535880580838066
+fixDotBatch3,4096,scalar,10,2.8451,16202535880580838066
+fixDotBatch3,4096,avx512,10,0.8197,16202535880580838066
+fixDotBatch3,4096,avx512ifma,10,0.6540,16202535880580838066
+
+## perf stat: not run, perf_event_paranoid=4

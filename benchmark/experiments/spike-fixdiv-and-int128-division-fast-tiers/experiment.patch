@@ -1,0 +1,252 @@
+diff --git a/include/fixed/fixed_int128.h b/include/fixed/fixed_int128.h
+index cc22158..f6610d1 100644
+--- a/include/fixed/fixed_int128.h
++++ b/include/fixed/fixed_int128.h
+@@ -389,9 +389,83 @@ FIX_ALWAYS_INLINE fixEmuUInt128 fixEmuUInt128Mul( fixEmuUInt128 a, fixEmuUInt128
+ 	return r;
+ }
+ 
++/// Leading-zero count for a 64-bit lane, written out rather than taken from a builtin so
++/// the plain-MSVC arm needs no intrinsic and every arm folds the same way. (Same shape as
++/// fixCountLeadingZeros64 in fixed_int256.h, kept local so this header stays self-contained.)
++FIX_ALWAYS_INLINE int fixEmuCountLeadingZeros64( uint64_t x )
++{
++	if ( x == 0 )
++	{
++		return 64;
++	}
++	int n = 0;
++	if ( ( x >> 32 ) == 0 ) { n += 32; x <<= 32; }
++	if ( ( x >> 48 ) == 0 ) { n += 16; x <<= 16; }
++	if ( ( x >> 56 ) == 0 ) { n += 8; x <<= 8; }
++	if ( ( x >> 60 ) == 0 ) { n += 4; x <<= 4; }
++	if ( ( x >> 62 ) == 0 ) { n += 2; x <<= 2; }
++	if ( ( x >> 63 ) == 0 ) { n += 1; }
++	return n;
++}
++
++/// ( r * (fhi*2^64 + flo) ) >> 127, exact. r, fhi and flo are 64-bit; the full product is
++/// 192 bits and only its top 65 bits survive the shift, assembled from the two 64x64->128
++/// products without forming the middle bits that the shift discards anyway.
++FIX_ALWAYS_INLINE uint64_t fixEmuMulHi127( uint64_t r, uint64_t fhi, uint64_t flo )
++{
++	fixEmuUInt128 a = fixEmuUInt128MulU64( r, fhi );
++	fixEmuUInt128 b = fixEmuUInt128MulU64( r, flo );
++	uint64_t v1 = a.lo + b.hi;
++	uint64_t carry = ( v1 < a.lo ) ? 1 : 0;
++	uint64_t v2 = a.hi + carry;
++	return ( v2 << 1 ) + ( v1 >> 63 );
++}
++
++/// Exact 128/64 division with a 64-bit quotient, via a table-free Newton-Raphson reciprocal.
++///
++/// PRECONDITION: hi < d and d != 0, so q = floor( (hi*2^64 + lo) / d ) fits in 64 bits --
++/// the same invariant fixUInt128DivRemBy64 documents. The divisor is normalized so its top
++/// bit is set, a 64-bit reciprocal of 2^127 / d is seeded from one hardware double division
++/// and refined by three integer Newton steps, the quotient estimate is the top 65 bits of the
++/// product, and an EXACT remainder compare drives it to the true truncating quotient. The
++/// double is only a seed (as in fixSqrt): the final quotient and remainder are exact integer
++/// results and cannot differ from any other correct algorithm, so determinism is preserved.
++FIX_ALWAYS_INLINE uint64_t fixEmuUInt128DivRemBy64Recip( uint64_t hi, uint64_t lo, uint64_t d, uint64_t* remainder )
++{
++	int s = fixEmuCountLeadingZeros64( d );
++	uint64_t dn = d << s;
++	uint64_t nhi = ( s == 0 ) ? hi : ( hi << s ) | ( lo >> ( 64 - s ) );
++	uint64_t nlo = ( s == 0 ) ? lo : ( lo << s );
++
++	// 2^127 / dn as a double, then the nearest 64-bit integer below 2^64.
++	double r0 = 1.70141183460469231731687303715884105728e38 / (double)dn;
++	uint64_t r = ( r0 >= 1.8446744073709551616e19 ) ? UINT64_C( 0xFFFFFFFFFFFFFFFF ) : (uint64_t)r0;
++
++	// Newton-Raphson for r ~ 2^127/dn: r_{k+1} = r_k * (2^128 - dn * r_k) / 2^127.
++	for ( int it = 0; it < 3; ++it )
++	{
++		fixEmuUInt128 p = fixEmuUInt128MulU64( dn, r ); // dn * r < 2^128
++		fixEmuUInt128 f = fixEmuUInt128Add( fixEmuUInt128Not( p ), fixEmuUInt128FromU64( 1 ) ); // 2^128 - p
++		r = fixEmuMulHi127( r, f.hi, f.lo );
++	}
++
++	uint64_t q = fixEmuMulHi127( r, nhi, nlo );
++
++	// Exact repair: walk q to the unique quotient. r < d and q*d <= n, then bump.
++	fixEmuUInt128 n = fixEmuUInt128Make( hi, lo );
++	fixEmuUInt128 qd = fixEmuUInt128MulU64( q, d );
++	while ( fixEmuUInt128Gt( qd, n ) ) { --q; qd = fixEmuUInt128Sub( qd, fixEmuUInt128FromU64( d ) ); }
++	fixEmuUInt128 rem = fixEmuUInt128Sub( n, qd );
++	while ( fixEmuUInt128Ge( rem, fixEmuUInt128FromU64( d ) ) ) { ++q; rem = fixEmuUInt128Sub( rem, fixEmuUInt128FromU64( d ) ); }
++
++	*remainder = fixEmuUInt128Lo( rem );
++	return q;
++}
++
+ /// Shift-subtract long division, producing quotient and remainder together.
+ /// Division by zero is undefined; this returns zero for both to stay total (see the
+ /// header comment). Out-parameters may be NULL if only one half is wanted.
++/// A 64-bit divisor takes the reciprocal fast path above instead of the loop.
+ FIX_ALWAYS_INLINE void fixEmuUInt128DivMod( fixEmuUInt128 dividend, fixEmuUInt128 divisor, fixEmuUInt128* quotientOut,
+ 											fixEmuUInt128* remainderOut )
+ {
+@@ -414,6 +488,24 @@ FIX_ALWAYS_INLINE void fixEmuUInt128DivMod( fixEmuUInt128 dividend, fixEmuUInt12
+ 		return;
+ 	}
+ 
++	if ( divisor.hi == 0 )
++	{
++		// 128-bit dividend, 64-bit divisor. The high word divides by hardware, and the
++		// remainder-carrying low word goes through the reciprocal path (dividend.lo may be
++		// anything; the split keeps every quotient word below 2^64).
++		uint64_t d = divisor.lo;
++		uint64_t qhi = dividend.hi / d;
++		uint64_t rhi = dividend.hi % d;
++		uint64_t qlo;
++		uint64_t rlo;
++		qlo = fixEmuUInt128DivRemBy64Recip( rhi, dividend.lo, d, &rlo );
++		quotient = fixEmuUInt128Make( qhi, qlo );
++		remainder = fixEmuUInt128Make( 0, rlo );
++		if ( quotientOut != NULL ) *quotientOut = quotient;
++		if ( remainderOut != NULL ) *remainderOut = remainder;
++		return;
++	}
++
+ 	for ( int i = 127; i >= 0; i-- )
+ 	{
+ 		// The reference spells this ( dividend >> i ).lo & 1; selecting the lane directly
+diff --git a/test/int128_test.c b/test/int128_test.c
+index d68a931..30e3b9c 100644
+--- a/test/int128_test.c
++++ b/test/int128_test.c
+@@ -183,6 +183,15 @@ static REF_NOINLINE nativeUInt128 refUMod( nativeUInt128 a, nativeUInt128 b ) {
+ static REF_NOINLINE nativeUInt128 refUDiv( nativeUInt128 a, nativeUInt128 b ) { return a / b; }
+ static REF_NOINLINE nativeUInt128 refUMod( nativeUInt128 a, nativeUInt128 b ) { return a % b; }
+ #endif
++// 128/64 native references for the fast-tier divide, out of line for the same reason.
++static REF_NOINLINE uint64_t refDivQNative( uint64_t hi, uint64_t lo, uint64_t d )
++{
++	return (uint64_t)( ( ( (nativeUInt128)hi << 64 ) | lo ) / d );
++}
++static REF_NOINLINE uint64_t refDivRNative( uint64_t hi, uint64_t lo, uint64_t d )
++{
++	return (uint64_t)( ( ( (nativeUInt128)hi << 64 ) | lo ) % d );
++}
+ static REF_NOINLINE int refUCmp( nativeUInt128 a, nativeUInt128 b )
+ {
+ 	return ( a == b ? 1 : 0 ) | ( a < b ? 2 : 0 ) | ( a > b ? 4 : 0 ) | ( a <= b ? 8 : 0 ) | ( a >= b ? 16 : 0 );
+@@ -927,6 +936,110 @@ static uint64_t sweepConversions( int perturb, uint64_t samples )
+ 	return bad;
+ }
+ 
++// ================================================================================
++// THE FAST-TIER DIVIDE. The reciprocal Newton path for a 128-bit dividend and a
++// 64-bit divisor, held to a long-division reference that shares no arithmetic with it,
++// and to native __int128 where the compiler has it.
++// ================================================================================
++
++// Reference: shift-subtract long division written on the emulated pair, independent of the
++// reciprocal path. hi < d is not required by the loop; the callers here only exercise the
++// hi < d and the split-full 128/64 shapes.
++static void refDiv128by64( uint64_t hi, uint64_t lo, uint64_t d, uint64_t* qOut, uint64_t* rOut )
++{
++	fixEmuUInt128 n = fixEmuUInt128Make( hi, lo );
++	fixEmuUInt128 div = fixEmuUInt128FromU64( d );
++	fixEmuUInt128 rem = fixEmuUInt128Make( 0, 0 );
++	fixEmuUInt128 quo = fixEmuUInt128Make( 0, 0 );
++	for ( int i = 127; i >= 0; i-- )
++	{
++		uint64_t bit = ( i < 64 ) ? ( ( n.lo >> i ) & 1 ) : ( ( n.hi >> ( i - 64 ) ) & 1 );
++		rem = fixEmuUInt128Shl( rem, 1 );
++		rem.lo |= bit;
++		if ( fixEmuUInt128Ge( rem, div ) )
++		{
++			rem = fixEmuUInt128Sub( rem, div );
++			quo = fixEmuUInt128Or( quo, fixEmuUInt128Shl( fixEmuUInt128FromU64( 1 ), i ) );
++		}
++	}
++	*qOut = fixEmuUInt128Lo( quo );
++	*rOut = fixEmuUInt128Lo( rem );
++}
++
++static uint64_t sweepDivFastTier( int perturb, uint64_t samples )
++{
++	uint64_t bad = 0;
++
++	// The tier gates: dividends at 2^47 - 1, 2^47, 2^63 and the 2^64 - 1 high limbs, plus
++	// the lane boundaries, crossed with divisors at every power of two +-1 and the edges.
++	static const uint64_t gates[] = {
++		0, 1, 2, 3, UINT64_C( 0xFFFFFFFF ), UINT64_C( 0xFFFFFFFFFFFFFFFF ),
++		0x8000000000000000ULL, 0x7FFFFFFFFFFFFFFFULL,
++		( UINT64_C( 1 ) << 47 ) - 1, UINT64_C( 1 ) << 47,
++		UINT64_C( 1 ) << 63, UINT64_C( 0xFFFFFFFFFFFFFFFE ),
++	};
++	const int gateCount = (int)( sizeof( gates ) / sizeof( gates[0] ) );
++
++	for ( int ai = 0; ai < gateCount; ai++ )
++	{
++		for ( int bi = 0; bi < gateCount; bi++ )
++		{
++			uint64_t d = gates[bi];
++			if ( d == 0 ) continue;
++			uint64_t hi = gates[ai] % d;
++			uint64_t lo = ( gates[ai] << 32 ) ^ ( gates[bi] >> 32 ) ^ (uint64_t)gates[ai];
++
++			// The reciprocal primitive (hi < d).
++			uint64_t qref, rref, q, r;
++			refDiv128by64( hi, lo, d, &qref, &rref );
++			q = bump64( fixEmuUInt128DivRemBy64Recip( hi, lo, d, &r ), perturb );
++			r = bump64( r, perturb );
++			bad += ( q != qref ) + ( r != rref );
++			bad += CHECK_64( qref, refDivQNative( hi, lo, d ) );
++			bad += CHECK_64( rref, refDivRNative( hi, lo, d ) );
++
++			// The full 128/64 path through fixEmuUInt128DivMod (dividend.hi arbitrary).
++			fixEmuUInt128 qq, rr;
++			fixEmuUInt128 n = fixEmuUInt128Make( gates[ai], lo );
++			fixEmuUInt128 dv = fixEmuUInt128FromU64( d );
++			fixEmuUInt128DivMod( n, dv, &qq, &rr );
++			qq = fixEmuUInt128Make( bump64( qq.hi, perturb ), bump64( qq.lo, perturb ) );
++			bad += CHECK_U( qq, refUDiv( (nativeUInt128)n.hi << 64 | n.lo, (nativeUInt128)d ) );
++			bad += CHECK_U( rr, refUMod( (nativeUInt128)n.hi << 64 | n.lo, (nativeUInt128)d ) );
++		}
++	}
++
++	// Divisors at every power of two +-1 against full-width dividends.
++	rngState = 0xD1000000ULL + (uint64_t)perturb;
++	for ( uint64_t i = 0; i < samples; i++ )
++	{
++		uint64_t hi = nextRandom();
++		uint64_t lo = nextRandom();
++		uint64_t d = nextRandom();
++		int k = (int)( nextRandom() % 63 );
++		uint64_t p = UINT64_C( 1 ) << k;
++		switch ( (int)( d & 3 ) )
++		{
++			case 0: d = p; break;
++			case 1: d = ( k == 0 ) ? 1 : p - 1; break;
++			case 2: d = p + 1; break;
++			default: d = ( d == 0 ) ? 1 : d; break;
++		}
++		if ( d == 0 ) d = 1;
++		hi %= d; // keep the primitive precondition hi < d
++
++		uint64_t qref, rref, q, r;
++		refDiv128by64( hi, lo, d, &qref, &rref );
++		q = bump64( fixEmuUInt128DivRemBy64Recip( hi, lo, d, &r ), perturb );
++		r = bump64( r, perturb );
++		bad += ( q != qref ) + ( r != rref );
++		bad += CHECK_64( qref, refDivQNative( hi, lo, d ) );
++		bad += CHECK_64( rref, refDivRNative( hi, lo, d ) );
++	}
++
++	return bad;
++}
++
+ // ================================================================================
+ 
+ typedef uint64_t ( *SweepFcn )( int perturb, uint64_t samples );
+@@ -1041,6 +1154,7 @@ int main( int argc, char** argv )
+ 	run( "emulated signed comparisons match native", sweepSignedCompare, SAMPLES( 200000 ), 1 );
+ 	run( "emulated signed divide and modulo match native", sweepSignedDivMod, SAMPLES( 20000 ), 1 );
+ 	run( "emulated conversions and lane accessors match native", sweepConversions, SAMPLES( 200000 ), 1 );
++	run( "reciprocal 128/64 divide matches long division and native", sweepDivFastTier, SAMPLES( 1000000 ), 1 );
+ 
+ 	checkDocumentedEdges();
+ 

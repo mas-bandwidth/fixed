@@ -1,0 +1,140 @@
+=== cpu_info.sh ===
+# cpu_info 2026-10-15T04:01:51Z
+uname: Linux 7.0.0-38-generic x86_64
+cpu_model: AMD Ryzen 7 255 w/ Radeon 780M Graphics
+isa_avx2: yes
+isa_avx512f: yes
+isa_avx512dq: yes
+isa_avx512vl: yes
+isa_avx512ifma: yes
+isa_bmi2: yes
+isa_adx: yes
+isa_fma: yes
+isa_sse4_2: yes
+isa_neon: no
+isa_sme: no
+logical_cpus: 16
+affinity: 0-15
+load_average:0.73 1.06 1.38 2/560 2257482
+benchmarks_running: YES
+  2257458 /bin/sh /home/nova/rowan-working/tmp/slots/spike-fixsqrt-seed-and-repair-tiers.w8.g1.e21/shim/bash -c {   echo "=== cpu_info.sh ==="   sh benchmark/cpu_info.sh 2>/dev/null   echo ""   echo "=== ab.sh (baseline vs candidate, native) ==="   cat ab.log   echo ""   echo "=== oracle_check (native) ==="   cat oracle_native.log   echo ""   echo "=== sqrt_tier test (native) ==="   ./build/fixed_sqrt_tier_test   echo "=== sqrt_tier test (emulated) ==="   ./build/fixed_sqrt_tier_emulated_test } > benchmark/experiments/spike-fixsqrt-seed-and-repair-tiers/raw.txt 2>&1 wc -l benchmark/experiments/spike-fixsqrt-seed-and-repair-tiers/raw.txt
+  2257462 /usr/bin/bash -c {   echo "=== cpu_info.sh ==="   sh benchmark/cpu_info.sh 2>/dev/null   echo ""   echo "=== ab.sh (baseline vs candidate, native) ==="   cat ab.log   echo ""   echo "=== oracle_check (native) ==="   cat oracle_native.log   echo ""   echo "=== sqrt_tier test (native) ==="   ./build/fixed_sqrt_tier_test   echo "=== sqrt_tier test (emulated) ==="   ./build/fixed_sqrt_tier_emulated_test } > benchmark/experiments/spike-fixsqrt-seed-and-repair-tiers/raw.txt 2>&1 wc -l benchmark/experiments/spike-fixsqrt-seed-and-repair-tiers/raw.txt
+compiler_cc: cc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+compiler_clang: Ubuntu clang version 21.1.8 (6ubuntu1)
+compiler_gcc: gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+cmake: cmake version 4.2.3
+make: GNU Make 4.4.1
+
+=== ab.sh (baseline vs candidate, native) ===
+# ab.sh 2026-10-15T03:57:11Z
+# compiler: cc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+# flags: -O3 -g -DNDEBUG -ffp-contract=off
+# repeats: 7  iterations: 200000
+# # cpu_info 2026-10-15T03:57:11Z
+# uname: Linux 7.0.0-38-generic x86_64
+# cpu_model: AMD Ryzen 7 255 w/ Radeon 780M Graphics
+# isa_avx2: yes
+# isa_avx512f: yes
+# isa_avx512dq: yes
+# isa_avx512vl: yes
+# isa_avx512ifma: yes
+# isa_bmi2: yes
+# isa_adx: yes
+# isa_fma: yes
+# isa_sse4_2: yes
+# isa_neon: no
+# isa_sme: no
+# logical_cpus: 16
+# affinity: 0-15
+# load_average:0.49 1.39 1.55 2/552 2253650
+# benchmarks_running: no
+# compiler_cc: cc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+# compiler_clang: Ubuntu clang version 21.1.8 (6ubuntu1)
+# compiler_gcc: gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+# cmake: cmake version 4.2.3
+# make: GNU Make 4.4.1
+# oracle_check compiled against .:
+ORACLE OK   fixMul  count=50063756  hash=eb1995a6b21bf036
+ORACLE OK   fixDiv_below2p47  count=50063756  hash=9519544a71a6aee9
+ORACLE OK   fixDiv_above2p47  count=12563756  hash=679bdcc4e27fd523
+ORACLE OK   fixSqrt_small  count=50000252  hash=0a01c17d8970c8c5
+ORACLE OK   fixSqrt_raw_below2p32  count=4344967548  hash=e8cd953f7d9cb442
+ORACLE OK   fixISqrt128High_u64  count=50063756  hash=3f2bde37bd6f7cb0
+ORACLE OK   fixISqrt128High_above104bits  count=2563756  hash=0c9fdfcdcf937183
+ORACLE OK   fixComputeCosSin  count=50823803  hash=75d77c6260933da6
+ORACLE OK   fixSin  count=50823803  hash=ea6b89849492e203
+ORACLE OK   fixCos  count=50823803  hash=92884abbd0d0dfc4
+ORACLE OK   fixAtan2  count=6313756  hash=e783be1aa18a9e6c
+ORACLE OK   fixLog2  count=9395980  hash=7d1ccc520e783eca
+ORACLE OK   fixExp2  count=9395980  hash=a1d52ff7b1ceef98
+ORACLE OK   fixPow  count=2563756  hash=55410e05742068c7
+ORACLE OK   fixLerp  count=50063756  hash=3c3983b96260d159
+ORACLE OK   fixInt128Div  count=2563756  hash=65e492d721fcd5f6
+ORACLE OK   fixUInt256DivMod  count=563756  hash=d6c2bda0c1986a82
+ORACLE OK   fixDot  count=50063756  hash=4392264c082fde77
+ORACLE OK   fixCross  count=50063756  hash=5a5555238d655a2c
+ORACLE OK   fixLength  count=25063756  hash=785da375992b2c05
+ORACLE OK   fixNormalize  count=12563756  hash=44e1c09212bfac1d
+ORACLE OK   fixMulQuat  count=25063756  hash=ff696a9b57ac0860
+ORACLE OK   fixNormalizeQuat  count=12563756  hash=5e439ba2ea83daeb
+ORACLE OK   fixRotateVector  count=12563756  hash=64afce887683c703
+ORACLE OK   fixInvRotateVector  count=12563756  hash=a7d02b0685663640
+ORACLE OK   fixNLerp  count=6313756  hash=315cf27e3e31527e
+ORACLE OK   fixInvertMatrix  count=563756  hash=f7c48d2fcea79473
+ORACLE OK   fixSolve3  count=563756  hash=da2489cbf6193bad
+ORACLE OK   fixAABB_Transform  count=2563756  hash=d105925232ba6473
+ORACLE OK   fixQuantize  count=50063756  hash=f27ed579335213a8
+ORACLE OK   fixDequantize  count=50063756  hash=1be2b75e26b7a4d1
+ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMul                         scalar      1.5081     1.5085    88.1%     1.5074     1.5082     3.6%    1.000
+fixMul                         batch       1.2161     1.2368     2.9%     1.2186     1.2378     3.1%    0.999
+fixSqrt_small                  scalar      7.3045     7.3072     0.3%     7.3027     7.3064     0.3%    1.000
+fixSqrt_small                  batch       2.1801     2.3204    10.8%     2.2435     2.4819    16.4%    0.935
+fixSqrt_raw_below2p32          scalar      7.3006     7.3262    62.2%     7.3055     7.3198     1.2%    1.001
+fixSqrt_raw_below2p32          batch       2.0906     2.1535    24.4%     2.5623     2.6455   116.4%    0.814
+fixISqrt128High_u64            scalar     79.8464    80.5390     7.2%    84.8576    84.9592     4.3%    0.948
+fixISqrt128High_u64            batch       2.6607     2.8002    20.9%     2.6486     2.7151    74.4%    1.031
+fixISqrt128High_above104bits   scalar     79.8523    79.9271     1.0%    83.2312    83.3573     1.0%    0.959
+fixISqrt128High_above104bits   batch      58.2559    58.5595     1.6%     3.8556     3.9866     8.9%   14.689
+# speedup = a_median / b_median; > 1 means the candidate is faster.
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+
+=== oracle_check (native) ===
+ORACLE OK   fixMul  count=50063756  hash=eb1995a6b21bf036
+ORACLE OK   fixDiv_below2p47  count=50063756  hash=9519544a71a6aee9
+ORACLE OK   fixDiv_above2p47  count=12563756  hash=679bdcc4e27fd523
+ORACLE OK   fixSqrt_small  count=50000252  hash=0a01c17d8970c8c5
+ORACLE OK   fixSqrt_raw_below2p32  count=4344967548  hash=e8cd953f7d9cb442
+ORACLE OK   fixISqrt128High_u64  count=50063756  hash=3f2bde37bd6f7cb0
+ORACLE OK   fixISqrt128High_above104bits  count=2563756  hash=0c9fdfcdcf937183
+ORACLE OK   fixComputeCosSin  count=50823803  hash=75d77c6260933da6
+ORACLE OK   fixSin  count=50823803  hash=ea6b89849492e203
+ORACLE OK   fixCos  count=50823803  hash=92884abbd0d0dfc4
+ORACLE OK   fixAtan2  count=6313756  hash=e783be1aa18a9e6c
+ORACLE OK   fixLog2  count=9395980  hash=7d1ccc520e783eca
+ORACLE OK   fixExp2  count=9395980  hash=a1d52ff7b1ceef98
+ORACLE OK   fixPow  count=2563756  hash=55410e05742068c7
+ORACLE OK   fixLerp  count=50063756  hash=3c3983b96260d159
+ORACLE OK   fixInt128Div  count=2563756  hash=65e492d721fcd5f6
+ORACLE OK   fixUInt256DivMod  count=563756  hash=d6c2bda0c1986a82
+ORACLE OK   fixDot  count=50063756  hash=4392264c082fde77
+ORACLE OK   fixCross  count=50063756  hash=5a5555238d655a2c
+ORACLE OK   fixLength  count=25063756  hash=785da375992b2c05
+ORACLE OK   fixNormalize  count=12563756  hash=44e1c09212bfac1d
+ORACLE OK   fixMulQuat  count=25063756  hash=ff696a9b57ac0860
+ORACLE OK   fixNormalizeQuat  count=12563756  hash=5e439ba2ea83daeb
+ORACLE OK   fixRotateVector  count=12563756  hash=64afce887683c703
+ORACLE OK   fixInvRotateVector  count=12563756  hash=a7d02b0685663640
+ORACLE OK   fixNLerp  count=6313756  hash=315cf27e3e31527e
+ORACLE OK   fixInvertMatrix  count=563756  hash=f7c48d2fcea79473
+ORACLE OK   fixSolve3  count=563756  hash=da2489cbf6193bad
+ORACLE OK   fixAABB_Transform  count=2563756  hash=d105925232ba6473
+ORACLE OK   fixQuantize  count=50063756  hash=f27ed579335213a8
+ORACLE OK   fixDequantize  count=50063756  hash=1be2b75e26b7a4d1
+ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+
+=== sqrt_tier test (native) ===
+ALL OK
+=== sqrt_tier test (emulated) ===
+ALL OK

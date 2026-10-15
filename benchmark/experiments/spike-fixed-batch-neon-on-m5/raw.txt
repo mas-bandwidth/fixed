@@ -1,0 +1,630 @@
+# raw output of spike-fixed-batch-neon-on-m5 (host: Apple M5 Pro Mac mini, over ssh mini-m5, 2026-10-15)
+
+== HOST FACTS ==
+Thu Oct 15 16:47:45 UTC 2026
+Glenns-Mac-Mini.local
+Darwin Glenns-Mac-Mini.local 27.0.0 Darwin Kernel Version 27.0.0: Tue Aug 11 21:06:40 PDT 2026; root:xnu-13432.1.9~1/RELEASE_ARM64_T6050 arm64
+machdep.cpu.brand_string: Apple M5 Pro
+hw.ncpu: 18
+hw.perflevel0.logicalcpu: 6
+hw.perflevel1.logicalcpu: 12
+hw.l1dcachesize: 65536
+hw.l2cachesize: 8388608
+hw.optional.arm.FEAT_BF16: 1
+hw.optional.arm.FEAT_I8MM: 1
+hw.optional.arm.AdvSIMD: 1
+hw.optional.arm.AdvSIMD_HPFPCvt: 1
+hw.optional.arm.FEAT_SME: 1
+hw.optional.arm.FEAT_SME2: 1
+hw.optional.arm.FEAT_SME2p1: 1
+hw.optional.arm.SME_F32F32: 1
+hw.optional.arm.SME_BI32I32: 1
+hw.optional.arm.SME_B16F32: 1
+hw.optional.arm.SME_F16F32: 1
+hw.optional.arm.SME_I8I32: 1
+hw.optional.arm.SME_I16I32: 1
+hw.optional.arm.FEAT_SME_F64F64: 1
+hw.optional.arm.FEAT_SME_I16I64: 1
+hw.optional.arm.FEAT_SME_F16F16: 1
+hw.optional.arm.FEAT_SME_B16B16: 1
+hw.optional.arm.FEAT_SME_LUTv2: 0
+hw.optional.arm.FEAT_SME_F8F16: 0
+hw.optional.arm.FEAT_SME_F8F32: 0
+hw.optional.arm.sme_max_svl_b: 64
+hw.optional.arm.sme_max_svl_b: 64
+Apple clang version 21.0.0 (clang-2100.3.34.2)
+# cpu_info 2026-10-15T16:47:45Z
+uname: Darwin 27.0.0 arm64
+cpu_model: Apple M5 Pro
+logical_cpus: 18
+isa_neon: unknown
+isa_fp16: unknown
+isa_i8mm: unknown
+isa_sme: unknown
+isa_sme2: unknown
+affinity: taskset unavailable
+load_average:{ 1.92 1.86 2.06 }
+benchmarks_running: no
+compiler_cc: Apple clang version 21.0.0 (clang-2100.3.34.2)
+compiler_clang: Apple clang version 21.0.0 (clang-2100.3.34.2)
+compiler_gcc: Apple clang version 21.0.0 (clang-2100.3.34.2)
+make: GNU Make 3.81
+pinning: macOS has no taskset/affinity API; the run is unpinned, on a box shared with nova-swarm members and (observed, pids named in the finding) another worker's ab.sh runs
+
+== RED AT BASE ==
+BASE d7f6ac507f5ba8b26f4ff2e140315e3223a401b9 land spike-fixed-batch-avx512-on-skylake-w (sprint stream fixed-perf)
+SUBTEST BatchNeonEquivalenceTest
+FAIL test/batch_neon_equivalence_test.c:293: BatchNeonEquivalenceTest: variant neon ABSENT on aarch64 (fixForceIsa returned 2: not compiled into this build)
+exit=1
+
+== SUITE (stand-in for cmake --build + ctest; cmake is not installed on this host) ==
+== native ==
+== emulated ==
+== saturated ==
+== oracle_check (frozen oracle-baseline.txt, base_random=50000000) ==
+ORACLE OK   fixCrossBatch  count=50063756  hash=34fad48229665114
+ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+oracle_check native FIXED_ISA=scalar rc=0
+ORACLE OK   fixCrossBatch  count=50063756  hash=34fad48229665114
+ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+oracle_check emulated FIXED_ISA=scalar rc=0
+ORACLE OK   fixCrossBatch  count=50063756  hash=34fad48229665114
+ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+oracle_check native FIXED_ISA=neon rc=0
+ORACLE OK   fixCrossBatch  count=50063756  hash=34fad48229665114
+ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+oracle_check emulated FIXED_ISA=neon rc=0
+SUITE: 51 passed, 0 failed:
+-- PASS lines:
+47
+PASS n_determinism PASS n_transcendental PASS n_wide_time PASS n_exhaustive PASS n_batch PASS n_batch_neon_equivalence PASS n_aabb PASS n_override_api PASS n_port_equality PASS n_int128 PASS n_geometry PASS n_quantize PASS n_int256_division PASS n_inverse_envelope PASS n_usage PASS n_numerical_regression PASS n_isa_dispatch PASS n_oracle_unit PASS n_negative_control PASS n_port_negative_control PASS n_geometry_negative_control PASS n_quantize_negative_control PASS n_int256_negative_control PASS n_inverse_negative_control PASS n_neon_negative_control PASS n_neon_broken_gate PASS e_determinism PASS e_transcendental PASS e_wide_time PASS e_exhaustive PASS e_aabb PASS e_port_equality PASS e_int128 PASS e_geometry PASS e_inverse_envelope PASS e_int256_division PASS e_numerical_regression PASS e_batch PASS e_batch_neon_equivalence PASS e_isa_dispatch PASS e_oracle_unit PASS e_numerical_saturated PASS e_negative_control PASS s_batch PASS s_isa_dispatch PASS s_batch_neon_equivalence PASS s_numerical
+-- selected evidence lines
+[n_batch_neon_equivalence]
+VARIANT neon RAN: 102015527 lanes compared bit-identical to fixMul/fixDot/fixLength/fixCross (190387642 lane-operations in calls whose gate passed: vector body)
+BatchNeonEquivalenceTest PASS
+[e_batch_neon_equivalence]
+VARIANT neon RAN: 102015527 lanes compared bit-identical to fixMul/fixDot/fixLength/fixCross (190387642 lane-operations in calls whose gate passed: vector body)
+BatchNeonEquivalenceTest PASS
+[s_batch_neon_equivalence]
+VARIANT neon SKIP not compiled in a FIX_SATURATE build (scalar route kept; a SKIP is not a pass)
+BatchNeonEquivalenceTest PASS (variant absent by design here)
+[n_isa_dispatch]
+host facts: neon sme sme2
+default variant: neon
+VARIANT scalar RAN: batch oracle rows and 100000000 seeded lanes bit-identical to scalar
+VARIANT avx2 SKIP not compiled into this build
+VARIANT avx512 SKIP not compiled into this build
+VARIANT avx512ifma SKIP not compiled into this build
+VARIANT neon RAN: batch oracle rows and 100000000 seeded lanes bit-identical to scalar
+VARIANT sme2 SKIP not compiled into this build
+IsaDispatchTest PASS
+[e_isa_dispatch]
+host facts: neon sme sme2
+default variant: neon
+VARIANT scalar RAN: batch oracle rows and 10000000 seeded lanes bit-identical to scalar
+VARIANT avx2 SKIP not compiled into this build
+VARIANT avx512 SKIP not compiled into this build
+VARIANT avx512ifma SKIP not compiled into this build
+VARIANT neon RAN: batch oracle rows and 10000000 seeded lanes bit-identical to scalar
+VARIANT sme2 SKIP not compiled into this build
+IsaDispatchTest PASS
+[s_isa_dispatch]
+host facts: neon sme sme2
+default variant: scalar
+VARIANT scalar RAN: batch oracle rows and 1000000 seeded lanes bit-identical to scalar
+VARIANT avx2 SKIP not compiled into this build
+VARIANT avx512 SKIP not compiled into this build
+VARIANT avx512ifma SKIP not compiled into this build
+VARIANT neon SKIP not compiled into this build
+VARIANT sme2 SKIP not compiled into this build
+IsaDispatchTest PASS
+[n_neon_negative_control (MUST fail)]
+SUBTEST BatchNeonEquivalenceTest
+FAIL test/batch_neon_equivalence_test.c:135: lane 516 of 4096: a=-360525778 b=-1 mul=5501 want 5502; dot=-610269615503 want -610269615503; len=360525778 want 360525778; cross=-4711,1698408829093,-734225592907 want -4711,1698408829093,-734225592907
+BatchNeonEquivalenceTest FAIL
+[n_neon_broken_gate (MUST fail)]
+SUBTEST BatchNeonEquivalenceTest
+FAIL test/batch_neon_equivalence_test.c:135: lane 15 of 19: a=-1745875711 b=-2040641114 mul=54362575619516 want 54362575619516; dot=136771846584853 want -144703130125803; len=3057861487 want 3057861487; cross=-23055159004116,6137213103584,18962085599564 want -23055159004116,6137213103584,18962085599564
+BatchNeonEquivalenceTest FAIL
+
+== the real benchmark/ab.sh (with its oracle step), lanes=4096, natural inputs ==
+# ab.sh 2026-10-15T16:47:45Z
+# compiler: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# flags: -O3 -g -DNDEBUG -ffp-contract=off
+# repeats: 9  iterations: 20000000
+# # cpu_info 2026-10-15T16:47:45Z
+# uname: Darwin 27.0.0 arm64
+# cpu_model: Apple M5 Pro
+# logical_cpus: 18
+# isa_neon: unknown
+# isa_fp16: unknown
+# isa_i8mm: unknown
+# isa_sme: unknown
+# isa_sme2: unknown
+# affinity: taskset unavailable
+# load_average:{ 1.92 1.86 2.06 }
+# benchmarks_running: no
+# compiler_clang: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# compiler_clang: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# compiler_gcc: Apple clang version 21.0.0 (clang-2100.3.34.2)
+# make: GNU Make 3.81
+# side A (.) isa: scalar (facts: neon sme sme2)
+# side B (.) isa: neon (facts: neon sme sme2)
+# oracle_check compiled against .:
+# oracle FIXED_ISA=neon
+ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMulBatch                    scalar      1.3073     1.3920    14.9%     1.3060     1.3111    14.6%    1.062
+fixMulBatch                    batch       0.4455     0.4506     2.2%     0.6677     0.6687     3.0%    0.674
+fixDotBatch3                   scalar      2.8924     2.9973     6.4%     2.8927     2.9339     6.9%    1.022
+fixDotBatch3                   batch       0.9836     0.9962     2.4%     1.1224     1.1345     2.5%    0.878
+fixLengthBatch                 scalar      7.5350     7.7805    10.4%     7.6094     7.8983     8.4%    0.985
+fixLengthBatch                 batch       1.6332     1.6449     3.6%     0.9275     0.9292     1.3%    1.770
+fixCrossBatch                  scalar      0.3051     0.3079    10.9%     0.3055     0.3084     1.8%    0.998
+fixCrossBatch                  batch       2.1389     2.1515     1.3%     1.4967     1.5202     3.3%    1.415
+# speedup = a_median / b_median; > 1 means the candidate is faster.
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+(ab.sh exit rc=0 after 0 refusals)
+
+== SWEEP: interleaved scalar(A) vs neon(B), one binary, FIXED_ISA per side; 15 repeats x 20,000,000 lane-ops; A/A = scalar vs scalar; columns are ns per lane; batch rows are the judged rows, scalar rows are the dependent-chain control ==
+##### sweep start 2026-10-15T16:37:34Z loadavg: { 2.32 2.40 2.35 }
+##### config=natural lanes=16 rshift=0 lshift=0  A/B scalar vs neon
+(ab.sh refused rc=3, attempt 1; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 2; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 3; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 4; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 5; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 6; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 7; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 8; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 9; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 10; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 11; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 12; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 13; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 14; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 15; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 16; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 17; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 18; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 19; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 20; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+##### config=natural lanes=16 rshift=0 lshift=0  A/A scalar vs scalar
+(ab.sh refused rc=3, attempt 1; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 2; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 3; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 4; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 5; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 6; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 7; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 8; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 9; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 10; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+(ab.sh refused rc=3, attempt 11; holder: 11368 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.TiSJrw/oracle_check)
+# repeats: 15  iterations: 20000000
+# side A (.) isa: scalar (facts: neon sme sme2)
+# side B (.) isa: scalar (facts: neon sme sme2)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMulBatch                    scalar      1.3941     1.3957     2.0%     1.3937     1.3958     9.7%    1.000
+fixMulBatch                    batch       0.4320     0.4338     1.8%     0.4308     0.4338     2.4%    1.000
+fixDotBatch3                   scalar      3.0053     3.0926     3.5%     3.0854     3.0956     0.9%    0.999
+fixDotBatch3                   batch       0.9173     0.9237     1.9%     0.9197     0.9254     1.1%    0.998
+fixLengthBatch                 scalar      8.0678     8.2375     5.5%     8.1011     8.3905     4.8%    0.982
+fixLengthBatch                 batch       1.6189     1.6257     1.1%     1.6165     1.6293     1.5%    0.998
+fixCrossBatch                  scalar      0.3088     0.3116     5.7%     0.3091     0.3115     3.8%    1.000
+fixCrossBatch                  batch       2.0261     2.0400    41.2%     2.0258     2.0282    42.3%    1.006
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+##### config=natural lanes=256 rshift=0 lshift=0  A/B scalar vs neon
+(ab.sh refused rc=3, attempt 1; holder: 12905 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.wF6boj/oracle_check)
+(ab.sh refused rc=3, attempt 2; holder: 12905 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.wF6boj/oracle_check)
+(ab.sh refused rc=3, attempt 3; holder: 12905 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.wF6boj/oracle_check)
+(ab.sh refused rc=3, attempt 4; holder: 12905 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.wF6boj/oracle_check)
+(ab.sh refused rc=3, attempt 5; holder: 12905 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.wF6boj/oracle_check)
+(ab.sh refused rc=3, attempt 6; holder: 12905 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.wF6boj/oracle_check)
+(ab.sh refused rc=3, attempt 7; holder: 12905 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.wF6boj/oracle_check)
+(ab.sh refused rc=3, attempt 8; holder: 12905 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.wF6boj/oracle_check)
+(ab.sh refused rc=3, attempt 9; holder: 12905 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.wF6boj/oracle_check)
+(ab.sh refused rc=3, attempt 10; holder: 12905 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.wF6boj/oracle_check)
+(ab.sh refused rc=3, attempt 11; holder: 12905 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.wF6boj/oracle_check)
+(ab.sh refused rc=3, attempt 12; holder: 12905 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.wF6boj/oracle_check)
+(ab.sh refused rc=3, attempt 13; holder: 12905 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.wF6boj/oracle_check)
+(ab.sh refused rc=3, attempt 14; holder: 12905 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.wF6boj/oracle_check)
+(ab.sh refused rc=3, attempt 15; holder: 12905 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.wF6boj/oracle_check)
+(ab.sh refused rc=3, attempt 16; holder: 12905 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.wF6boj/oracle_check)
+(ab.sh refused rc=3, attempt 17; holder: 12905 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.wF6boj/oracle_check)
+(ab.sh refused rc=3, attempt 18; holder: 12905 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.wF6boj/oracle_check)
+(ab.sh refused rc=3, attempt 19; holder: 12905 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.wF6boj/oracle_check)
+(ab.sh refused rc=3, attempt 20; holder: 12905 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.wF6boj/oracle_check)
+##### config=natural lanes=256 rshift=0 lshift=0  A/A scalar vs scalar
+(ab.sh refused rc=3, attempt 1; holder: 12905 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.wF6boj/oracle_check)
+(ab.sh refused rc=3, attempt 2; holder: 12905 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.wF6boj/oracle_check)
+(ab.sh refused rc=3, attempt 3; holder: 12905 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.wF6boj/oracle_check)
+(ab.sh refused rc=3, attempt 4; holder: 12905 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.wF6boj/oracle_check)
+(ab.sh refused rc=3, attempt 5; holder: 12905 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.wF6boj/oracle_check)
+(ab.sh refused rc=3, attempt 6; holder: 12905 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.wF6boj/oracle_check)
+(ab.sh refused rc=3, attempt 7; holder: 12905 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.wF6boj/oracle_check)
+(ab.sh refused rc=3, attempt 8; holder: 12905 /var/folders/1j/34tdcgdn6474rw4l1964vdlr0000gn/T//fixed-ab.wF6boj/oracle_check)
+# repeats: 15  iterations: 20000000
+# side A (.) isa: scalar (facts: neon sme sme2)
+# side B (.) isa: scalar (facts: neon sme sme2)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMulBatch                    scalar      1.3357     1.3761    20.9%     1.3284     1.3359    19.7%    1.030
+fixMulBatch                    batch       0.4430     0.4466     1.7%     0.4425     0.4452     2.2%    1.003
+fixDotBatch3                   scalar      2.9179     3.0583     5.9%     2.9155     2.9235     3.8%    1.046
+fixDotBatch3                   batch       0.9424     0.9476     1.0%     0.9416     0.9458     1.1%    1.002
+fixLengthBatch                 scalar      7.6064     7.8045    10.4%     7.5895     7.7192     8.0%    1.011
+fixLengthBatch                 batch       1.6479     1.6585     1.6%     1.6518     1.6632     1.6%    0.997
+fixCrossBatch                  scalar      0.3054     0.3111    10.2%     0.3086     0.3113     9.3%    0.999
+fixCrossBatch                  batch       2.0017     2.0199     1.0%     2.0022     2.0208     1.6%    1.000
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+##### config=natural lanes=4096 rshift=0 lshift=0  A/B scalar vs neon
+# repeats: 15  iterations: 20000000
+# side A (.) isa: scalar (facts: neon sme sme2)
+# side B (.) isa: neon (facts: neon sme sme2)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMulBatch                    scalar      1.3315     1.3467     4.8%     1.3291     1.3563    28.5%    0.993
+fixMulBatch                    batch       0.4482     0.4502     1.3%     0.6787     0.6836     1.6%    0.659
+fixDotBatch3                   scalar      2.9160     2.9278     6.3%     2.9108     2.9951     6.3%    0.978
+fixDotBatch3                   batch       0.9894     0.9986     1.4%     1.1243     1.1339     1.3%    0.881
+fixLengthBatch                 scalar      7.5571     7.7805    11.7%     7.5886     7.6994    11.5%    1.011
+fixLengthBatch                 batch       1.6597     1.6674     1.9%     0.9308     0.9324     1.1%    1.788
+fixCrossBatch                  scalar      0.3058     0.3099    13.1%     0.3061     0.3088     9.6%    1.004
+fixCrossBatch                  batch       2.1562     2.1639     1.5%     1.5014     1.5081     2.0%    1.435
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+##### config=natural lanes=4096 rshift=0 lshift=0  A/A scalar vs scalar
+# repeats: 15  iterations: 20000000
+# side A (.) isa: scalar (facts: neon sme sme2)
+# side B (.) isa: scalar (facts: neon sme sme2)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMulBatch                    scalar      1.3296     1.3458    19.9%     1.3316     1.3412    27.7%    1.003
+fixMulBatch                    batch       0.4478     0.4503     1.7%     0.4483     0.4500     1.1%    1.001
+fixDotBatch3                   scalar      2.9099     2.9306     6.3%     2.9064     2.9175     9.3%    1.004
+fixDotBatch3                   batch       0.9900     0.9941     1.9%     0.9896     0.9953     1.0%    0.999
+fixLengthBatch                 scalar      7.5803     7.7572     8.7%     7.5838     7.7826    10.7%    0.997
+fixLengthBatch                 batch       1.6565     1.6669     2.0%     1.6629     1.6679     1.7%    0.999
+fixCrossBatch                  scalar      0.3056     0.3093    10.3%     0.3079     0.3105     5.8%    0.996
+fixCrossBatch                  batch       2.1563     2.1614     0.9%     2.1579     2.1609     0.8%    1.000
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+##### config=mulingate lanes=16 rshift=33 lshift=0  A/B scalar vs neon
+# repeats: 15  iterations: 20000000
+# side A (.) isa: scalar (facts: neon sme sme2)
+# side B (.) isa: neon (facts: neon sme sme2)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMulBatch                    scalar      1.3290     1.3359    19.2%     1.3240     1.3516     5.5%    0.988
+fixMulBatch                    batch       0.4244     0.4278     2.2%     0.3921     0.4111    13.1%    1.041
+fixDotBatch3                   scalar      2.9038     2.9139     3.7%     2.9011     3.0295     6.4%    0.962
+fixDotBatch3                   batch       0.9094     0.9141     0.8%     0.8564     0.8653     2.5%    1.056
+fixLengthBatch                 scalar      7.6197     7.7823     9.1%     7.5411     7.8672    11.8%    0.989
+fixLengthBatch                 batch       1.2862     1.3666    11.1%     0.8969     0.9002     0.8%    1.518
+fixCrossBatch                  scalar      0.3035     0.3095     6.8%     0.3056     0.3096     6.0%    1.000
+fixCrossBatch                  batch       2.0174     2.0266    42.6%     1.3212     1.3297    21.7%    1.524
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+##### config=mulingate lanes=16 rshift=33 lshift=0  A/A scalar vs scalar
+# repeats: 15  iterations: 20000000
+# side A (.) isa: scalar (facts: neon sme sme2)
+# side B (.) isa: scalar (facts: neon sme sme2)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMulBatch                    scalar      1.3231     1.3465    14.8%     1.3242     1.3946    21.4%    0.966
+fixMulBatch                    batch       0.4239     0.4294     2.7%     0.4251     0.4305     2.6%    0.997
+fixDotBatch3                   scalar      2.9047     2.9542     6.4%     2.9036     2.9426     6.8%    1.004
+fixDotBatch3                   batch       0.9102     0.9191     1.7%     0.9117     0.9157     1.6%    1.004
+fixLengthBatch                 scalar      7.6223     7.9486    11.5%     7.5510     7.7565    12.7%    1.025
+fixLengthBatch                 batch       1.3383     1.3735    10.3%     1.2724     1.3648    10.9%    1.006
+fixCrossBatch                  scalar      0.3075     0.3114     9.5%     0.3051     0.3091    11.0%    1.007
+fixCrossBatch                  batch       2.0173     2.0366    42.5%     2.0197     2.0293    43.5%    1.004
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+##### config=mulingate lanes=256 rshift=33 lshift=0  A/B scalar vs neon
+# repeats: 15  iterations: 20000000
+# side A (.) isa: scalar (facts: neon sme sme2)
+# side B (.) isa: neon (facts: neon sme sme2)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMulBatch                    scalar      1.3256     1.3876     5.2%     1.3203     1.3333    18.8%    1.041
+fixMulBatch                    batch       0.4429     0.4477     1.9%     0.3311     0.3330     3.2%    1.344
+fixDotBatch3                   scalar      2.9003     2.9583     7.0%     2.9047     2.9165     6.6%    1.014
+fixDotBatch3                   batch       0.9427     0.9445     0.9%     0.8562     0.8600     1.5%    1.098
+fixLengthBatch                 scalar      7.5969     7.8260     8.1%     7.5966     7.8023     9.8%    1.003
+fixLengthBatch                 batch       1.5055     1.5396     7.5%     0.8462     0.8481     1.1%    1.815
+fixCrossBatch                  scalar      0.3054     0.3106     4.8%     0.3064     0.3095     9.1%    1.004
+fixCrossBatch                  batch       2.0089     2.0148     0.7%     1.2113     1.2207     1.6%    1.651
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+##### config=mulingate lanes=256 rshift=33 lshift=0  A/A scalar vs scalar
+# repeats: 15  iterations: 20000000
+# side A (.) isa: scalar (facts: neon sme sme2)
+# side B (.) isa: scalar (facts: neon sme sme2)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMulBatch                    scalar      1.3222     1.3939    18.0%     1.3202     1.3390    19.3%    1.041
+fixMulBatch                    batch       0.4425     0.4470     1.7%     0.4435     0.4456     1.1%    1.003
+fixDotBatch3                   scalar      2.9087     2.9962    11.7%     2.9043     2.9169     7.0%    1.027
+fixDotBatch3                   batch       0.9415     0.9476     1.1%     0.9419     0.9447     1.7%    1.003
+fixLengthBatch                 scalar      7.6016     7.9114    10.3%     7.6205     7.8495    10.3%    1.008
+fixLengthBatch                 batch       1.4953     1.5321     8.5%     1.5043     1.5367     6.4%    0.997
+fixCrossBatch                  scalar      0.3070     0.3087     5.3%     0.3066     0.3109     9.6%    0.993
+fixCrossBatch                  batch       2.0078     2.0189     1.7%     2.0109     2.0200     1.3%    0.999
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+##### config=mulingate lanes=4096 rshift=33 lshift=0  A/B scalar vs neon
+# repeats: 15  iterations: 20000000
+# side A (.) isa: scalar (facts: neon sme sme2)
+# side B (.) isa: neon (facts: neon sme sme2)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMulBatch                    scalar      1.3231     1.3339    17.9%     1.3171     1.3936    26.8%    0.957
+fixMulBatch                    batch       0.4465     0.4501     1.5%     0.3986     0.4021     2.2%    1.119
+fixDotBatch3                   scalar      2.8973     2.9116     3.1%     2.9047     3.0187     6.3%    0.965
+fixDotBatch3                   batch       0.9884     0.9914     4.6%     1.1191     1.1348     2.0%    0.874
+fixLengthBatch                 scalar      7.6022     7.8257     6.0%     7.6219     7.7867     5.5%    1.005
+fixLengthBatch                 batch       2.0197     2.0563     5.0%     0.9305     0.9323     0.4%    2.206
+fixCrossBatch                  scalar      0.3079     0.3091     9.0%     0.3067     0.3105     6.5%    0.995
+fixCrossBatch                  batch       2.1539     2.1634     1.0%     1.4828     1.5229     3.3%    1.421
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+##### config=mulingate lanes=4096 rshift=33 lshift=0  A/A scalar vs scalar
+# repeats: 15  iterations: 20000000
+# side A (.) isa: scalar (facts: neon sme sme2)
+# side B (.) isa: scalar (facts: neon sme sme2)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMulBatch                    scalar      1.3211     1.3313    21.9%     1.3191     1.3467     9.2%    0.989
+fixMulBatch                    batch       0.4479     0.4501     1.0%     0.4476     0.4499     1.2%    1.000
+fixDotBatch3                   scalar      2.8983     2.9108     6.7%     2.8971     2.9114     6.6%    1.000
+fixDotBatch3                   batch       0.9885     0.9970     1.2%     0.9877     0.9977     6.7%    0.999
+fixLengthBatch                 scalar      7.5941     7.8842     9.8%     7.6012     7.7260     8.9%    1.020
+fixLengthBatch                 batch       2.0159     2.0593    12.9%     2.0313     2.0647    10.1%    0.997
+fixCrossBatch                  scalar      0.3050     0.3105     9.7%     0.3057     0.3104     9.1%    1.000
+fixCrossBatch                  batch       2.1551     2.1604     1.1%     2.1568     2.1615     1.9%    0.999
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+##### config=outofgate lanes=16 rshift=0 lshift=14  A/B scalar vs neon
+# repeats: 15  iterations: 20000000
+# side A (.) isa: scalar (facts: neon sme sme2)
+# side B (.) isa: neon (facts: neon sme sme2)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMulBatch                    scalar      1.3245     1.3355    20.0%     1.3246     1.3392    17.6%    0.997
+fixMulBatch                    batch       0.4280     0.4325     1.8%     0.5790     0.5828    11.2%    0.742
+fixDotBatch3                   scalar      2.8965     2.9189     9.5%     2.8981     2.9436     6.9%    0.992
+fixDotBatch3                   batch       0.9124     0.9197     2.3%     1.4572     1.4654     2.6%    0.628
+fixLengthBatch                 scalar      7.6247     7.7255    10.1%     7.5250     7.8051    11.2%    0.990
+fixLengthBatch                 batch       1.7735     1.7785     1.1%     1.9469     1.9524     2.4%    0.911
+fixCrossBatch                  scalar      0.3052     0.3092     9.2%     0.3058     0.3101     6.3%    0.997
+fixCrossBatch                  batch       2.0155     2.0320    41.4%     2.5621     2.5724    11.7%    0.790
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+##### config=outofgate lanes=16 rshift=0 lshift=14  A/A scalar vs scalar
+# repeats: 15  iterations: 20000000
+# side A (.) isa: scalar (facts: neon sme sme2)
+# side B (.) isa: scalar (facts: neon sme sme2)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMulBatch                    scalar      1.3231     1.3514     6.2%     1.3277     1.3954    18.6%    0.968
+fixMulBatch                    batch       0.4284     0.4340     2.4%     0.4291     0.4344     5.2%    0.999
+fixDotBatch3                   scalar      2.9032     2.9501     7.2%     2.9114     3.0194     6.4%    0.977
+fixDotBatch3                   batch       0.9148     0.9197     2.8%     0.9115     0.9209     2.1%    0.999
+fixLengthBatch                 scalar      7.6682     7.8715     8.6%     7.6238     7.8915    10.5%    0.997
+fixLengthBatch                 batch       1.7706     1.7807     1.5%     1.7715     1.7765     1.5%    1.002
+fixCrossBatch                  scalar      0.3063     0.3108     9.9%     0.3034     0.3100     6.5%    1.003
+fixCrossBatch                  batch       2.0162     2.0278    43.1%     2.0170     2.0222    41.9%    1.003
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+##### config=outofgate lanes=256 rshift=0 lshift=14  A/B scalar vs neon
+# repeats: 15  iterations: 20000000
+# side A (.) isa: scalar (facts: neon sme sme2)
+# side B (.) isa: neon (facts: neon sme sme2)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMulBatch                    scalar      1.3198     1.3377    22.2%     1.3200     1.3379    17.3%    1.000
+fixMulBatch                    batch       0.4435     0.4455     1.6%     0.6383     0.6417     1.9%    0.694
+fixDotBatch3                   scalar      2.9003     2.9169     8.7%     2.9025     2.9125     6.7%    1.002
+fixDotBatch3                   batch       0.9403     0.9444     1.4%     1.4700     1.4759     1.0%    0.640
+fixLengthBatch                 scalar      7.6067     7.8677     9.3%     7.6222     7.9008    10.8%    0.996
+fixLengthBatch                 batch       1.8346     1.8382     1.1%     2.0971     2.1029     1.2%    0.874
+fixCrossBatch                  scalar      0.3061     0.3090     5.7%     0.3079     0.3121     9.4%    0.990
+fixCrossBatch                  batch       2.0093     2.0146     0.9%     2.5286     2.5372     0.9%    0.794
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+##### config=outofgate lanes=256 rshift=0 lshift=14  A/A scalar vs scalar
+# repeats: 15  iterations: 20000000
+# side A (.) isa: scalar (facts: neon sme sme2)
+# side B (.) isa: scalar (facts: neon sme sme2)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMulBatch                    scalar      1.3252     1.3331    34.2%     1.3180     1.3389    24.1%    0.996
+fixMulBatch                    batch       0.4431     0.4459     5.5%     0.4430     0.4450     2.5%    1.002
+fixDotBatch3                   scalar      2.9019     2.9162     6.7%     2.9009     2.9072     6.7%    1.003
+fixDotBatch3                   batch       0.9415     0.9442     1.2%     0.9423     0.9452     1.0%    0.999
+fixLengthBatch                 scalar      7.5207     7.7336    12.4%     7.6143     7.7755     8.8%    0.995
+fixLengthBatch                 batch       1.8342     1.8409     1.0%     1.8332     1.8362     1.2%    1.003
+fixCrossBatch                  scalar      0.3080     0.3101     8.5%     0.3053     0.3092     5.4%    1.003
+fixCrossBatch                  batch       2.0076     2.0185     1.3%     2.0081     2.0196     1.2%    0.999
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+##### config=outofgate lanes=4096 rshift=0 lshift=14  A/B scalar vs neon
+# repeats: 15  iterations: 20000000
+# side A (.) isa: scalar (facts: neon sme sme2)
+# side B (.) isa: neon (facts: neon sme sme2)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMulBatch                    scalar      1.3174     1.3372    20.5%     1.3186     1.3420    16.3%    0.996
+fixMulBatch                    batch       0.4483     0.4500     1.0%     0.6786     0.6795     0.8%    0.662
+fixDotBatch3                   scalar      2.8984     2.9101     6.8%     2.8990     2.9143     7.1%    0.999
+fixDotBatch3                   batch       0.9879     0.9966     4.0%     1.6812     1.6883     1.8%    0.590
+fixLengthBatch                 scalar      7.6556     7.7215    10.1%     7.6110     7.7207     9.2%    1.000
+fixLengthBatch                 batch       1.8721     1.8797     1.3%     2.2076     2.2137     1.6%    0.849
+fixCrossBatch                  scalar      0.3070     0.3100     9.5%     0.3061     0.3083     7.6%    1.006
+fixCrossBatch                  batch       2.1529     2.1625     1.2%     2.8196     2.8288     1.1%    0.764
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+##### config=outofgate lanes=4096 rshift=0 lshift=14  A/A scalar vs scalar
+# repeats: 15  iterations: 20000000
+# side A (.) isa: scalar (facts: neon sme sme2)
+# side B (.) isa: scalar (facts: neon sme sme2)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMulBatch                    scalar      1.3138     1.3263    26.3%     1.3201     1.3261    17.6%    1.000
+fixMulBatch                    batch       0.4481     0.4492     1.0%     0.4475     0.4498     1.3%    0.999
+fixDotBatch3                   scalar      2.8981     2.9049     6.7%     2.8955     2.9080     7.1%    0.999
+fixDotBatch3                   batch       0.9896     0.9970     1.2%     0.9882     0.9982     4.5%    0.999
+fixLengthBatch                 scalar      7.6034     7.6684     8.0%     7.6159     7.8301     7.0%    0.979
+fixLengthBatch                 batch       1.8711     1.8761     1.2%     1.8690     1.8774     1.4%    0.999
+fixCrossBatch                  scalar      0.3035     0.3085    10.1%     0.3057     0.3099     9.3%    0.995
+fixCrossBatch                  batch       2.1559     2.1600     0.9%     2.1570     2.1626     1.3%    0.999
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+##### sweep end 2026-10-15T16:44:04Z
+
+== SWEEP (re-run of the two natural-config A/B blocks that the first pass lost to another worker s oracle run) ==
+##### sweep start 2026-10-15T16:44:17Z loadavg: { 1.62 1.99 2.16 }
+##### config=natural lanes=16 rshift=0 lshift=0  A/B scalar vs neon
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMulBatch                    scalar      1.3101     1.3224    28.7%     1.3101     1.3411    17.8%    0.986
+fixMulBatch                    batch       0.4265     0.4289     2.3%     0.5790     0.5816     1.4%    0.737
+fixDotBatch3                   scalar      2.8982     2.9097     6.8%     2.8935     2.8995     3.9%    1.004
+fixDotBatch3                   batch       0.9124     0.9183     1.6%     0.8532     0.8587     1.9%    1.069
+fixLengthBatch                 scalar      7.5929     7.8858    11.4%     7.6452     7.8362     5.3%    1.006
+fixLengthBatch                 batch       1.5992     1.6172     2.0%     0.8975     0.8994     1.0%    1.798
+fixCrossBatch                  scalar      0.3063     0.3108     3.5%     0.3076     0.3093     8.5%    1.005
+fixCrossBatch                  batch       2.0170     2.0250    42.5%     1.3262     1.3290    21.0%    1.524
+##### config=natural lanes=16 rshift=0 lshift=0  A/A scalar vs scalar
+##### loadavg after: { 1.70 1.99 2.16 }
+##### config=natural lanes=256 rshift=0 lshift=0  A/B scalar vs neon
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMulBatch                    scalar      1.3086     1.3183    19.3%     1.3077     1.3685    15.3%    0.963
+fixMulBatch                    batch       0.4416     0.4433     1.3%     0.6388     0.6440     1.6%    0.688
+fixDotBatch3                   scalar      2.8954     2.9040     6.2%     2.8889     2.9018     7.0%    1.001
+fixDotBatch3                   batch       0.9399     0.9442     1.2%     0.8553     0.8607     1.4%    1.097
+fixLengthBatch                 scalar      7.5703     7.8323    10.8%     7.6113     7.7448     4.6%    1.011
+fixLengthBatch                 batch       1.6418     1.6583     2.1%     0.8472     0.8480     0.3%    1.956
+fixCrossBatch                  scalar      0.3056     0.3105    10.3%     0.3041     0.3084     6.1%    1.007
+fixCrossBatch                  batch       2.0141     2.0223     0.8%     1.2076     1.2180     1.2%    1.660
+##### config=natural lanes=256 rshift=0 lshift=0  A/A scalar vs scalar
+##### loadavg after: { 1.67 1.98 2.15 }
+##### sweep end 2026-10-15T16:44:43Z
+
+== DISASSEMBLY (otool -tvV, Apple clang -O3) ==
+--- fixIsaMulBatchNeon (main loop; the gate scan precedes it)
+0000000000000158	uzp1.4s	v0, v0, v1
+000000000000015c	ldp	q1, q2, [x9, #-0x10]
+0000000000000160	uzp1.4s	v1, v1, v2
+0000000000000164	smull.2d	v2, v0, v1
+0000000000000168	smull2.2d	v0, v0, v1
+000000000000016c	srshr.2d	v1, v2, #0x10
+0000000000000170	srshr.2d	v0, v0, #0x10
+0000000000000174	stp	q1, q0, [x10, #-0x10]
+0000000000000178	add	x12, x11, #0x4
+000000000000017c	add	x8, x8, #0x20
+0000000000000180	add	x9, x9, #0x20
+0000000000000184	add	x10, x10, #0x20
+0000000000000188	add	x13, x11, #0x8
+000000000000018c	mov	x11, x12
+0000000000000190	cmp	x13, x3
+0000000000000194	b.ls	0x154
+0000000000000198	lsl	x8, x12, #3
+000000000000019c	sub	x3, x3, x12
+00000000000001a0	add	x0, x0, x8
+00000000000001a4	add	x1, x1, x8
+00000000000001a8	add	x2, x2, x8
+00000000000001ac	b	0x1ac
+--- fixIsaMulBatchScalar (whole function; the 128-bit product is mul + smulh)
+_fixIsaMulBatchScalar:
+0000000000000000	cbz	x3, 0x2c
+0000000000000004	ldr	x8, [x1], #0x8
+0000000000000008	ldr	x9, [x2], #0x8
+000000000000000c	smulh	x10, x9, x8
+0000000000000010	mul	x8, x9, x8
+0000000000000014	adds	x8, x8, #0x8, lsl #12
+0000000000000018	cinc	x9, x10, hs
+000000000000001c	extr	x8, x9, x8, #0x10
+0000000000000020	str	x8, [x0], #0x8
+0000000000000024	subs	x3, x3, #0x1
+0000000000000028	b.ne	0x4
+000000000000002c	ret
+--- fixIsaLengthBatchNeon vector body
+122:00000000000007ac	smull.2d	v4, v2, v2
+123:00000000000007b0	smlal.2d	v4, v0, v0
+124:00000000000007b4	smull2.2d	v2, v2, v2
+125:00000000000007b8	smlal2.2d	v2, v0, v0
+127:00000000000007c0	smlal.2d	v4, v0, v0
+128:00000000000007c4	smlal2.2d	v2, v0, v0
+129:00000000000007c8	ucvtf.2d	v0, v4
+130:00000000000007cc	fsqrt.2d	v0, v0
+131:00000000000007d0	fcvtzu.2d	v0, v0
+133:00000000000007d8	umull.2d	v1, v1, v1
+139:00000000000007f0	ucvtf.2d	v1, v2
+140:00000000000007f4	fsqrt.2d	v1, v1
+141:00000000000007f8	fcvtzu.2d	v1, v1
+143:0000000000000800	umull.2d	v5, v5, v5
+
+== RED AT THE NEW BASE 4f02608 (re-run after the branch moved; same result) ==
+BASE 4f026088b90877c2d5dfe79d176a4cbc2b969372 land spike-fixed-fixmul-fits-64-on-m5 (sprint stream fixed-perf)
+SUBTEST BatchNeonEquivalenceTest
+FAIL test/batch_neon_equivalence_test.c:293: BatchNeonEquivalenceTest: variant neon ABSENT on aarch64 (fixForceIsa returned 2: not compiled into this build)
+exit=1
+
+== SOURCE OF suite.sh (cmake/ctest stand-in) ==
+# suite.sh -- stand-in for `cmake --build` + `ctest` on a host with no cmake. Compiles each
+# CMake test target with the flags a Release build uses (-O3 -DNDEBUG -std=c11
+# -ffp-contract=off) and the same defines/sources/arguments CMakeLists.txt gives it, runs it,
+# and counts. WILL_FAIL targets pass only when they exit non-zero.
+set -u
+cd "$(dirname "$0")/.."
+OUT=${OUT:-b/suite}; mkdir -p "$OUT"
+CF="-O3 -DNDEBUG -std=c11 -ffp-contract=off -Iinclude"
+SRC="src/fixed_math.c src/fixed_vec.c src/fixed_isa.c src/fixed_isa_avx512.c src/fixed_isa_neon.c"
+pass=0; fail=0; failed=""
+run() { # name willfail defs sources -- args
+  name=$1; wf=$2; defs=$3; srcs=$4; shift 4
+  clang $CF $defs $srcs -lm -o "$OUT/$name" 2>"$OUT/$name.cc" || { echo "BUILD FAIL $name"; cat "$OUT/$name.cc"|head -20; fail=$((fail+1)); failed="$failed $name"; return; }
+  "$OUT/$name" "$@" >"$OUT/$name.log" 2>&1; rc=$?
+  if [ "$wf" = 1 ]; then [ $rc -ne 0 ] && ok=1 || ok=0; else [ $rc -eq 0 ] && ok=1 || ok=0; fi
+  if [ $ok = 1 ]; then pass=$((pass+1)); echo "PASS $name (rc=$rc wf=$wf)"; else fail=$((fail+1)); failed="$failed $name"; echo "FAIL $name (rc=$rc wf=$wf)"; tail -5 "$OUT/$name.log"; fi
+}
+EMU=-DFIX_FORCE_EMULATED_INT128; SAT=-DFIX_SATURATE
+echo "== native =="
+for s in determinism transcendental wide_time exhaustive batch batch_neon_equivalence aabb override_api port_equality int128 geometry quantize int256_division inverse_envelope usage numerical_regression; do
+  case $s in batch_neon_equivalence) f=test/batch_neon_equivalence_test.c;; *) f=test/${s}_test.c;; esac
+  run n_$s 0 "" "$f $SRC"
+done
+run n_isa_dispatch 0 "" "test/isa_dispatch_test.c benchmark/oracle.c $SRC"
+run n_oracle_unit 0 "" "test/oracle_unit_test.c benchmark/oracle.c $SRC"
+run n_negative_control 1 -DFIXED_NEGATIVE_CONTROL "test/exhaustive_test.c $SRC"
+run n_port_negative_control 1 -DPORT_NEGATIVE_CONTROL "test/port_equality_test.c $SRC"
+run n_geometry_negative_control 1 -DGEOMETRY_NEGATIVE_CONTROL "test/geometry_test.c $SRC"
+run n_quantize_negative_control 1 -DQUANTIZE_NEGATIVE_CONTROL "test/quantize_test.c $SRC"
+run n_int256_negative_control 1 -DFIX_INT256_NO_ADDBACK "test/int256_division_test.c $SRC"
+run n_inverse_negative_control 1 -DINVERSE_NEGATIVE_CONTROL "test/inverse_envelope_test.c $SRC"
+run n_neon_negative_control 1 -DNEON_EQUIV_NEGATIVE_CONTROL "test/batch_neon_equivalence_test.c $SRC" 2000000
+run n_neon_broken_gate 1 -DFIX_NEON_BROKEN_GATE "test/batch_neon_equivalence_test.c $SRC" 2000000
+echo "== emulated =="
+for s in determinism transcendental wide_time exhaustive aabb port_equality int128 geometry inverse_envelope int256_division numerical_regression batch; do
+  run e_$s 0 $EMU "test/${s}_test.c $SRC"
+done
+run e_batch_neon_equivalence 0 $EMU "test/batch_neon_equivalence_test.c $SRC"
+run e_isa_dispatch 0 $EMU "test/isa_dispatch_test.c benchmark/oracle.c $SRC" 10000000
+run e_oracle_unit 0 $EMU "test/oracle_unit_test.c benchmark/oracle.c $SRC"
+run e_numerical_saturated 0 "$EMU $SAT" "test/numerical_regression_test.c $SRC"
+run e_negative_control 1 "$EMU -DFIXED_NEGATIVE_CONTROL" "test/exhaustive_test.c $SRC"
+echo "== saturated =="
+run s_batch 0 $SAT "test/batch_test.c $SRC"
+run s_isa_dispatch 0 $SAT "test/isa_dispatch_test.c benchmark/oracle.c $SRC" 1000000
+run s_batch_neon_equivalence 0 $SAT "test/batch_neon_equivalence_test.c $SRC"
+run s_numerical 0 $SAT "test/numerical_regression_test.c $SRC"
+echo "== oracle_check (frozen oracle-baseline.txt, base_random=50000000) =="
+for isa in scalar neon; do
+  clang $CF benchmark/oracle_check.c benchmark/oracle.c $SRC -lm -o "$OUT/oc" && FIXED_ISA=$isa "$OUT/oc" >"$OUT/oc_$isa.log" 2>&1; rc=$?
+  tail -2 "$OUT/oc_$isa.log"; echo "oracle_check native FIXED_ISA=$isa rc=$rc"; [ $rc -eq 0 ] && pass=$((pass+1)) || { fail=$((fail+1)); failed="$failed oc_$isa"; }
+  clang $CF $EMU benchmark/oracle_check.c benchmark/oracle.c $SRC -lm -o "$OUT/oce" && FIXED_ISA=$isa "$OUT/oce" >"$OUT/oce_$isa.log" 2>&1; rc=$?
+  tail -2 "$OUT/oce_$isa.log"; echo "oracle_check emulated FIXED_ISA=$isa rc=$rc"; [ $rc -eq 0 ] && pass=$((pass+1)) || { fail=$((fail+1)); failed="$failed oce_$isa"; }
+done
+echo "SUITE: $pass passed, $fail failed:$failed"
+
+== SOURCE OF sweep.sh (interleaved A/B + A/A driver; ab.sh minus its oracle step) ==
+set -u
+cd "$(dirname "$0")/.."
+# ab.sh minus its oracle step (the oracle is run separately, once, by the real ab.sh and by suite.sh)
+sed '/^# The candidate must also be bit-identical/,/^run_side "\$ISA_B" "\$WORK\/oracle_check"/d' benchmark/ab.sh > b/ab_nooracle.sh
+export AB_REPEATS=${AB_REPEATS:-15} AB_ITERS=${AB_ITERS:-20000000} CC=clang
+abrun() { # retry while ab.sh's own pgrep sees a transient match (it never kills; neither do we)
+  n=0
+  while :; do
+    out=$(sh b/ab_nooracle.sh . . fixMulBatch fixDotBatch3 fixLengthBatch fixCrossBatch 2>&1); rc=$?
+    if [ $rc -ne 3 ]; then echo "$out"; return; fi
+    n=$((n+1)); echo "(ab.sh refused rc=3, attempt $n; holder: $(ps -Ao pid,command | grep -E 'op_bench|numerical_bench|oracle_check' | grep -v grep | head -3))"
+    [ $n -ge 20 ] && { echo "$out"; return; }; sleep 3
+  done
+}
+echo "##### sweep start $(date -u +%FT%TZ) loadavg: $(sysctl -n vm.loadavg)"
+for cfg in "natural:0:0" "mulingate:33:0" "outofgate:0:14"; do
+  name=${cfg%%:*}; rest=${cfg#*:}; sh_=${rest%%:*}; lsh=${rest#*:}
+  for w in 16 256 4096; do
+    export OP_BENCH_LANES=$w OP_BENCH_SHIFT=$sh_ OP_BENCH_LSHIFT=$lsh
+    echo "##### config=$name lanes=$w rshift=$sh_ lshift=$lsh  A/B scalar vs neon"
+    AB_ISA_A=scalar AB_ISA_B=neon abrun
+    echo "##### config=$name lanes=$w rshift=$sh_ lshift=$lsh  A/A scalar vs scalar"
+    AB_ISA_A=scalar AB_ISA_B=scalar abrun
+    echo "##### loadavg after: $(sysctl -n vm.loadavg)"
+  done
+done
+echo "##### sweep end $(date -u +%FT%TZ)"

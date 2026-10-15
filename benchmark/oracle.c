@@ -173,7 +173,9 @@ static void oracleGridBuild( void )
 		oracleGridPush( p - 1 );
 		oracleGridPush( -( p - 1 ) );
 		oracleGridPush( (int64_t)( (uint64_t)p << 16 ) ); // the same k in the Q48.16 domain
-		oracleGridPush( -(int64_t)( (uint64_t)p << 16 ) );
+		// Negated in unsigned arithmetic: at k = 47 the value is INT64_MIN, whose signed
+		// negation is undefined (UBSan). The unsigned form gives the same bits it always had.
+		oracleGridPush( (int64_t)( UINT64_C( 0 ) - ( (uint64_t)p << 16 ) ) );
 	}
 }
 

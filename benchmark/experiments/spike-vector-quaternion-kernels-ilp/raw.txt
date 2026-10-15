@@ -1,56 +1,61 @@
-# raw.txt -- spike-vector-quaternion-kernels-ilp
+# raw.txt -- spike-vector-quaternion-kernels-ilp (attempt 3)
 
 ## cpu_info.sh
-# cpu_info 2026-10-15T02:22:27Z
-uname: Darwin 24.6.0 x86_64
-cpu_model: unknown
-logical_cpus: unknown
-isa_neon: unknown
-isa_fp16: unknown
-isa_i8mm: unknown
-isa_sme: unknown
-isa_sme2: unknown
-affinity: taskset unavailable
-load_average:unknown
+# cpu_info 2026-10-15T03:42:36Z
+uname: Linux 7.0.0-38-generic x86_64
+cpu_model: AMD Ryzen 7 255 w/ Radeon 780M Graphics
+isa_avx2: yes
+isa_avx512f: yes
+isa_avx512dq: yes
+isa_avx512vl: yes
+isa_avx512ifma: yes
+isa_bmi2: yes
+isa_adx: yes
+isa_fma: yes
+isa_sse4_2: yes
+isa_neon: no
+isa_sme: no
+logical_cpus: 16
+affinity: 0-15
+load_average:1.28 1.72 1.29 3/630 2237924
 benchmarks_running: no
-compiler_cc: Apple clang version 17.0.0 (clang-1700.0.13.5)
-compiler_clang: Apple clang version 17.0.0 (clang-1700.0.13.5)
-compiler_gcc: Apple clang version 17.0.0 (clang-1700.0.13.5)
-cmake: cmake version 4.1.3
-make: GNU Make 3.81
+compiler_cc: cc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+compiler_clang: Ubuntu clang version 21.1.8 (6ubuntu1)
+compiler_gcc: gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+cmake: cmake version 4.2.3
+make: GNU Make 4.4.1
 
-## machine (sysctl)
-uname: Darwin 24.6.0 x86_64
-cpu_model: not reported (sandbox)
-logical_cpus: not reported
+## ab.sh native (gcc 15.2.0, -O3 -g -DNDEBUG -ffp-contract=off, 7 repeats, 200000 iters)
+op mode a_min a_med a_spread b_min b_med b_spread speedup
+fixCross               scalar      4.6799     4.6830     0.7%     4.6794     4.6832     6.0%    1.000
+fixCross               batch       7.6107     7.7412    26.6%     7.6596     7.7330    55.6%    1.001
+fixMulQuat             scalar      6.0859     6.1042    64.0%     6.0983     6.1115    62.8%    0.999
+fixMulQuat             batch       9.4797     9.7144    60.0%     9.4179     9.5530    18.9%    1.017
+fixRotateVector        scalar     12.1778    12.1957    41.5%    12.1987    12.2692    39.3%    0.994
+fixRotateVector        batch      12.5989    12.6288    20.3%    12.6008    12.6571    27.0%    0.998
+fixInvRotateVector     scalar     12.1724    12.2026     5.1%    12.1789    12.2605    14.7%    0.995
+fixInvRotateVector     batch      12.6073    12.6923     2.5%    12.6077    12.6223     3.1%    1.006
 
-## ab.sh table (manual interleaved A/B, 7 repeats, 200000 iters, -O3 -g -DNDEBUG -ffp-contract=off)
-op mode a_min a_med a_spr b_min b_med b_spr speedup
-fixCross               scalar      3.7300     3.8350     7.3%     3.7300     3.9100     7.2%    0.981
-fixCross               batch       5.3013     5.4259    10.5%     5.4259     5.4309     8.0%    0.999
-fixMulQuat             scalar     10.0250    10.1900    18.2%    10.2550    10.3100     8.1%    0.988
-fixMulQuat             batch      15.0919    16.5767    15.9%    15.1367    15.6698     5.4%    1.058
-fixRotateVector        scalar     14.0600    15.8450    16.3%    13.6800    13.7950     4.5%    1.149
-fixRotateVector        batch      15.0620    15.6848    28.1%    14.9574    15.0620    12.4%    1.041
-fixInvRotateVector     scalar     13.3750    13.8900    28.2%    13.3550    13.5150    17.6%    1.028
-fixInvRotateVector     batch      14.5687    14.7381    10.7%    14.6783    14.7830    11.3%    0.997
+## ab.sh emulated (FIX_FORCE_EMULATED_INT128, same box/compiler/flags/repeats/iters)
+op mode a_min a_med a_spread b_min b_med b_spread speedup
+fixCross               scalar     51.3048    51.5186     6.5%    51.1472    51.9692    17.6%    0.991
+fixCross               batch      49.7964    50.1631    10.8%    48.6566    49.0156     3.6%    1.023
+fixMulQuat             scalar    144.8052   145.7323     4.1%   144.8230   145.6709     2.4%    1.000
+fixMulQuat             batch     144.1507   147.7916     3.7%   146.3878   147.0919    15.2%    1.005
+fixRotateVector        scalar    130.1075   130.3790     1.7%   128.0130   129.2803     5.3%    1.008
+fixRotateVector        batch     128.7789   129.5324     1.8%   125.7031   126.4183     1.2%    1.025
+fixInvRotateVector     scalar    129.7831   131.5864     2.5%   126.7007   128.3723     2.9%    1.025
+fixInvRotateVector     batch     125.6270   126.9285     3.2%   124.3101   124.8353     2.0%    1.017
 
-## oracle_check lines (baseline vs candidate, per-op)
-# NOTE: oracle-baseline.txt is STALE at BASE c4f4510 -- the baseline tree itself fails 6 ops.
---- fixCross ---
-baseline: ORACLE OK   fixCross  count=50063756  hash=5a5555238d655a2c
-candidate: ORACLE OK   fixCross  count=50063756  hash=5a5555238d655a2c
---- fixMulQuat ---
-baseline: ORACLE FAIL fixMulQuat: hash 89460e7fdc0afa12, baseline ff696a9b57ac0860
-candidate: ORACLE FAIL fixMulQuat: hash 89460e7fdc0afa12, baseline ff696a9b57ac0860
---- fixRotateVector ---
-baseline: ORACLE FAIL fixRotateVector: hash 10e435cf24ccc1e3, baseline 64afce887683c703
-candidate: ORACLE FAIL fixRotateVector: hash 10e435cf24ccc1e3, baseline 64afce887683c703
---- fixInvRotateVector ---
-baseline: ORACLE FAIL fixInvRotateVector: hash 6f67b302b04a739b, baseline a7d02b0685663640
-candidate: ORACLE FAIL fixInvRotateVector: hash 6f67b302b04a739b, baseline a7d02b0685663640
+## oracle_check lines (baseline 6251928 vs candidate; identical hashes)
+baseline: ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+candidate: ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+fixCross        baseline 50063756 5a5555238d655a2c  candidate 50063756 5a5555238d655a2c
+fixMulQuat      baseline 25063756 ff696a9b57ac0860 candidate 25063756 ff696a9b57ac0860
+fixRotateVector baseline 12563756 64afce887683c703 candidate 12563756 64afce887683c703
+fixInvRotateVector baseline 12563756 a7d02b0685663640 candidate 12563756 a7d02b0685663640
 
 ## ctest summary
 100% tests passed, 0 tests failed out of 36
 
-Total Test time (real) =  25.00 sec
+Total Test time (real) =  22.80 sec

@@ -86,6 +86,10 @@ excludes by design.
   available, an emulated pair on plain MSVC, behind one seam the whole library speaks —
   `fixInt128Div`, `fixInt128Min`, `fixInt128Max`, `fixInt128ShiftLeft`, `fixISqrt128High`
   and the full signed and unsigned operation vocabulary.
+- **Batch kernels with runtime ISA dispatch** (`fixMulBatch`, `fixDotBatch3`;
+  `fixed_isa.h`): one build carries every instruction-set variant, the best one the host
+  can run is detected and selected once at start-up, `FIXED_ISA` or `fixForceIsa` forces
+  one by name, and every variant returns the scalar operation's bits.
 - **Domain crossing** (`fixed_quantize.h`): arbitrary-scale `fixQuantize`, `fixDequantize`,
   `fixQuantizeClamped` and `fixFits`, and the integer-only Q-format pair `fixNarrow` and
   `fixWiden` — the general form of the pinned Q48.16 and Q2.30 converters, ported from
@@ -118,7 +122,8 @@ add_subdirectory( fixed )
 target_link_libraries( my_game PRIVATE fixed )
 ```
 
-Or add `include/` and the two files in `src/`. C11 is required — the vector headers return
+Or add `include/` and every file in `src/` (no special compile flags: the instruction-set
+variants carry their own target attributes and are selected at run time). C11 is required — the vector headers return
 compound literals, which MSVC's C compiler accepts only under `/std:c11` or later.
 
 Consumer hooks (`FIX_API`, `FIX_ASSERT`, `FIX_SATURATE` and the rest) are documented in

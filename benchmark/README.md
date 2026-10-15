@@ -226,6 +226,13 @@ It does not consult a prebuilt `build/fixed_oracle_check`. Failing to compile th
 oracle is a failure. It refuses to start while another benchmark process is on the
 box (`pgrep -af`) and never kills anything. `benchmark/ab.sh . .` is the A/A control:
 both columns are the same tree.
+**An instruction-set variant is A/B'd in ONE binary.** The batch kernels are selected at
+run time (`include/fixed/fixed_isa.h`), so `AB_ISA_A=scalar AB_ISA_B=avx512 benchmark/ab.sh . . fixMulBatch fixDotBatch3` builds the same tree twice and runs side A under
+`FIXED_ISA=scalar` and side B under `FIXED_ISA=avx512`, interleaved; the oracle runs under
+side B's variant. Without the `AB_ISA_*` pair, `FIXED_ISA` passes through to both sides.
+`op_bench` prints the selected variant as its first line (`# isa: avx512 (facts: ...)`) and
+`ab.sh` echoes each side's in its header. A variant the host cannot run is refused and the
+run aborts rather than measuring something else.
 A row is inside the noise when `|speedup - 1|` is no larger than the greater of
 that row's two spreads. That greater spread is the floor any spike must beat.
 
@@ -233,8 +240,10 @@ that row's two spreads. That greater spread is the floor any spike must beat.
 
 There is no `rsqrt`, no fused `fixMulAdd`-style scalar op beyond the vector ones, no
 `fixSin`/`fixCos` pair cheaper than `fixComputeCosSin` (both call it), no wide (Q112.16)
-transcendental, and no batch/SIMD entry point of any kind: every operation here is scalar,
-which is why BATCH is a measurement shape the harness supplies rather than an API. The
+transcendental. The batch API is two entry points, `fixMulBatch` and `fixDotBatch3`
+(their rows measure one call over the 4096 lanes per pass, through the runtime ISA
+dispatch); every other operation is scalar, which is why BATCH is otherwise a measurement
+shape the harness supplies rather than an API. The
 rsqrt-shaped work is measured as `fixLength` and `fixNormalize`; a spike that adds an
 `fixRsqrt` must add its oracle row and freeze its hashes before it can claim a number.
 

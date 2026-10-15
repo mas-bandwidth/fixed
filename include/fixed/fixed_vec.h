@@ -5,6 +5,7 @@
 // positions have uniform precision everywhere, so fixPos is just fixVec3 -- no separate
 // wide-world type. Ops on these types are being migrated here incrementally.
 #pragma once
+#include <stddef.h>
 #include "fixed/base.h"
 #include "fixed/fixed.h"
 #include "fixed/fixed_int256.h"
@@ -24,6 +25,19 @@ typedef struct fixVec3
 	fixed_t y;
 	fixed_t z;
 } fixVec3;
+
+/// The batch API is present (fixMulBatch, fixDotBatch3). Both run through the runtime ISA
+/// dispatch in include/fixed/fixed_isa.h: one indirect call per batch, never per element,
+/// and every variant returns exactly the bits the scalar operation returns.
+#define FIX_HAVE_BATCH_API 1
+
+/// out[i] = fixMul( a[i], b[i] ) for n independent Q48.16 lanes. Pointers may be unaligned.
+FIX_API void fixMulBatch( fixed_t* out, const fixed_t* a, const fixed_t* b, size_t n );
+
+/// out[i] = fixDot( {ax,ay,az}[i], {bx,by,bz}[i] ) over structure-of-arrays inputs, one
+/// rounding after all three products, exactly as fixDot.
+FIX_API void fixDotBatch3( fixed_t* out, const fixed_t* ax, const fixed_t* ay, const fixed_t* az,
+	const fixed_t* bx, const fixed_t* by, const fixed_t* bz, size_t n );
 
 /// A quaternion.
 typedef struct fixQuat

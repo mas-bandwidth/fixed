@@ -16,7 +16,14 @@ if (NOT MSVC)
     add_compile_options(-ffp-contract=off)
 endif()
 
-add_library(fixed STATIC src/fixed_math.c src/fixed_vec.c)
+# ONE BUILD, EVERY VARIANT. src/fixed_isa.c is the runtime ISA dispatch (detection once at
+# init, a kernel table, the FIXED_ISA override); src/fixed_isa_avx512.c is the AVX-512
+# variant of the batch kernels, whose functions carry their own target attribute. No -m or
+# -march flag is added anywhere: the baseline objects stay baseline, and every variant is
+# selected at run time on the host that can run it (include/fixed/fixed_isa.h).
+set(FIX_SOURCES src/fixed_math.c src/fixed_vec.c src/fixed_isa.c src/fixed_isa_avx512.c)
+
+add_library(fixed STATIC ${FIX_SOURCES})
 target_include_directories(fixed PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 # THE SAME LIBRARY, FORCED ONTO THE EMULATED 128-BIT PATH.
@@ -37,7 +44,7 @@ include(CheckCSourceCompiles)
 check_c_source_compiles("int main(void){ __int128 x = 1; return (int)x; }" FIX_COMPILER_HAS_INT128)
 
 if (FIX_COMPILER_HAS_INT128)
-    add_library(fixed_emulated STATIC src/fixed_math.c src/fixed_vec.c)
+    add_library(fixed_emulated STATIC ${FIX_SOURCES})
     target_include_directories(fixed_emulated PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
     target_compile_definitions(fixed_emulated PUBLIC FIX_FORCE_EMULATED_INT128)
 endif()
@@ -72,6 +79,39 @@ add_test(NAME wide_time COMMAND fixed_wide_time_test)
 add_executable(fixed_exhaustive_test test/exhaustive_test.c)
 target_link_libraries(fixed_exhaustive_test PRIVATE fixed)
 add_test(NAME exhaustive COMMAND fixed_exhaustive_test)
+
+# THE BATCH API against the scalar operations it batches: the structured edge grid crossed
+# with itself, every tail length around the vector widths, unaligned pointers, and 100
+# million seeded lanes, through whichever variant the dispatch selected on this host. Built
+# against both 128-bit arms and as a FIX_SATURATE build, which compiles scalar only.
+add_executable(fixed_batch_test test/batch_test.c)
+target_link_libraries(fixed_batch_test PRIVATE fixed)
+add_test(NAME batch COMMAND fixed_batch_test)
+
+add_executable(fixed_batch_saturated_test test/batch_test.c ${FIX_SOURCES})
+target_include_directories(fixed_batch_saturated_test PRIVATE include)
+target_compile_definitions(fixed_batch_saturated_test PRIVATE FIX_SATURATE)
+if (NOT WIN32)
+    target_link_libraries(fixed_batch_saturated_test PRIVATE m)
+endif()
+add_test(NAME batch_saturated COMMAND fixed_batch_saturated_test)
+
+# THE ISA DISPATCH. The pure detection parsers on faked cpuid/XCR0/hwcap/sysctl words, the
+# selection and refusal rules, then EVERY compiled variant this host can run against scalar
+# on the frozen batch oracle rows and on seeded lanes (the count is the argument; 100 million
+# by default). Prints VARIANT <name> RAN, or SKIP with the reason. The saturated twin pins
+# that a FIX_SATURATE build carries scalar only.
+add_executable(fixed_isa_dispatch_test test/isa_dispatch_test.c benchmark/oracle.c)
+target_link_libraries(fixed_isa_dispatch_test PRIVATE fixed)
+add_test(NAME isa_dispatch COMMAND fixed_isa_dispatch_test)
+
+add_executable(fixed_isa_dispatch_saturated_test test/isa_dispatch_test.c benchmark/oracle.c ${FIX_SOURCES})
+target_include_directories(fixed_isa_dispatch_saturated_test PRIVATE include)
+target_compile_definitions(fixed_isa_dispatch_saturated_test PRIVATE FIX_SATURATE)
+if (NOT WIN32)
+    target_link_libraries(fixed_isa_dispatch_saturated_test PRIVATE m)
+endif()
+add_test(NAME isa_dispatch_saturated COMMAND fixed_isa_dispatch_saturated_test 1000000)
 
 add_executable(fixed_aabb_test test/aabb_test.c)
 target_link_libraries(fixed_aabb_test PRIVATE fixed)
@@ -197,7 +237,7 @@ target_link_libraries(fixed_numerical_regression_test PRIVATE fixed)
 add_test(NAME numerical_regression COMMAND fixed_numerical_regression_test)
 
 # Validators and bounds must also be safe with the optional saturation policy.
-add_executable(fixed_numerical_saturated_test test/numerical_regression_test.c src/fixed_math.c src/fixed_vec.c)
+add_executable(fixed_numerical_saturated_test test/numerical_regression_test.c ${FIX_SOURCES})
 target_include_directories(fixed_numerical_saturated_test PRIVATE include)
 target_compile_definitions(fixed_numerical_saturated_test PRIVATE FIX_SATURATE)
 if (NOT WIN32)
@@ -255,11 +295,19 @@ if (TARGET fixed_emulated)
         add_test(NAME ${suite}_emulated COMMAND fixed_${suite}_emulated_test)
     endforeach()
 
+    add_executable(fixed_batch_emulated_test test/batch_test.c)
+    target_link_libraries(fixed_batch_emulated_test PRIVATE fixed_emulated)
+    add_test(NAME batch_emulated COMMAND fixed_batch_emulated_test)
+
+    add_executable(fixed_isa_dispatch_emulated_test test/isa_dispatch_test.c benchmark/oracle.c)
+    target_link_libraries(fixed_isa_dispatch_emulated_test PRIVATE fixed_emulated)
+    add_test(NAME isa_dispatch_emulated COMMAND fixed_isa_dispatch_emulated_test 10000000)
+
     add_executable(fixed_oracle_unit_emulated_test test/oracle_unit_test.c benchmark/oracle.c)
     target_link_libraries(fixed_oracle_unit_emulated_test PRIVATE fixed_emulated)
     add_test(NAME oracle_unit_emulated COMMAND fixed_oracle_unit_emulated_test)
 
-    add_executable(fixed_numerical_saturated_emulated_test test/numerical_regression_test.c src/fixed_math.c src/fixed_vec.c)
+    add_executable(fixed_numerical_saturated_emulated_test test/numerical_regression_test.c ${FIX_SOURCES})
     target_include_directories(fixed_numerical_saturated_emulated_test PRIVATE include)
     target_compile_definitions(fixed_numerical_saturated_emulated_test PRIVATE FIX_SATURATE FIX_FORCE_EMULATED_INT128)
     if (NOT WIN32)

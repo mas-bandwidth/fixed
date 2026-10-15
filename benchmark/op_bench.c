@@ -27,7 +27,15 @@
 // Every name after the iteration count is kept. An unknown name fails, rather than
 // being dropped. Passing no names runs the whole table.
 // Output CSV: op,mode,ns_per_op_min,ns_per_op_median,ns_per_op_max,checksum
+// preceded by one comment line, "# isa: <variant> (facts: ...)", naming the batch-kernel
+// variant the runtime dispatch selected (FIXED_ISA forces one; include/fixed/fixed_isa.h).
+//
+// THE BATCH API ROWS (fixMulBatch, fixDotBatch3). Batch mode is one fixMulBatch or
+// fixDotBatch3 call over the 4096 prepared lanes per pass, so it measures the dispatched
+// kernel, one indirect call per 4096 elements. Scalar mode is the same dependent chain
+// through fixMul or fixDot, so it is a control that no variant should move.
 #include "oracle.c"
+#include "fixed/fixed_isa.h"
 
 #include <stdlib.h>
 #include <time.h>
@@ -42,6 +50,16 @@ enum { OP_BENCH_BATCH = 4096 };
 
 static fixOracleInput opBenchInputs[OP_BENCH_BATCH];
 static volatile uint64_t opBenchSink;
+static fixed_t opBatchA[6][OP_BENCH_BATCH];
+static fixed_t opBatchOut[OP_BENCH_BATCH];
+
+enum { OP_BENCH_PLAIN = 0, OP_BENCH_MUL_BATCH, OP_BENCH_DOT_BATCH3 };
+static int opBenchKind( int opIndex )
+{
+	if ( strcmp( oracleOps[opIndex].name, "fixMulBatch" ) == 0 ) return OP_BENCH_MUL_BATCH;
+	if ( strcmp( oracleOps[opIndex].name, "fixDotBatch3" ) == 0 ) return OP_BENCH_DOT_BATCH3;
+	return OP_BENCH_PLAIN;
+}
 
 // The slot the dependent chain feeds back through. Slot 0 for every operation except the
 // AABB transform, whose quaternion slots carry a validity contract the chain would break;
@@ -63,6 +81,7 @@ static void opBenchPrepare( int opIndex )
 	{
 		memset( &opBenchInputs[i], 0, sizeof opBenchInputs[i] );
 		oracleOps[opIndex].fill( &opBenchInputs[i], ( uint64_t )i, &rng );
+		for ( int j = 0; j < 6; ++j ) opBatchA[j][i] = opBenchInputs[i].s[j];
 	}
 }
 
@@ -71,12 +90,17 @@ static uint64_t opBenchScalar( int opIndex, uint64_t iterations )
 	fixOracleInput chain = opBenchInputs[0];
 	const int slot = opBenchChainSlot( opIndex );
 	fixOracleApply apply = oracleOps[opIndex].apply;
+	const int kind = opBenchKind( opIndex );
 	uint64_t sum = 0;
 	for ( uint64_t j = 0; j < iterations; ++j )
 	{
 		fixOracleOutput out;
 		out.n = 0;
-		apply( &chain, &out );
+		if ( kind == OP_BENCH_MUL_BATCH ) ORACLE_OUT1( &out, fixMul( chain.s[0], chain.s[1] ) );
+		else if ( kind == OP_BENCH_DOT_BATCH3 )
+			ORACLE_OUT1( &out, fixDot( oracleVec( chain.s[0], chain.s[1], chain.s[2] ),
+									   oracleVec( chain.s[3], chain.s[4], chain.s[5] ) ) );
+		else apply( &chain, &out );
 		sum += ( uint64_t )out.s[0];
 		chain.s[slot] = out.s[0]; // the dependency: latency, not throughput
 	}
@@ -86,7 +110,20 @@ static uint64_t opBenchScalar( int opIndex, uint64_t iterations )
 static uint64_t opBenchBatch( int opIndex, uint64_t passes )
 {
 	fixOracleApply apply = oracleOps[opIndex].apply;
+	const int kind = opBenchKind( opIndex );
 	uint64_t sum = 0;
+	if ( kind != OP_BENCH_PLAIN )
+	{
+		for ( uint64_t p = 0; p < passes; ++p )
+		{
+			if ( kind == OP_BENCH_MUL_BATCH ) fixMulBatch( opBatchOut, opBatchA[0], opBatchA[1], OP_BENCH_BATCH );
+			else
+				fixDotBatch3( opBatchOut, opBatchA[0], opBatchA[1], opBatchA[2], opBatchA[3], opBatchA[4], opBatchA[5],
+							  OP_BENCH_BATCH );
+			for ( int i = 0; i < OP_BENCH_BATCH; ++i ) sum += ( uint64_t )opBatchOut[i];
+		}
+		return sum;
+	}
 	for ( uint64_t p = 0; p < passes; ++p )
 	{
 		for ( int i = 0; i < OP_BENCH_BATCH; ++i )
@@ -144,6 +181,10 @@ int main( int argc, char** argv )
 		}
 	}
 
+	printf( "# isa: %s (facts:", fixIsaName() );
+	for ( int f = 0; f < FIX_ISA_FACT_COUNT; ++f )
+		if ( fixIsaHostFacts() & ( 1u << f ) ) printf( " %s", fixIsaFactName( 1u << f ) );
+	printf( ")\n" );
 	printf( "op,mode,ns_per_op_min,ns_per_op_median,ns_per_op_max,checksum\n" );
 	for ( int i = 0; i < ops; ++i )
 	{

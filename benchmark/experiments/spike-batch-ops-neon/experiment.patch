@@ -1,0 +1,309 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 1dcaf67..c6b8cbe 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -214,6 +214,15 @@ add_executable(fixed_oracle_unit_test test/oracle_unit_test.c benchmark/oracle.c
+ target_link_libraries(fixed_oracle_unit_test PRIVATE fixed)
+ add_test(NAME oracle_unit COMMAND fixed_oracle_unit_test)
+ 
++# THE NEON BATCH SPIKE. test/neon_batch_test.c holds NeonBatchEquivalenceTest, which needs
++# the aarch64 NEON path in fixed_vec.h; it is compiled only there. Elsewhere it is skipped by
++# name (not built), and a SKIP is not a pass in the report.
++if (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64")
++    add_executable(fixed_neon_batch_test test/neon_batch_test.c)
++    target_link_libraries(fixed_neon_batch_test PRIVATE fixed)
++    add_test(NAME neon_batch COMMAND fixed_neon_batch_test)
++endif()
++
+ option(FIX_BUILD_BENCHMARKS "Build the numerical public-API microbenchmarks" OFF)
+ if (FIX_BUILD_BENCHMARKS)
+     add_executable(fixed_numerical_bench benchmark/numerical_bench.c)
+diff --git a/include/fixed/fixed_vec.h b/include/fixed/fixed_vec.h
+index e7f1d89..88a1c7f 100644
+--- a/include/fixed/fixed_vec.h
++++ b/include/fixed/fixed_vec.h
+@@ -1611,3 +1611,117 @@ FIX_INLINE fixVec3 fixClosestPointToAABB( fixVec3 point, fixAABB a )
+ {
+ 	return fixVecClamp( point, a.lowerBound, a.upperBound );
+ }
++
++// ---------------------------------------------------------------------------------------------
++// NEON BATCH OPERATIONS (spike-batch-ops-neon experiment, NOT adopted into the stream).
++//
++// The M3 has no 64-bit vector multiply (FEAT_SME 0, no SVE2, AMX private), so the narrow
++// phase escapes through int32: when an exactness gate proves every operand fits a small
++// lane, smull/smlal widen int32x2 -> int64x2 and compute exact int64 products four elements
++// at a time, rounding once per reduction exactly as the scalar raw-128 dot does.
++//
++// GATE WIDTHS (the lesson the spike taught). A two-operand product (fixMulBatch) is exact
++// in a signed 64-bit lane when both operands fit int32 (|x| <= 2^31 - 1). A three-term dot
++// needs one more bit of headroom: three int32 products can sum to 3*2^62 = 1.5*2^63, which
++// overflows the int64 lane, so the dot gate is int30 (|x| < 2^30). A failing gate runs the
++// scalar loop, so any batch is bit-identical regardless of the gate's exact width. The gate
++// scan is part of the operation and is timed. These entry points are compiled only on
++// aarch64 (NEON); elsewhere they fall through to the scalar loop.
++// ---------------------------------------------------------------------------------------------
++
++#if defined( __aarch64__ )
++	#include <arm_neon.h>
++#endif
++
++/// True when every operand magnitude is strictly inside +/-bound (a single max scan). With
++/// bound = 1<<31 this proves each value fits int32; with bound = 1<<30 it proves the dot
++/// accumulation below cannot overflow an int64 lane.
++FIX_INLINE bool fixBatchFitsMagnitude( const fixed_t* v, int n, int64_t bound )
++{
++	for ( int i = 0; i < n; ++i )
++	{
++		if ( v[i] >= bound || v[i] <= -bound ) return false;
++	}
++	return true;
++}
++
++/// Batch fixed-point multiply: out[i] = fixMul( a[i], b[i] ). Bit-identical to the scalar
++/// loop for every input; the aarch64 path widens int32x4 -> int64x2 per product and rounds
++/// with a single (product + FIX_HALF) >> 16, exactly as fixMul's native body.
++FIX_INLINE void fixMulBatch( const fixed_t* a, const fixed_t* b, fixed_t* out, int n )
++{
++	int i = 0;
++#if defined( __aarch64__ ) && !defined( FIX_SATURATE )
++	const int64_t bound = (int64_t)1 << 31;
++	if ( fixBatchFitsMagnitude( a, n, bound ) && fixBatchFitsMagnitude( b, n, bound ) )
++	{
++		const int64x2_t half = vdupq_n_s64( FIX_HALF );
++		for ( ; i + 3 < n; i += 4 )
++		{
++			int64x2_t a01 = vld1q_s64( &a[i] );
++			int64x2_t a23 = vld1q_s64( &a[i + 2] );
++			int32x4_t av = vuzp1q_s32( vreinterpretq_s32_s64( a01 ), vreinterpretq_s32_s64( a23 ) );
++			int64x2_t b01 = vld1q_s64( &b[i] );
++			int64x2_t b23 = vld1q_s64( &b[i + 2] );
++			int32x4_t bv = vuzp1q_s32( vreinterpretq_s32_s64( b01 ), vreinterpretq_s32_s64( b23 ) );
++			int64x2_t lo = vmull_s32( vget_low_s32( av ), vget_low_s32( bv ) );
++			int64x2_t hi = vmull_high_s32( av, bv );
++			lo = vshrq_n_s64( vaddq_s64( lo, half ), FIX_FRACTION_BITS );
++			hi = vshrq_n_s64( vaddq_s64( hi, half ), FIX_FRACTION_BITS );
++			vst1q_s64( &out[i], lo );
++			vst1q_s64( &out[i + 2], hi );
++		}
++	}
++#endif
++	for ( ; i < n; ++i ) out[i] = fixMul( a[i], b[i] );
++}
++
++/// Batch vector dot product: out[i] = fixDot( a[i], b[i] ). The aarch64 path de-swizzles
++/// (vld3q_s32) four AoS vec3 into SoA lanes and accumulates the three products with
++/// vmull/vmlal/vmlal_high, rounding once with (sum + FIX_HALF) >> 16.
++FIX_INLINE void fixDotBatch3( const fixVec3* a, const fixVec3* b, fixed_t* out, int n )
++{
++	int i = 0;
++#if defined( __aarch64__ ) && !defined( FIX_SATURATE )
++	// int30 gate: three int32 products can overflow an int64 lane (3*2^62 > 2^63).
++	const int64_t bound = (int64_t)1 << 30;
++	int ok = 1;
++	for ( int k = 0; k < n && ok; ++k )
++	{
++		if ( a[k].x >= bound || a[k].x <= -bound || a[k].y >= bound || a[k].y <= -bound ||
++			 a[k].z >= bound || a[k].z <= -bound || b[k].x >= bound || b[k].x <= -bound ||
++			 b[k].y >= bound || b[k].y <= -bound || b[k].z >= bound || b[k].z <= -bound ) ok = 0;
++	}
++	if ( ok )
++	{
++		const int64x2_t half = vdupq_n_s64( FIX_HALF );
++		for ( ; i + 3 < n; i += 4 )
++		{
++			int32_t aa[12];
++			int32_t bb[12];
++			for ( int k = 0; k < 4; ++k )
++			{
++				aa[k * 3 + 0] = (int32_t)a[i + k].x;
++				aa[k * 3 + 1] = (int32_t)a[i + k].y;
++				aa[k * 3 + 2] = (int32_t)a[i + k].z;
++				bb[k * 3 + 0] = (int32_t)b[i + k].x;
++				bb[k * 3 + 1] = (int32_t)b[i + k].y;
++				bb[k * 3 + 2] = (int32_t)b[i + k].z;
++			}
++			int32x4x3_t av = vld3q_s32( aa );
++			int32x4x3_t bv = vld3q_s32( bb );
++			int64x2_t lo = vmull_s32( vget_low_s32( av.val[0] ), vget_low_s32( bv.val[0] ) );
++			int64x2_t hi = vmull_high_s32( av.val[0], bv.val[0] );
++			lo = vmlal_s32( lo, vget_low_s32( av.val[1] ), vget_low_s32( bv.val[1] ) );
++			hi = vmlal_high_s32( hi, av.val[1], bv.val[1] );
++			lo = vmlal_s32( lo, vget_low_s32( av.val[2] ), vget_low_s32( bv.val[2] ) );
++			hi = vmlal_high_s32( hi, av.val[2], bv.val[2] );
++			lo = vshrq_n_s64( vaddq_s64( lo, half ), FIX_FRACTION_BITS );
++			hi = vshrq_n_s64( vaddq_s64( hi, half ), FIX_FRACTION_BITS );
++			vst1q_s64( &out[i], lo );
++			vst1q_s64( &out[i + 2], hi );
++		}
++	}
++#endif
++	for ( ; i < n; ++i ) out[i] = fixDot( a[i], b[i] );
++}
+diff --git a/test/neon_batch_test.c b/test/neon_batch_test.c
+new file mode 100644
+index 0000000..cc5a4f5
+--- /dev/null
++++ b/test/neon_batch_test.c
+@@ -0,0 +1,160 @@
++// SPDX-License-Identifier: MIT
++// NeonBatchEquivalenceTest (spike-batch-ops-neon experiment, NOT adopted).
++//
++// Compares the NEON batch entry points (fixMulBatch, fixDotBatch3) against the scalar
++// functions bit-for-bit over seeded batches whose magnitudes sit below, at and just above
++// the exactness gate, the structured edge grid, and n tails 0..9 and 1023. No clock, no
++// files, no socket: real time never appears, a counter records the comparisons.
++//
++// Compiled only on aarch64, where the NEON path exists. Elsewhere this file is NOT built
++// (the CMake registration is guarded); if it is ever built by hand elsewhere it prints SKIP
++// and returns 0, and a SKIP is not a pass in the report.
++#include "fixed/fixed.h"
++#include "fixed/fixed_vec.h"
++#include <stdio.h>
++#include <stdint.h>
++
++static int fails = 0;
++static uint64_t compared = 0;
++#define CHECK( cond ) \
++	do { if ( !( cond ) ) { printf( "FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond ); fails++; } } while ( 0 )
++
++// Constant-seeded xorshift64*, so the batch is a property of the source, not of a machine.
++static uint64_t rngState = UINT64_C( 0x9E3779B97F4A7C15 );
++static uint64_t nextU64( void )
++{
++	uint64_t x = rngState;
++	x ^= x >> 12;
++	x ^= x << 25;
++	x ^= x >> 27;
++	rngState = x;
++	return x * UINT64_C( 2685821657736338717 );
++}
++// A signed draw in the open interval (-bound, bound).
++static fixed_t drawIn( int64_t bound )
++{
++	uint64_t r = nextU64();
++	// bound is a power of two; magnitude in [0, bound-1], sign from the top bit.
++	fixed_t m = (fixed_t)( r % ( uint64_t )( bound - 1 ) );
++	return ( r & UINT64_C( 0x8000000000000000 ) ) ? -m : m;
++}
++
++// The structured edge grid the oracle uses, reduced to the magnitudes a gate cares about.
++static const fixed_t grid[] = {
++	0, 1, -1, FIX_ONE, -FIX_ONE, FIX_HALF, INT64_MAX, INT64_MIN, FIX_MAX, FIX_MIN,
++	( (fixed_t)1 << 29 ), -( (fixed_t)1 << 29 ), ( (fixed_t)( ( (int64_t)1 << 30 ) - 1 ) ),
++	-( (fixed_t)( ( (int64_t)1 << 30 ) - 1 ) ), (fixed_t)1 << 30, -( (fixed_t)1 << 30 ),
++	( (fixed_t)1 << 31 ) - 1, -( ( (fixed_t)1 << 31 ) - 1 ), (fixed_t)1 << 31, -( (fixed_t)1 << 31 ),
++};
++
++enum { GRID_N = ( int )( sizeof grid / sizeof grid[0] ) };
++
++static void checkMulBatch( const fixed_t* a, const fixed_t* b, int n )
++{
++	static fixed_t out[2048];
++	static fixed_t ref[2048];
++	fixMulBatch( a, b, out, n );
++	for ( int i = 0; i < n; ++i ) ref[i] = fixMul( a[i], b[i] );
++	for ( int i = 0; i < n; ++i )
++	{
++		++compared;
++		CHECK( out[i] == ref[i] );
++	}
++}
++
++static void checkDotBatch( const fixVec3* a, const fixVec3* b, int n )
++{
++	static fixed_t out[2048];
++	static fixed_t ref[2048];
++	fixDotBatch3( a, b, out, n );
++	for ( int i = 0; i < n; ++i ) ref[i] = fixDot( a[i], b[i] );
++	for ( int i = 0; i < n; ++i )
++	{
++		++compared;
++		CHECK( out[i] == ref[i] );
++	}
++}
++
++int main( void )
++{
++#if !defined( __aarch64__ )
++	printf( "SKIP: NeonBatchEquivalenceTest is compiled only on aarch64 (a SKIP is not a pass).\n" );
++	return 0;
++#else
++	// Seeded batches at four magnitude tiers: well inside int30, at int30, in int32 but
++	// past int30, and past int32 (the gate must reject the last two and fall back).
++	enum { N = 1024 };
++	static fixed_t sa[N], sb[N];
++	static fixVec3 va[N], vb[N];
++	const int64_t tiers[4] = { (int64_t)1 << 28, (int64_t)1 << 30, (int64_t)1 << 31, INT64_MAX };
++	for ( int t = 0; t < 4; ++t )
++	{
++		for ( int i = 0; i < N; ++i )
++		{
++			sa[i] = drawIn( tiers[t] );
++			sb[i] = drawIn( tiers[t] );
++			va[i] = FIX_LITERAL( fixVec3 ){ drawIn( tiers[t] ), drawIn( tiers[t] ), drawIn( tiers[t] ) };
++			vb[i] = FIX_LITERAL( fixVec3 ){ drawIn( tiers[t] ), drawIn( tiers[t] ), drawIn( tiers[t] ) };
++		}
++		checkMulBatch( sa, sb, N );
++		checkDotBatch( va, vb, N );
++	}
++
++	// The structured grid crossed with itself (bound the count so the run stays short).
++	{
++		static fixed_t ga[GRID_N * GRID_N], gb[GRID_N * GRID_N];
++		static fixVec3 dg[GRID_N * GRID_N], eg[GRID_N * GRID_N];
++		int k = 0;
++		for ( int i = 0; i < GRID_N; ++i )
++		{
++			for ( int j = 0; j < GRID_N; ++j, ++k )
++			{
++				ga[k] = grid[i];
++				gb[k] = grid[j];
++				dg[k] = FIX_LITERAL( fixVec3 ){ grid[i], grid[j], grid[( i + j ) % GRID_N] };
++				eg[k] = FIX_LITERAL( fixVec3 ){ grid[j], grid[i], grid[( i * j ) % GRID_N] };
++			}
++		}
++		checkMulBatch( ga, gb, k );
++		checkDotBatch( dg, eg, k );
++	}
++
++	// Tails n = 0..9 and n = 1023 exercise the partial-vector remainder of every lane width.
++	for ( int n = 0; n < 10; ++n )
++	{
++		static fixed_t ta[10], tb[10];
++		static fixVec3 ua[10], ub[10];
++		for ( int i = 0; i < 10; ++i )
++		{
++			ta[i] = drawIn( (int64_t)1 << 28 );
++			tb[i] = drawIn( (int64_t)1 << 28 );
++			ua[i] = FIX_LITERAL( fixVec3 ){ drawIn( (int64_t)1 << 28 ), drawIn( (int64_t)1 << 28 ), drawIn( (int64_t)1 << 28 ) };
++			ub[i] = FIX_LITERAL( fixVec3 ){ drawIn( (int64_t)1 << 28 ), drawIn( (int64_t)1 << 28 ), drawIn( (int64_t)1 << 28 ) };
++		}
++		checkMulBatch( ta, tb, n );
++		checkDotBatch( ua, ub, n );
++	}
++	{
++		static fixed_t la[1023], lb[1023];
++		static fixVec3 pa[1023], pb[1023];
++		for ( int i = 0; i < 1023; ++i )
++		{
++			la[i] = drawIn( (int64_t)1 << 28 );
++			lb[i] = drawIn( (int64_t)1 << 28 );
++			pa[i] = FIX_LITERAL( fixVec3 ){ drawIn( (int64_t)1 << 28 ), drawIn( (int64_t)1 << 28 ), drawIn( (int64_t)1 << 28 ) };
++			pb[i] = FIX_LITERAL( fixVec3 ){ drawIn( (int64_t)1 << 28 ), drawIn( (int64_t)1 << 28 ), drawIn( (int64_t)1 << 28 ) };
++		}
++		checkMulBatch( la, lb, 1023 );
++		checkDotBatch( pa, pb, 1023 );
++	}
++
++	printf( "NeonBatchEquivalenceTest: compared=%llu fails=%d\n", (unsigned long long)compared, fails );
++	if ( fails != 0 )
++	{
++		printf( "FAIL: NeonBatchEquivalenceTest\n" );
++		return 1;
++	}
++	printf( "PASS: NeonBatchEquivalenceTest\n" );
++	return 0;
++#endif
++}
+\ No newline at end of file

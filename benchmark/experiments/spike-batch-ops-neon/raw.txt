@@ -1,0 +1,65 @@
+spike-batch-ops-neon.w2 -- raw output
+=====================================
+
+THE HEAD THIS EFFORT IS ABOUT, AND WHERE IT RAN:
+  repo:  mas-bandwidth/fixed  sha=eb059e62ca5f (staged tip c4f45106c65395625cb0dbc6e83b4c689d3eace2)
+  tier:  heavy
+  box:   x86-64 Linux, AMD Ryzen 7 PRO 8700GE -- isa_neon: no (see cpu_info below)
+  NOTE:  this is a NEON (arm64) spike dispatched to an x86-64 node. The NEON path could
+         not be executed or measured here, and no arm64 box was reachable from this job.
+
+cpu_info.sh (full header):
+# cpu_info 2026-10-15T02:11:35Z
+uname: Linux 6.8.0-139-generic x86_64
+cpu_model: AMD Ryzen 7 PRO 8700GE w/ Radeon 780M Graphics
+isa_avx2: yes
+isa_avx512f: yes
+isa_avx512dq: yes
+isa_avx512vl: yes
+isa_avx512ifma: yes
+isa_bmi2: yes
+isa_adx: yes
+isa_fma: yes
+isa_sse4_2: yes
+isa_neon: no
+isa_sme: no
+logical_cpus: 16
+affinity: 0-15
+load_average:0.39 0.54 1.08 1/559 2130391
+benchmarks_running: no
+compiler_cc: cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+compiler_clang: Ubuntu clang version 18.1.3 (1ubuntu1)
+compiler_gcc: gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+cmake: cmake version 3.28.3
+make: GNU Make 4.3
+
+BASELINE SUITE (x86-64, before any change -- this node's only executable evidence):
+  configure: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DFIX_BUILD_BENCHMARKS=ON
+  build:     cmake --build build --parallel 2
+  ctest --test-dir build --output-on-failure:
+     100% tests passed, 0 tests failed out of 36
+     (the NeonBatchEquivalenceTest is not among these: it is registered only on
+      aarch64, so on this x86-64 node it is skipped by name -- a SKIP, not a pass.)
+
+  ./build/fixed_oracle_check (native __int128):
+     ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+
+  ./build/fixed_oracle_check_emulated:
+     NOT captured: the full emulated pass over base_random=50000000 did not finish
+     within the job's build-time budget on this node. The native arm and the 36-test
+     ctest (which includes oracle_unit_emulated over a 1,000-input prefix) both pass.
+
+NEON COMPILE CHECK (the only validation the NEON path received here):
+  clang --target=aarch64-linux-gnu -O2 -ffreestanding -c <neon kernel> -> exit 0
+  Every intrinsic used (vmull_s32, vmull_high_s32, vmlal_s32, vmlal_high_s32,
+  vuzp1q_s32, vld3q_s32, vld1q_s64, vst1q_s64, vshrq_n_s64, vaddq_s64) assembles for
+  aarch64. It was never RUN; no timing was produced.
+
+A/B (benchmark/ab.sh) tables:
+  none -- no arm64 target, and the NEON path is not reachable on x86-64, so there is
+  nothing to measure against. The A/A control and the before/after numbers the card's
+  ACCEPTANCE (1) demands are all absent for that reason.
+
+SCALAR FALLBACK SMOKE (x86-64, the non-aarch64 body of the two new entry points):
+  fixMulBatch and fixDotBatch3 (scalar fallback) matched fixMul/fixDot bit-for-bit for
+  a throwaway 4-element check: bad=0.

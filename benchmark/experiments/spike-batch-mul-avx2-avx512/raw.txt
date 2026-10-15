@@ -1,0 +1,518 @@
+# Fixed batch experiment raw evidence, 2026-10-15 UTC.
+# Baseline sprint/fixed-perf f8e8d72; candidate branch sprint/spike-batch-mul-avx2-avx512.w2.g2.e21.
+# No compile, test, or benchmark ran on the working Mac.
+# Candidate source is the patch beside this file, applied to f8e8d72.
+# Baseline source in each A/B is f8e8d72; benchmark/op_bench.c and benchmark/oracle.c
+# come from the candidate tree and are compiled unchanged against both source trees.
+# Both hosts: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DFIX_BUILD_BENCHMARKS=ON
+# Both hosts: cmake --build build --parallel 2
+# Both hosts: ctest --test-dir build --output-on-failure
+# Both hosts: AB_REPEATS=7 AB_ITERS=200000 benchmark/ab.sh ../baseline . fixMulBatch fixDotBatch3 fixMul fixDot
+# Both hosts, emulated: CC="cc -DFIX_FORCE_EMULATED_INT128" with the same A/B command.
+# All commands ran under nice -n 10. No benchmark was run beside another benchmark.
+# The ab.sh headers below include cpu_info.sh, taskset affinity, compiler, flags and load.
+
+=== RED FIRST ===
+Internal ctest changing into directory: /home/nova/stella-fixed-batch-e21/baseline/build
+Test project /home/nova/stella-fixed-batch-e21/baseline/build
+    Start 5: BatchMulLaneEquivalenceTest
+1/1 Test #5: BatchMulLaneEquivalenceTest ......***Failed    0.00 sec
+BatchMulLaneEquivalenceTest FAIL: batch API absent at baseline
+
+
+0% tests passed, 1 tests failed out of 1
+
+Total Test time (real) =   0.00 sec
+
+The following tests FAILED:
+	  5 - BatchMulLaneEquivalenceTest (Failed)
+Errors while running CTest
+
+=== ZEN4 CTEST ===
+Internal ctest changing into directory: /home/nova/stella-fixed-batch-e21/candidate/build
+Test project /home/nova/stella-fixed-batch-e21/candidate/build
+      Start  1: determinism
+ 1/39 Test  #1: determinism ............................   Passed    0.02 sec
+      Start  2: transcendental
+ 2/39 Test  #2: transcendental .........................   Passed    0.01 sec
+      Start  3: wide_time
+ 3/39 Test  #3: wide_time ..............................   Passed    0.00 sec
+      Start  4: exhaustive
+ 4/39 Test  #4: exhaustive .............................   Passed    0.02 sec
+      Start  5: BatchMulLaneEquivalenceTest
+ 5/39 Test  #5: BatchMulLaneEquivalenceTest ............   Passed    1.05 sec
+      Start  6: BatchMulLaneEquivalenceSaturatedTest
+ 6/39 Test  #6: BatchMulLaneEquivalenceSaturatedTest ...   Passed    2.55 sec
+      Start  7: aabb
+ 7/39 Test  #7: aabb ...................................   Passed    0.00 sec
+      Start  8: override_api
+ 8/39 Test  #8: override_api ...........................   Passed    0.00 sec
+      Start  9: port_equality
+ 9/39 Test  #9: port_equality ..........................   Passed    0.28 sec
+      Start 10: negative_control
+10/39 Test #10: negative_control .......................   Passed    0.02 sec
+      Start 11: port_negative_control
+11/39 Test #11: port_negative_control ..................   Passed    0.22 sec
+      Start 12: int128
+12/39 Test #12: int128 .................................   Passed    0.13 sec
+      Start 13: geometry
+13/39 Test #13: geometry ...............................   Passed    0.00 sec
+      Start 14: geometry_negative_control
+14/39 Test #14: geometry_negative_control ..............   Passed    0.00 sec
+      Start 15: quantize
+15/39 Test #15: quantize ...............................   Passed    0.03 sec
+      Start 16: quantize_negative_control
+16/39 Test #16: quantize_negative_control ..............   Passed    0.03 sec
+      Start 17: int256_division
+17/39 Test #17: int256_division ........................   Passed    0.04 sec
+      Start 18: int256_division_negative_control
+18/39 Test #18: int256_division_negative_control .......   Passed    0.05 sec
+      Start 19: inverse_envelope
+19/39 Test #19: inverse_envelope .......................   Passed    0.00 sec
+      Start 20: inverse_envelope_negative_control
+20/39 Test #20: inverse_envelope_negative_control ......   Passed    0.00 sec
+      Start 21: usage
+21/39 Test #21: usage ..................................   Passed    0.00 sec
+      Start 22: numerical_regression
+22/39 Test #22: numerical_regression ...................   Passed    0.00 sec
+      Start 23: numerical_saturated
+23/39 Test #23: numerical_saturated ....................   Passed    0.00 sec
+      Start 24: oracle_unit
+24/39 Test #24: oracle_unit ............................   Passed    0.01 sec
+      Start 25: BatchMulLaneEquivalenceEmulatedTest
+25/39 Test #25: BatchMulLaneEquivalenceEmulatedTest ....   Passed    1.81 sec
+      Start 26: determinism_emulated
+26/39 Test #26: determinism_emulated ...................   Passed    0.02 sec
+      Start 27: transcendental_emulated
+27/39 Test #27: transcendental_emulated ................   Passed    0.07 sec
+      Start 28: wide_time_emulated
+28/39 Test #28: wide_time_emulated .....................   Passed    0.00 sec
+      Start 29: exhaustive_emulated
+29/39 Test #29: exhaustive_emulated ....................   Passed    0.03 sec
+      Start 30: aabb_emulated
+30/39 Test #30: aabb_emulated ..........................   Passed    0.00 sec
+      Start 31: port_equality_emulated
+31/39 Test #31: port_equality_emulated .................   Passed    0.73 sec
+      Start 32: int128_emulated
+32/39 Test #32: int128_emulated ........................   Passed    0.13 sec
+      Start 33: geometry_emulated
+33/39 Test #33: geometry_emulated ......................   Passed    0.01 sec
+      Start 34: inverse_envelope_emulated
+34/39 Test #34: inverse_envelope_emulated ..............   Passed    0.00 sec
+      Start 35: int256_division_emulated
+35/39 Test #35: int256_division_emulated ...............   Passed    0.04 sec
+      Start 36: numerical_regression_emulated
+36/39 Test #36: numerical_regression_emulated ..........   Passed    0.01 sec
+      Start 37: oracle_unit_emulated
+37/39 Test #37: oracle_unit_emulated ...................   Passed    0.01 sec
+      Start 38: numerical_saturated_emulated
+38/39 Test #38: numerical_saturated_emulated ...........   Passed    0.01 sec
+      Start 39: emulated_negative_control
+39/39 Test #39: emulated_negative_control ..............   Passed    0.03 sec
+
+100% tests passed, 0 tests failed out of 39
+
+Total Test time (real) =   7.39 sec
+
+=== ZEN4 NATIVE ===
+# ab.sh 2026-10-15T05:51:12Z
+# compiler: cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+# flags: -O3 -g -DNDEBUG -ffp-contract=off
+# repeats: 7  iterations: 200000
+# # cpu_info 2026-10-15T05:51:12Z
+# uname: Linux 6.8.0-139-generic x86_64
+# cpu_model: AMD Ryzen 7 PRO 8700GE w/ Radeon 780M Graphics
+# isa_avx2: yes
+# isa_avx512f: yes
+# isa_avx512dq: yes
+# isa_avx512vl: yes
+# isa_avx512ifma: yes
+# isa_bmi2: yes
+# isa_adx: yes
+# isa_fma: yes
+# isa_sse4_2: yes
+# isa_neon: no
+# isa_sme: no
+# logical_cpus: 16
+# affinity: 0-15
+# load_average:0.43 0.37 0.31 1/499 2432382
+# benchmarks_running: no
+# compiler_cc: cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+# compiler_clang: Ubuntu clang version 18.1.3 (1ubuntu1)
+# compiler_gcc: gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+# cmake: cmake version 3.28.3
+# make: GNU Make 4.3
+# oracle_check compiled against .:
+ORACLE OK   fixMul  count=50063756  hash=eb1995a6b21bf036
+ORACLE OK   fixDiv_below2p47  count=50063756  hash=9519544a71a6aee9
+ORACLE OK   fixDiv_above2p47  count=12563756  hash=679bdcc4e27fd523
+ORACLE OK   fixSqrt_small  count=50000252  hash=0a01c17d8970c8c5
+ORACLE OK   fixSqrt_raw_below2p32  count=4344967548  hash=e8cd953f7d9cb442
+ORACLE OK   fixISqrt128High_u64  count=50063756  hash=3f2bde37bd6f7cb0
+ORACLE OK   fixISqrt128High_above104bits  count=2563756  hash=0c9fdfcdcf937183
+ORACLE OK   fixComputeCosSin  count=50823803  hash=75d77c6260933da6
+ORACLE OK   fixSin  count=50823803  hash=ea6b89849492e203
+ORACLE OK   fixCos  count=50823803  hash=92884abbd0d0dfc4
+ORACLE OK   fixAtan2  count=6313756  hash=e783be1aa18a9e6c
+ORACLE OK   fixLog2  count=9395980  hash=7d1ccc520e783eca
+ORACLE OK   fixExp2  count=9395980  hash=a1d52ff7b1ceef98
+ORACLE OK   fixPow  count=2563756  hash=55410e05742068c7
+ORACLE OK   fixLerp  count=50063756  hash=3c3983b96260d159
+ORACLE OK   fixInt128Div  count=2563756  hash=65e492d721fcd5f6
+ORACLE OK   fixUInt256DivMod  count=563756  hash=d6c2bda0c1986a82
+ORACLE OK   fixDot  count=50063756  hash=4392264c082fde77
+ORACLE OK   fixCross  count=50063756  hash=5a5555238d655a2c
+ORACLE OK   fixLength  count=25063756  hash=785da375992b2c05
+ORACLE OK   fixNormalize  count=12563756  hash=44e1c09212bfac1d
+ORACLE OK   fixMulQuat  count=25063756  hash=ff696a9b57ac0860
+ORACLE OK   fixNormalizeQuat  count=12563756  hash=5e439ba2ea83daeb
+ORACLE OK   fixRotateVector  count=12563756  hash=64afce887683c703
+ORACLE OK   fixInvRotateVector  count=12563756  hash=a7d02b0685663640
+ORACLE OK   fixNLerp  count=6313756  hash=315cf27e3e31527e
+ORACLE OK   fixInvertMatrix  count=563756  hash=f7c48d2fcea79473
+ORACLE OK   fixSolve3  count=563756  hash=da2489cbf6193bad
+ORACLE OK   fixAABB_Transform  count=2563756  hash=d105925232ba6473
+ORACLE OK   fixQuantize  count=50063756  hash=f27ed579335213a8
+ORACLE OK   fixDequantize  count=50063756  hash=1be2b75e26b7a4d1
+ORACLE OK   fixMulBatch  count=50063756  hash=de6fc21fb01df7f2
+ORACLE OK   fixDotBatch3  count=50063756  hash=7fb109655c1745da
+ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMul                         scalar      4.8906     5.7306    18.6%     4.4930     4.5247    29.3%    1.267
+fixMul                         batch       1.1708     1.1756     3.3%     1.1717     1.1883     1.5%    0.989
+fixDot                         scalar      5.4506     5.4643     0.7%     5.2529     5.2826    19.2%    1.034
+fixDot                         batch       1.7493     1.7892    10.9%     1.9432     1.9526    60.8%    0.916
+fixMulBatch                    scalar      2.5250     2.5398     1.9%     2.5245     2.5493    17.1%    0.996
+fixMulBatch                    batch       0.7203     0.7206     0.5%     0.2476     0.2493     1.8%    2.890
+fixDotBatch3                   scalar      3.8840     3.8957     3.0%     3.8838     3.9275     1.7%    0.992
+fixDotBatch3                   batch       1.3821     1.3837     1.6%     0.6436     0.6480     3.2%    2.135
+# speedup = a_median / b_median; > 1 means the candidate is faster.
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+
+=== ZEN4 EMULATED ===
+# ab.sh 2026-10-15T05:53:19Z
+# compiler: cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+# flags: -O3 -g -DNDEBUG -ffp-contract=off
+# repeats: 7  iterations: 200000
+# # cpu_info 2026-10-15T05:53:19Z
+# uname: Linux 6.8.0-139-generic x86_64
+# cpu_model: AMD Ryzen 7 PRO 8700GE w/ Radeon 780M Graphics
+# isa_avx2: yes
+# isa_avx512f: yes
+# isa_avx512dq: yes
+# isa_avx512vl: yes
+# isa_avx512ifma: yes
+# isa_bmi2: yes
+# isa_adx: yes
+# isa_fma: yes
+# isa_sse4_2: yes
+# isa_neon: no
+# isa_sme: no
+# logical_cpus: 16
+# affinity: 0-15
+# load_average:0.96 0.62 0.41 1/498 2434327
+# benchmarks_running: no
+# compiler_clang: Ubuntu clang version 18.1.3 (1ubuntu1)
+# compiler_gcc: gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+# cmake: cmake version 3.28.3
+# make: GNU Make 4.3
+# oracle_check compiled against .:
+ORACLE OK   fixMul  count=50063756  hash=eb1995a6b21bf036
+ORACLE OK   fixDiv_below2p47  count=50063756  hash=9519544a71a6aee9
+ORACLE OK   fixDiv_above2p47  count=12563756  hash=679bdcc4e27fd523
+ORACLE OK   fixSqrt_small  count=50000252  hash=0a01c17d8970c8c5
+ORACLE OK   fixSqrt_raw_below2p32  count=4344967548  hash=e8cd953f7d9cb442
+ORACLE OK   fixISqrt128High_u64  count=50063756  hash=3f2bde37bd6f7cb0
+ORACLE OK   fixISqrt128High_above104bits  count=2563756  hash=0c9fdfcdcf937183
+ORACLE OK   fixComputeCosSin  count=50823803  hash=75d77c6260933da6
+ORACLE OK   fixSin  count=50823803  hash=ea6b89849492e203
+ORACLE OK   fixCos  count=50823803  hash=92884abbd0d0dfc4
+ORACLE OK   fixAtan2  count=6313756  hash=e783be1aa18a9e6c
+ORACLE OK   fixLog2  count=9395980  hash=7d1ccc520e783eca
+ORACLE OK   fixExp2  count=9395980  hash=a1d52ff7b1ceef98
+ORACLE OK   fixPow  count=2563756  hash=55410e05742068c7
+ORACLE OK   fixLerp  count=50063756  hash=3c3983b96260d159
+ORACLE OK   fixInt128Div  count=2563756  hash=65e492d721fcd5f6
+ORACLE OK   fixUInt256DivMod  count=563756  hash=d6c2bda0c1986a82
+ORACLE OK   fixDot  count=50063756  hash=4392264c082fde77
+ORACLE OK   fixCross  count=50063756  hash=5a5555238d655a2c
+ORACLE OK   fixLength  count=25063756  hash=785da375992b2c05
+ORACLE OK   fixNormalize  count=12563756  hash=44e1c09212bfac1d
+ORACLE OK   fixMulQuat  count=25063756  hash=ff696a9b57ac0860
+ORACLE OK   fixNormalizeQuat  count=12563756  hash=5e439ba2ea83daeb
+ORACLE OK   fixRotateVector  count=12563756  hash=64afce887683c703
+ORACLE OK   fixInvRotateVector  count=12563756  hash=a7d02b0685663640
+ORACLE OK   fixNLerp  count=6313756  hash=315cf27e3e31527e
+ORACLE OK   fixInvertMatrix  count=563756  hash=f7c48d2fcea79473
+ORACLE OK   fixSolve3  count=563756  hash=da2489cbf6193bad
+ORACLE OK   fixAABB_Transform  count=2563756  hash=d105925232ba6473
+ORACLE OK   fixQuantize  count=50063756  hash=f27ed579335213a8
+ORACLE OK   fixDequantize  count=50063756  hash=1be2b75e26b7a4d1
+ORACLE OK   fixMulBatch  count=50063756  hash=de6fc21fb01df7f2
+ORACLE OK   fixDotBatch3  count=50063756  hash=7fb109655c1745da
+ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMul                         scalar      5.0634     5.1068    52.9%     5.4820     5.6782    27.3%    0.899
+fixMul                         batch       2.7298     2.7372     1.0%     2.7313     2.7471     3.2%    0.996
+fixDot                         scalar      7.8767     8.1781     7.3%     8.0241     8.0824    36.9%    1.012
+fixDot                         batch       6.2633     6.3014     1.4%     6.2480     6.3378    27.0%    0.994
+fixMulBatch                    scalar      3.4828     3.4970    26.4%     3.5440     3.6058    10.7%    0.970
+fixMulBatch                    batch       2.4756     2.4793     1.0%     0.2490     0.2499     1.2%    9.921
+fixDotBatch3                   scalar      7.4019     7.4528    59.3%     7.2619     7.4389    47.1%    1.002
+fixDotBatch3                   batch       6.5279     6.5532     0.8%     0.6350     0.6376    79.4%   10.278
+# speedup = a_median / b_median; > 1 means the candidate is faster.
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+
+=== ZEN+ CTEST ===
+Test project /home/glenn/stella-fixed-batch-e21/candidate/build
+      Start  1: determinism
+ 1/39 Test  #1: determinism ............................   Passed    0.04 sec
+      Start  2: transcendental
+ 2/39 Test  #2: transcendental .........................   Passed    0.02 sec
+      Start  3: wide_time
+ 3/39 Test  #3: wide_time ..............................   Passed    0.00 sec
+      Start  4: exhaustive
+ 4/39 Test  #4: exhaustive .............................   Passed    0.03 sec
+      Start  5: BatchMulLaneEquivalenceTest
+ 5/39 Test  #5: BatchMulLaneEquivalenceTest ............   Passed    1.71 sec
+      Start  6: BatchMulLaneEquivalenceSaturatedTest
+ 6/39 Test  #6: BatchMulLaneEquivalenceSaturatedTest ...   Passed    3.41 sec
+      Start  7: aabb
+ 7/39 Test  #7: aabb ...................................   Passed    0.00 sec
+      Start  8: override_api
+ 8/39 Test  #8: override_api ...........................   Passed    0.00 sec
+      Start  9: port_equality
+ 9/39 Test  #9: port_equality ..........................   Passed    0.47 sec
+      Start 10: negative_control
+10/39 Test #10: negative_control .......................   Passed    0.03 sec
+      Start 11: port_negative_control
+11/39 Test #11: port_negative_control ..................   Passed    0.38 sec
+      Start 12: int128
+12/39 Test #12: int128 .................................   Passed    0.22 sec
+      Start 13: geometry
+13/39 Test #13: geometry ...............................   Passed    0.01 sec
+      Start 14: geometry_negative_control
+14/39 Test #14: geometry_negative_control ..............   Passed    0.01 sec
+      Start 15: quantize
+15/39 Test #15: quantize ...............................   Passed    0.05 sec
+      Start 16: quantize_negative_control
+16/39 Test #16: quantize_negative_control ..............   Passed    0.05 sec
+      Start 17: int256_division
+17/39 Test #17: int256_division ........................   Passed    0.05 sec
+      Start 18: int256_division_negative_control
+18/39 Test #18: int256_division_negative_control .......   Passed    0.07 sec
+      Start 19: inverse_envelope
+19/39 Test #19: inverse_envelope .......................   Passed    0.00 sec
+      Start 20: inverse_envelope_negative_control
+20/39 Test #20: inverse_envelope_negative_control ......   Passed    0.00 sec
+      Start 21: usage
+21/39 Test #21: usage ..................................   Passed    0.00 sec
+      Start 22: numerical_regression
+22/39 Test #22: numerical_regression ...................   Passed    0.01 sec
+      Start 23: numerical_saturated
+23/39 Test #23: numerical_saturated ....................   Passed    0.01 sec
+      Start 24: oracle_unit
+24/39 Test #24: oracle_unit ............................   Passed    0.02 sec
+      Start 25: BatchMulLaneEquivalenceEmulatedTest
+25/39 Test #25: BatchMulLaneEquivalenceEmulatedTest ....   Passed    2.51 sec
+      Start 26: determinism_emulated
+26/39 Test #26: determinism_emulated ...................   Passed    0.04 sec
+      Start 27: transcendental_emulated
+27/39 Test #27: transcendental_emulated ................   Passed    0.14 sec
+      Start 28: wide_time_emulated
+28/39 Test #28: wide_time_emulated .....................   Passed    0.01 sec
+      Start 29: exhaustive_emulated
+29/39 Test #29: exhaustive_emulated ....................   Passed    0.05 sec
+      Start 30: aabb_emulated
+30/39 Test #30: aabb_emulated ..........................   Passed    0.00 sec
+      Start 31: port_equality_emulated
+31/39 Test #31: port_equality_emulated .................   Passed    1.10 sec
+      Start 32: int128_emulated
+32/39 Test #32: int128_emulated ........................   Passed    0.22 sec
+      Start 33: geometry_emulated
+33/39 Test #33: geometry_emulated ......................   Passed    0.01 sec
+      Start 34: inverse_envelope_emulated
+34/39 Test #34: inverse_envelope_emulated ..............   Passed    0.00 sec
+      Start 35: int256_division_emulated
+35/39 Test #35: int256_division_emulated ...............   Passed    0.07 sec
+      Start 36: numerical_regression_emulated
+36/39 Test #36: numerical_regression_emulated ..........   Passed    0.02 sec
+      Start 37: oracle_unit_emulated
+37/39 Test #37: oracle_unit_emulated ...................   Passed    0.03 sec
+      Start 38: numerical_saturated_emulated
+38/39 Test #38: numerical_saturated_emulated ...........   Passed    0.02 sec
+      Start 39: emulated_negative_control
+39/39 Test #39: emulated_negative_control ..............   Passed    0.05 sec
+
+100% tests passed, 0 tests failed out of 39
+
+Total Test time (real) =  10.90 sec
+
+=== ZEN+ NATIVE ===
+# ab.sh 2026-10-15T05:58:30Z
+# compiler: cc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+# flags: -O3 -g -DNDEBUG -ffp-contract=off
+# repeats: 7  iterations: 200000
+# # cpu_info 2026-10-15T05:58:30Z
+# uname: Linux 7.0.0-34-generic x86_64
+# cpu_model: AMD Ryzen Threadripper 2990WX 32-Core Processor
+# isa_avx2: yes
+# isa_avx512f: no
+# isa_avx512dq: no
+# isa_avx512vl: no
+# isa_avx512ifma: no
+# isa_bmi2: yes
+# isa_adx: yes
+# isa_fma: yes
+# isa_sse4_2: yes
+# isa_neon: no
+# isa_sme: no
+# logical_cpus: 64
+# affinity: 0-63
+# load_average:1.08 0.94 0.89 1/1263 2296793
+# benchmarks_running: no
+# compiler_cc: cc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+# compiler_clang: Ubuntu clang version 21.1.8 (6ubuntu1)
+# compiler_gcc: gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+# cmake: cmake version 4.2.3
+# make: GNU Make 4.4.1
+# oracle_check compiled against .:
+ORACLE OK   fixMul  count=50063756  hash=eb1995a6b21bf036
+ORACLE OK   fixDiv_below2p47  count=50063756  hash=9519544a71a6aee9
+ORACLE OK   fixDiv_above2p47  count=12563756  hash=679bdcc4e27fd523
+ORACLE OK   fixSqrt_small  count=50000252  hash=0a01c17d8970c8c5
+ORACLE OK   fixSqrt_raw_below2p32  count=4344967548  hash=e8cd953f7d9cb442
+ORACLE OK   fixISqrt128High_u64  count=50063756  hash=3f2bde37bd6f7cb0
+ORACLE OK   fixISqrt128High_above104bits  count=2563756  hash=0c9fdfcdcf937183
+ORACLE OK   fixComputeCosSin  count=50823803  hash=75d77c6260933da6
+ORACLE OK   fixSin  count=50823803  hash=ea6b89849492e203
+ORACLE OK   fixCos  count=50823803  hash=92884abbd0d0dfc4
+ORACLE OK   fixAtan2  count=6313756  hash=e783be1aa18a9e6c
+ORACLE OK   fixLog2  count=9395980  hash=7d1ccc520e783eca
+ORACLE OK   fixExp2  count=9395980  hash=a1d52ff7b1ceef98
+ORACLE OK   fixPow  count=2563756  hash=55410e05742068c7
+ORACLE OK   fixLerp  count=50063756  hash=3c3983b96260d159
+ORACLE OK   fixInt128Div  count=2563756  hash=65e492d721fcd5f6
+ORACLE OK   fixUInt256DivMod  count=563756  hash=d6c2bda0c1986a82
+ORACLE OK   fixDot  count=50063756  hash=4392264c082fde77
+ORACLE OK   fixCross  count=50063756  hash=5a5555238d655a2c
+ORACLE OK   fixLength  count=25063756  hash=785da375992b2c05
+ORACLE OK   fixNormalize  count=12563756  hash=44e1c09212bfac1d
+ORACLE OK   fixMulQuat  count=25063756  hash=ff696a9b57ac0860
+ORACLE OK   fixNormalizeQuat  count=12563756  hash=5e439ba2ea83daeb
+ORACLE OK   fixRotateVector  count=12563756  hash=64afce887683c703
+ORACLE OK   fixInvRotateVector  count=12563756  hash=a7d02b0685663640
+ORACLE OK   fixNLerp  count=6313756  hash=315cf27e3e31527e
+ORACLE OK   fixInvertMatrix  count=563756  hash=f7c48d2fcea79473
+ORACLE OK   fixSolve3  count=563756  hash=da2489cbf6193bad
+ORACLE OK   fixAABB_Transform  count=2563756  hash=d105925232ba6473
+ORACLE OK   fixQuantize  count=50063756  hash=f27ed579335213a8
+ORACLE OK   fixDequantize  count=50063756  hash=1be2b75e26b7a4d1
+ORACLE OK   fixMulBatch  count=50063756  hash=de6fc21fb01df7f2
+ORACLE OK   fixDotBatch3  count=50063756  hash=7fb109655c1745da
+ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMul                         scalar      7.4534     7.5000   109.2%     7.4504     7.4968    89.9%    1.000
+fixMul                         batch       2.0602     2.1067   111.3%     2.0736     2.1325    91.4%    0.988
+fixDot                         scalar      7.9475     7.9722    97.4%     7.9609     7.9736    90.5%    1.000
+fixDot                         batch       3.0873     3.1073    90.8%     3.0053     3.0263    94.8%    1.027
+fixMulBatch                    scalar      4.0798     4.1026    91.0%     4.0799     4.1176    91.2%    0.996
+fixMulBatch                    batch       1.2748     1.2829    90.4%     1.0836     1.1050    88.3%    1.161
+fixDotBatch3                   scalar      7.1960     7.2472    90.9%     7.2050     7.3298    92.5%    0.989
+fixDotBatch3                   batch       2.4114     2.4187    57.8%     3.5094     3.5850    88.4%    0.675
+# speedup = a_median / b_median; > 1 means the candidate is faster.
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+
+=== ZEN+ EMULATED ===
+# ab.sh 2026-10-15T06:01:33Z
+# compiler: cc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+# flags: -O3 -g -DNDEBUG -ffp-contract=off
+# repeats: 7  iterations: 200000
+# # cpu_info 2026-10-15T06:01:33Z
+# uname: Linux 7.0.0-34-generic x86_64
+# cpu_model: AMD Ryzen Threadripper 2990WX 32-Core Processor
+# isa_avx2: yes
+# isa_avx512f: no
+# isa_avx512dq: no
+# isa_avx512vl: no
+# isa_avx512ifma: no
+# isa_bmi2: yes
+# isa_adx: yes
+# isa_fma: yes
+# isa_sse4_2: yes
+# isa_neon: no
+# isa_sme: no
+# logical_cpus: 64
+# affinity: 0-63
+# load_average:1.17 1.12 0.98 1/1397 2300276
+# benchmarks_running: no
+# compiler_clang: Ubuntu clang version 21.1.8 (6ubuntu1)
+# compiler_gcc: gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+# cmake: cmake version 4.2.3
+# make: GNU Make 4.4.1
+# oracle_check compiled against .:
+ORACLE OK   fixMul  count=50063756  hash=eb1995a6b21bf036
+ORACLE OK   fixDiv_below2p47  count=50063756  hash=9519544a71a6aee9
+ORACLE OK   fixDiv_above2p47  count=12563756  hash=679bdcc4e27fd523
+ORACLE OK   fixSqrt_small  count=50000252  hash=0a01c17d8970c8c5
+ORACLE OK   fixSqrt_raw_below2p32  count=4344967548  hash=e8cd953f7d9cb442
+ORACLE OK   fixISqrt128High_u64  count=50063756  hash=3f2bde37bd6f7cb0
+ORACLE OK   fixISqrt128High_above104bits  count=2563756  hash=0c9fdfcdcf937183
+ORACLE OK   fixComputeCosSin  count=50823803  hash=75d77c6260933da6
+ORACLE OK   fixSin  count=50823803  hash=ea6b89849492e203
+ORACLE OK   fixCos  count=50823803  hash=92884abbd0d0dfc4
+ORACLE OK   fixAtan2  count=6313756  hash=e783be1aa18a9e6c
+ORACLE OK   fixLog2  count=9395980  hash=7d1ccc520e783eca
+ORACLE OK   fixExp2  count=9395980  hash=a1d52ff7b1ceef98
+ORACLE OK   fixPow  count=2563756  hash=55410e05742068c7
+ORACLE OK   fixLerp  count=50063756  hash=3c3983b96260d159
+ORACLE OK   fixInt128Div  count=2563756  hash=65e492d721fcd5f6
+ORACLE OK   fixUInt256DivMod  count=563756  hash=d6c2bda0c1986a82
+ORACLE OK   fixDot  count=50063756  hash=4392264c082fde77
+ORACLE OK   fixCross  count=50063756  hash=5a5555238d655a2c
+ORACLE OK   fixLength  count=25063756  hash=785da375992b2c05
+ORACLE OK   fixNormalize  count=12563756  hash=44e1c09212bfac1d
+ORACLE OK   fixMulQuat  count=25063756  hash=ff696a9b57ac0860
+ORACLE OK   fixNormalizeQuat  count=12563756  hash=5e439ba2ea83daeb
+ORACLE OK   fixRotateVector  count=12563756  hash=64afce887683c703
+ORACLE OK   fixInvRotateVector  count=12563756  hash=a7d02b0685663640
+ORACLE OK   fixNLerp  count=6313756  hash=315cf27e3e31527e
+ORACLE OK   fixInvertMatrix  count=563756  hash=f7c48d2fcea79473
+ORACLE OK   fixSolve3  count=563756  hash=da2489cbf6193bad
+ORACLE OK   fixAABB_Transform  count=2563756  hash=d105925232ba6473
+ORACLE OK   fixQuantize  count=50063756  hash=f27ed579335213a8
+ORACLE OK   fixDequantize  count=50063756  hash=1be2b75e26b7a4d1
+ORACLE OK   fixMulBatch  count=50063756  hash=de6fc21fb01df7f2
+ORACLE OK   fixDotBatch3  count=50063756  hash=7fb109655c1745da
+ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
+op                             mode         a_min      a_med a_spread      b_min      b_med b_spread  speedup
+fixMul                         scalar      9.6483     9.6629     3.9%     9.6441     9.6586     5.9%    1.000
+fixMul                         batch       4.4060     4.5511     4.8%     4.3455     4.3834     6.5%    1.038
+fixDot                         scalar     14.1550    14.3413     4.8%    14.0174    14.1951     7.4%    1.010
+fixDot                         batch       9.0163     9.0925     7.6%     9.0310     9.2125     2.4%    0.987
+fixMulBatch                    scalar      6.5009     6.5303     5.4%     6.5387     6.5733     6.3%    0.993
+fixMulBatch                    batch       3.3131     3.3373     5.6%     1.0772     1.0919     3.6%    3.056
+fixDotBatch3                   scalar     13.1424    13.2142     5.0%    13.6938    13.7635     4.1%    0.960
+fixDotBatch3                   batch       7.9374     7.9715     5.3%     3.4805     3.5548     4.5%    2.242
+# speedup = a_median / b_median; > 1 means the candidate is faster.
+# spread = (max - min) / median over the interleaved repeats: the floor a claim must beat.
+
+=== NEW ORACLE ROWS GENERATED AGAINST SCALAR BASELINE f8e8d72 ===
+# Candidate oracle_check.c/oracle.c source compiled with baseline include and src.
+# fixed output oracle baseline. Regenerate with: fixed_oracle_check --write
+# Every value is a hash of OUTPUT BITS over the input sets defined in benchmark/oracle.c.
+# The same file must match the native __int128 build and the FIX_FORCE_EMULATED_INT128 build.
+# base_random: 50000000
+# columns: operation <TAB> input_count <TAB> hash <TAB> 16 segment hashes
+fixMulBatch	50063756	de6fc21fb01df7f2	dbd80d49f197cc64	2d0b2272de95c6ac	6bc8ab6b4c5d1916	07dfc32641354de4	be35aca49a5b39d5	860e183ac1cdd294	42d9ad5224e7faf7	d6bc6f565eded929	44d2f0a8cfabc059	878c49307bd2a66a	78069589ae76d187	cdd71e45cf6f53de	e090333a3cb2c33e	d1804e5f41bac65a	5352886dce085065	bfd8572413424ffa
+# fixed output oracle baseline. Regenerate with: fixed_oracle_check --write
+# Every value is a hash of OUTPUT BITS over the input sets defined in benchmark/oracle.c.
+# The same file must match the native __int128 build and the FIX_FORCE_EMULATED_INT128 build.
+# base_random: 50000000
+# columns: operation <TAB> input_count <TAB> hash <TAB> 16 segment hashes
+fixDotBatch3	50063756	7fb109655c1745da	528d030676d77c2b	fd50409078f0f96c	f1805fbff92e18b5	8059614103a6941f	7814d622125eb854	1cbc8979985d8fec	9be0ecbe29860b0f	f17772935fa50315	0221f905460ab381	d807ace1fe3fd0be	c8b84c30ae2d2ecc	9f9a98cf450c37f2	a735142411e43f0e	636133b35b35461f	9a6efe5d3ebeb337	8b03d314ab2cd6ec
+
+=== SCALAR BASELINE UNIT PREFIX (independent Linux build) ===
+HASH fixMulBatch 0xf74d919d55ad89c8ULL count=1000
+HASH fixDotBatch3 0xa967efd82587b494ULL count=1000
+oracle_unit: 33 operations, prefix 1000, hashes stable

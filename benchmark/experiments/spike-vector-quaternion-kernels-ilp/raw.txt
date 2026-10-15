@@ -1,0 +1,56 @@
+# raw.txt -- spike-vector-quaternion-kernels-ilp
+
+## cpu_info.sh
+# cpu_info 2026-10-15T02:22:27Z
+uname: Darwin 24.6.0 x86_64
+cpu_model: unknown
+logical_cpus: unknown
+isa_neon: unknown
+isa_fp16: unknown
+isa_i8mm: unknown
+isa_sme: unknown
+isa_sme2: unknown
+affinity: taskset unavailable
+load_average:unknown
+benchmarks_running: no
+compiler_cc: Apple clang version 17.0.0 (clang-1700.0.13.5)
+compiler_clang: Apple clang version 17.0.0 (clang-1700.0.13.5)
+compiler_gcc: Apple clang version 17.0.0 (clang-1700.0.13.5)
+cmake: cmake version 4.1.3
+make: GNU Make 3.81
+
+## machine (sysctl)
+uname: Darwin 24.6.0 x86_64
+cpu_model: not reported (sandbox)
+logical_cpus: not reported
+
+## ab.sh table (manual interleaved A/B, 7 repeats, 200000 iters, -O3 -g -DNDEBUG -ffp-contract=off)
+op mode a_min a_med a_spr b_min b_med b_spr speedup
+fixCross               scalar      3.7300     3.8350     7.3%     3.7300     3.9100     7.2%    0.981
+fixCross               batch       5.3013     5.4259    10.5%     5.4259     5.4309     8.0%    0.999
+fixMulQuat             scalar     10.0250    10.1900    18.2%    10.2550    10.3100     8.1%    0.988
+fixMulQuat             batch      15.0919    16.5767    15.9%    15.1367    15.6698     5.4%    1.058
+fixRotateVector        scalar     14.0600    15.8450    16.3%    13.6800    13.7950     4.5%    1.149
+fixRotateVector        batch      15.0620    15.6848    28.1%    14.9574    15.0620    12.4%    1.041
+fixInvRotateVector     scalar     13.3750    13.8900    28.2%    13.3550    13.5150    17.6%    1.028
+fixInvRotateVector     batch      14.5687    14.7381    10.7%    14.6783    14.7830    11.3%    0.997
+
+## oracle_check lines (baseline vs candidate, per-op)
+# NOTE: oracle-baseline.txt is STALE at BASE c4f4510 -- the baseline tree itself fails 6 ops.
+--- fixCross ---
+baseline: ORACLE OK   fixCross  count=50063756  hash=5a5555238d655a2c
+candidate: ORACLE OK   fixCross  count=50063756  hash=5a5555238d655a2c
+--- fixMulQuat ---
+baseline: ORACLE FAIL fixMulQuat: hash 89460e7fdc0afa12, baseline ff696a9b57ac0860
+candidate: ORACLE FAIL fixMulQuat: hash 89460e7fdc0afa12, baseline ff696a9b57ac0860
+--- fixRotateVector ---
+baseline: ORACLE FAIL fixRotateVector: hash 10e435cf24ccc1e3, baseline 64afce887683c703
+candidate: ORACLE FAIL fixRotateVector: hash 10e435cf24ccc1e3, baseline 64afce887683c703
+--- fixInvRotateVector ---
+baseline: ORACLE FAIL fixInvRotateVector: hash 6f67b302b04a739b, baseline a7d02b0685663640
+candidate: ORACLE FAIL fixInvRotateVector: hash 6f67b302b04a739b, baseline a7d02b0685663640
+
+## ctest summary
+100% tests passed, 0 tests failed out of 36
+
+Total Test time (real) =  25.00 sec

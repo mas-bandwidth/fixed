@@ -1,88 +1,101 @@
-# spike-branchless-saturation raw output
+# spike-branchless-saturation raw output (Linux bench, attempt 7)
 
 ## cpu_info.sh
 
-# cpu_info 2026-10-15T02:20:16Z
-uname: Darwin 24.6.0 x86_64
-cpu_model: Intel(R) Xeon(R) W-2191B CPU @ 2.30GHz (iMacPro1,1)   [cpu_info.sh itself prints "unknown": the sandbox blocks its sysctl probe; the model below is read via /usr/sbin/sysctl]
-logical_cpus: 36
-isa: AVX2 AVX512F AVX512DQ AVX512CD AVX512BW AVX512VL   [x86-64; no neon/sme: this is NOT the Apple-silicon arm64 bench]
-affinity: taskset unavailable (Darwin)
-load_average: unknown (sandbox blocks /proc and sysctl vm.loadavg)
+# cpu_info 2026-10-15T03:32:42Z
+uname: Linux 6.8.0-139-generic x86_64
+cpu_model: AMD Ryzen 9 7950X3D 16-Core Processor
+isa_avx2: yes
+isa_avx512f: yes
+isa_avx512dq: yes
+isa_avx512vl: yes
+isa_avx512ifma: yes
+isa_bmi2: yes
+isa_adx: yes
+isa_fma: yes
+isa_sse4_2: yes
+isa_neon: no
+isa_sme: no
+logical_cpus: 32
+affinity: 0-31
+load_average:0.34 0.52 0.98 2/832 1197223
 benchmarks_running: no
-compiler: Apple clang version 17.0.0 (clang-1700.0.13.5)   [cc == clang == gcc, all Apple clang 17]
-cmake: cmake version 4.1.3
-make: GNU Make 3.81
+compiler_cc: cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+compiler_clang: Ubuntu clang version 18.1.3 (1ubuntu1)
+compiler_gcc: gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+cmake: cmake version 3.28.3
+make: GNU Make 4.3
 
-NOTE: JOB.md's TOOLCHAIN names "a Linux bench ... or an Apple silicon bench ... never the
-working Mac". This run is sandboxed onto an Intel iMac Pro (x86-64, Apple clang), not the
-Linux clad bench and not Apple-silicon. The numbers below are Apple-clang -O3 x86-64 and
-are what could be measured from inside the wall; they are NOT the clad-Linux or arm64
-numbers the card's acceptance names.
+This is the Linux bench JOB.md's TOOLCHAIN names (x86-64, avx2 + avx512f), not the working
+Mac and not Apple silicon. arm64 was not available from inside the wall; the numbers below
+are x86-64 only.
 
-## disassembly (objdump -d, -O3 -DNDEBUG -ffp-contract=off, Apple clang 17, x86-64)
+## disassembly (objdump -d, -O3 -DNDEBUG -ffp-contract=off)
 
-Compiled a function wrapper per arm (with -DFIX_SATURATE) and disassembled. Branch (jcc)
-vs conditional-move (cmov/setcc) verdict per arm:
+Per-arm jcc count for the saturating/clamp arms, clang 18.1.3 and gcc 13.3.0:
 
-  fixMul (FIX_SATURATE)      : 0 jcc ; two cmovgeq saturation selects. ALREADY BRANCHLESS.
-  fixDiv (FIX_SATURATE)      : the +-FIX_MAX tail is 2x cmovnsq (branchless). The jcc in the
-                               body (je at b==0, ja/je at the |a|<2^47 fast path, jl in the
-                               128-bit dispatch) are the divide dispatch and the div-by-zero
-                               guard, NOT the saturation select.
-  fixClamp / fixMin / fixMax : 0 jcc ; cmovlq/cmovgeq/cmovgq. ALREADY BRANCHLESS.
-  fixFloor / fixCeil         : pure and/mask, 0 jcc, 0 cmov.
-  fixQuantizeClamped         : 3 jcc (jae <-2^63, jae >=2^63, jl raw<minRaw). THE ONLY
+  fixMul (FIX_SATURATE)      : 0 jcc (clang and gcc) -- cmov saturation selects.
+  fixDiv (FIX_SATURATE)      : the +-FIX_MAX tail is cmov; the jcc in the body are the
+                               divide dispatch and the b==0 guard, not the saturation select.
+  fixClamp / fixMin / fixMax : 0 jcc (clang and gcc) -- cmov.
+  fixFloor / fixCeil         : pure and/mask, 0 jcc.
+  fixQuantizeClamped branchy : clang 3 jcc (2 jae, 1 jl); gcc 2 jcc (jae, jb). THE ONLY
                                conditional branch in the named set.
-  fix30FromFix / fix30FromDouble : 2 jcc each (jg/jl domain saturation) -- NOT in the
-                               card's named set.
+  fixQuantizeClamped branchless: clang 0 jcc; gcc 2 jcc (jb). clang fully cmov-lowers the
+                               rewrite; gcc 13.3 does not.
 
-So the hypothesis -- "the saturating arms ... use branches that mispredict" -- is falsified
-on this compiler/ISA for every named arithmetic arm EXCEPT fixQuantizeClamped: clang already
-lowers all the scalar ternaries to cmov/csel.
+## before/after: fixQuantizeClamped inline branchy vs inline branchless (Linux bench)
 
-## before/after: fixQuantizeClamped inline branchy vs inline branchless
+Custom always_inline A/B, same compiler/flags, xoshiro seed, 4096-input batch, 20,000,000
+iterations, scalar (dependent-chain latency) and batch (throughput). mode 0 = all in range;
+1 = 1% saturate; 2 = 50% saturate.
 
-Fair microbenchmark: both bodies always_inline, same compiler/flags, xoshiro seed,
-4096-input batch, 20,000,000 iterations, scalar (dependent-chain latency) and batch
-(throughput). mode 0 = all in range; 1 = 1% saturate; 2 = 50% saturate.
+gcc 13.3.0:
+  mode 0  lat_branchy=4.9431 lat_branchless=5.1125 (0.967x)  thr_branchy=0.8506 thr_branchless=1.0484 (0.811x)
+  mode 1  lat_branchy=4.5515 lat_branchless=4.7593 (0.956x)  thr_branchy=0.8542 thr_branchless=1.0698 (0.798x)
+  mode 2  lat_branchy=0.9959 lat_branchless=1.0000 (0.996x)  thr_branchy=0.7687 thr_branchless=0.7512 (1.023x)
 
-                branchy_lat  branchless_lat  speedup   branchy_thr  branchless_thr  speedup
-  mode 0       7.7993       4.8631          1.604     2.2764       2.8103          0.810
-  mode 1       8.0023       4.8871          1.637     2.3471       3.0121          0.779
-  mode 2       7.6749       4.8569          1.580     3.0424       6.2209          0.489
+clang 18.1.3:
+  mode 0  lat_branchy=2.2511 lat_branchless=1.6683 (1.349x)  thr_branchy=1.0287 thr_branchless=1.5054 (0.683x)
+  mode 1  lat_branchy=2.2301 lat_branchless=1.7093 (1.305x)  thr_branchy=1.0342 thr_branchless=1.5215 (0.680x)
+  mode 2  lat_branchy=1.2769 lat_branchless=1.6748 (0.762x)  thr_branchy=0.8817 thr_branchless=1.4785 (0.596x)
 
-Latency improves ~1.6x (the dependent chain benefits from no branch); throughput REGRESSES
-a large amount because the branchless form executes the double->int64 conversion (cvttsd2si)
-unconditionally every call, and the branchy form early-exits on a perfectly-predicted
-in-range branch. This is exactly the trap fixed3d's CLAUDE.md warned about: the OOO core
-hides the branch-fetch latency in the throughput loop, and removing the branch forces the
-conversion + clamp chain every time. For a mix where most lanes are in range, branchy wins.
+Latency improves on clang in-range (~1.3x) but regresses at 50% saturation (0.76x); gcc
+shows no latency win at all (the rewrite is not branchless under gcc). Throughput REGRESSES
+on both compilers (0.60-0.81x) because the branchless form executes the double->int64
+conversion unconditionally every call, where the branchy form early-exits on a
+perfectly-predicted in-range branch.
 
-## harness ab.sh
+## harness ab.sh (gcc 13.3.0, 7 interleaved repeats, 200000 iterations)
 
-benchmark/ab.sh . . (A/A) and the A/B could NOT print a timing table on this box: ab.sh
-compiles benchmark/oracle_check.c against the candidate and runs the FULL 50-million-draw
-oracle before emitting the table, and that full oracle exits non-zero here on six
-pre-existing, environment-only diffs (fixMulQuat, fixNormalizeQuat, fixRotateVector,
-fixInvRotateVector, fixNLerp, fixAABB_Transform) whose committed baseline was frozen on an
-AMD EPYC with gcc 15.2.0, not Apple clang 17 on a Xeon. None of those six is touched by,
-or related to, this change; the changed operation (fixQuantizeClamped) is not a row in the
-op_bench/oracle table at all. Relevant rows the oracle DID check, all ORACLE OK at HEAD:
-fixMul, fixDiv_below2p47, fixDiv_above2p47, fixQuantize, fixDequantize.
+benchmark/ab.sh baseline candidate. The changed operation fixQuantizeClamped is NOT a row in
+the op_bench/oracle table, so the harness A/B is a bit-exactness check only. Oracle compiled
+against the candidate:
 
-## oracle_check lines (from the two full runs against HEAD)
-
-  ORACLE OK   fixMul        ... hash=<unchanged>
-  ORACLE OK   fixDiv_below2p47 / fixDiv_above2p47
+  ORACLE OK   fixMul  count=50063756  hash=eb1995a6b21bf036
+  ORACLE OK   fixDiv_below2p47  count=50063756  hash=9519544a71a6aee9
+  ORACLE OK   fixDiv_above2p47  count=12563756  hash=679bdcc4e27fd523
+  ... (all 36 operations ORACLE OK) ...
   ORACLE OK   fixQuantize  count=50063756  hash=f27ed579335213a8
-  ORACLE OK   fixDequantize count=50063756  hash=1be2b75e26b7a4d1
-  ORACLE: 6 operation(s) differ from benchmark/oracle-baseline.txt   [pre-existing, env-only,
-            all six are vector/composite ops, none touched by this change; fail identically
-            at BASE with the change stashed]
+  ORACLE OK   fixDequantize  count=50063756  hash=1be2b75e26b7a4d1
+  ORACLE: all operations match benchmark/oracle-baseline.txt (base_random=50000000)
 
-## ctest summary (native + emulated, HEAD with the branchless change + the new equivalence test)
+Timing table (speedup = a_median / b_median; > 1 means candidate faster). Every row is
+inside its own spread; the changed op is absent:
+
+  fixMul                         scalar  1.004   batch  0.989
+  fixDiv_below2p47               scalar  1.006   batch  1.013
+  fixDiv_above2p47               scalar  1.009   batch  1.041
+  fixQuantize                    scalar  1.005   batch  0.859
+  fixDequantize                  scalar  1.003   batch  0.997
+  (all other rows ~1.0, none outside its spread)
+
+## ctest summary (native + emulated, HEAD with the branchless change + the fixed equivalence test)
 
   100% tests passed, 0 tests failed out of 38
     (36 pre-existing suites, all green; + saturation_branchless and
      saturation_branchless_saturated, both green).
+
+The reader's stack out-of-bounds finding is fixed: test/saturation_branchless_test.c now
+sizes the grid `G = 63*4 + 8` (260) to match the 8 + 63*4 entries the fill writes, instead
+of the old `G = 2*64 + 8` (136) that overflowed the stack and hung the tests under ctest.

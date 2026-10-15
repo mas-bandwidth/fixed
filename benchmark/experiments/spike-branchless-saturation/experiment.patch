@@ -63,7 +63,7 @@ index 6ac9e51..e7d23dd 100644
  
 diff --git a/test/saturation_branchless_test.c b/test/saturation_branchless_test.c
 new file mode 100644
-index 0000000..2184b1e
+index 0000000..3d89d73
 --- /dev/null
 +++ b/test/saturation_branchless_test.c
 @@ -0,0 +1,176 @@
@@ -151,7 +151,7 @@ index 0000000..2184b1e
 +{
 +	// Structured edge grid: 0, +-1, +-2^k, +-(2^k - 1), INT64_MIN/MAX, the saturation
 +	// values -- crossed with itself for the binary scalar ops.
-+	enum { G = 2 * 64 + 8 };
++	enum { G = 63 * 4 + 8 };
 +	static int64_t grid[G];
 +	{
 +		int g = 0;

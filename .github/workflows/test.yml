@@ -68,12 +68,18 @@ jobs:
   # scalar bit for bit on the first, and must select scalar and refuse FIXED_ISA=avx512 by
   # name on the second. Also checks that no AVX-512 or AVX instruction reached a baseline
   # object: only src/fixed_isa_avx512.c may contain one.
+  #
+  # Intel's SDE download can refuse a runner (HTTP 403 on 2026-10-15). Then the SDE steps
+  # say so and skip, and the runner's own CPU is the check instead: if it has AVX-512 the
+  # avx512 variant must RUN natively. A runner with neither warns that avx512 went unchecked.
   isa-x86:
     name: isa-x86 (SDE)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: petarpetrovt/setup-sde@v2.4
+        id: sde
+        continue-on-error: true
         with:
           environmentVariableName: SDE_PATH
       - name: Build
@@ -88,12 +94,28 @@ jobs:
             fi
           done
           objdump -d --no-show-raw-insn build/CMakeFiles/fixed.dir/src/fixed_isa_avx512.c.o | grep -q zmm
+      - name: AVX-512 on the runner itself, when SDE is unavailable
+        if: steps.sde.outcome != 'success'
+        run: |
+          echo "SDE unavailable on this runner; checking the native CPU instead"
+          if ! grep -qw avx512dq /proc/cpuinfo; then
+            # Runner hardware is assigned per job; failing here would make CI red at random.
+            # Say it loudly instead: the ubuntu matrix arm runs the same test, and on the
+            # AVX-512 runners it usually gets, avx512 RAN is printed there.
+            echo "::warning::no SDE (download refused) and no AVX-512 on this runner: avx512 unchecked in this job"
+            exit 0
+          fi
+          build/fixed_isa_dispatch_test 1000000 | tee native.txt
+          grep -q '^VARIANT avx512 RAN' native.txt
+          build/fixed_op_bench 1 10 fixMul | head -1 | grep '^# isa: avx512'
       - name: AVX-512 emulated (Sapphire Rapids)
+        if: steps.sde.outcome == 'success'
         run: |
           "$SDE_PATH/sde64" -spr -- build/fixed_isa_dispatch_test 200000 | tee spr.txt
           grep -q '^VARIANT avx512 RAN' spr.txt
           "$SDE_PATH/sde64" -spr -- build/fixed_op_bench 1 10 fixMul | head -1 | grep '^# isa: avx512'
       - name: No AVX-512 (Haswell) selects scalar
+        if: steps.sde.outcome == 'success'
         run: |
           "$SDE_PATH/sde64" -hsw -- build/fixed_isa_dispatch_test 200000 | tee hsw.txt
           grep -q '^VARIANT avx512 SKIP host lacks' hsw.txt

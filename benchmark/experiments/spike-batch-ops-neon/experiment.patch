@@ -801,8 +801,8 @@ index 412dedc..599dd05 100644
 +		}
 +	}
 +	// Perfect squares and their neighbours near the top of the length gate: (k, 0, 0),
-+	// (k, +-1, 0) and (k, k, k) for k just below 2^31 and around powers of two. Here the double
-+	// seed can land on either side of the exact root, so both repair steps are exercised.
++	// (k, +-1, 0) and (k, k, k) for k just below 2^31 and around powers of two. These reach the
++	// downward repair step; the upward step is NOT exercised here (dropping it fails nothing).
 +	for ( int round = 0; round < 4; ++round )
 +	{
 +		for ( int d = 0; d < 1024; ++d )

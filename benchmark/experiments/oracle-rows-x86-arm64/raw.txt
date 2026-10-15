@@ -1,0 +1,66 @@
+# oracle-rows-identical-on-x86-64-and-arm64, 2026-10-15. BASE = sprint/fixed-perf ac247f7137eb4756eb00eeecead00b163d639627.
+# Same source, same flags on every bench: cmake -DCMAKE_BUILD_TYPE=Release -DFIX_BUILD_BENCHMARKS=ON (CMakeLists adds -ffp-contract=off).
+# x86-64 bench: hetzner2, Ubuntu 24.04, GCC 13.3.0 (and clang 18.1.3 as a cross-check). arm64 bench: Studio, Apple M3 Ultra, Apple clang 21.0.0.
+# load: hetzner2 uptime load 0.03-1.71 across all runs; Studio load 10.8-23.4 (shared machine, owner's 11:30Z arm64 exception, one run at a time).
+
+## STEP 1. First differing input per row, unchanged BASE, `fixed_oracle_check --dump <op> 0 <segment-0 end>` diffed line by line.
+## Inputs 0..63756 are the edge grid (252), the cross grid (252^2) and the one exhaustive-0 input; index 63757 is the FIRST RANDOM-STREAM input.
+## Every quaternion row agrees through 63756 and differs at 63757. Native and emulated dumps are byte-identical on each machine.
+fixNormalizeQuat   first diff index 63757
+  arm 63757 in0=-51958 in1=-9192 in2=38755 in3=2967 out0=18446744073709499658 out1=18446744073709542424 out2=38755 out3=2967
+  x86 63757 in0=38755 in1=2967 in2=-51958 in3=-9192 out0=38755 out1=2967 out2=18446744073709499658 out3=18446744073709542424
+fixMulQuat         first diff index 63757
+  arm 63757 in0=-51958 in1=-9192 in2=38755 in3=2967 in4=27420 in5=-49324 in6=-21162 in7=-25736 out0=53781 out1=814 out2=26774 out3=26170
+  x86 63757 in0=38755 in1=2967 in2=-51958 in3=-9192 in4=-21162 in5=-25736 in6=27420 in7=-49324 out0=18446744073709506254 out1=1939 out2=20998 out3=42337
+fixRotateVector    first diff index 63757
+  arm 63757 in0=-51958 in1=-9192 in2=38755 in3=2967 in4=-103599 in5=85752 in6=193967 out0=18446744073709354691 out1=18446744073709422752 out2=17943
+  x86 63757 in0=38755 in1=2967 in2=-51958 in3=-9192 in4=-103599 in5=85752 in6=193967 out0=18446744073709379857 out1=18446744073709459256 out2=132959
+fixInvRotateVector first diff index 63757
+  arm 63757 in0=-51958 in1=-9192 in2=38755 in3=2967 in4=-103599 in5=85752 in6=193967 out0=18446744073709368799 out1=18446744073709405996 out2=32885
+  x86 63757 in0=38755 in1=2967 in2=-51958 in3=-9192 in4=-103599 in5=85752 in6=193967 out0=18446744073709422927 out1=18446744073709440986 out2=164037
+fixNLerp           first diff index 63757
+  arm 63757 in0=-51958 in1=-9192 in2=38755 in3=2967 in4=27420 in5=-49324 in6=-21162 in7=-25736 in8=4015 out0=52180 out1=5798 out2=18446744073709512651 out3=18446744073709547105
+  x86 63757 in0=38755 in1=2967 in2=-51958 in3=-9192 in4=-21162 in5=-25736 in6=27420 in7=-49324 in8=4015 out0=18446744073709512651 out1=18446744073709547105 out2=52180 out3=5798
+fixAABB_Transform  first diff index 63757
+  arm 63757 in0=-51958 in1=-9192 in2=38755 in3=2967 in4=-103599 in5=85752 in6=193967 in7=374642 in8=422611 in9=445376 in10=121157 in11=469882 in12=436955
+  x86 63757 in0=38755 in1=2967 in2=-51958 in3=-9192 in4=-103599 in5=85752 in6=193967 in7=374642 in8=422611 in9=445376 in10=121157 in11=469882 in12=436955
+  (the quaternion slots are the two halves swapped; translation/centre/extent slots are identical)
+fixQuantize        first diff index 1767 (cross grid), 268 differing lines in the first 20000
+  arm 1767 in0=9223372036854775807 in1=65537 out0=9223372036854775807   (INT64_MAX, fcvtzs saturates)
+  x86 1767 in0=9223372036854775807 in1=65537 out0=9223372036854775808   (INT64_MIN, cvttsd2si "integer indefinite")
+  arm 2019 in0=-9223372036854775808 in1=65537 out0=9223372036854775809  (-INT64_MAX)
+  x86 2019 in0=-9223372036854775808 in1=65537 out0=9223372036854775808  (INT64_MIN)
+  The INPUTS are identical on both; the scaled value 9.2235127743431311e+18 is >= 2^63, so the conversion is undefined (C11 6.3.1.4p1).
+
+## STEP 2. Minimal reproducer (repro.c, 12 lines: take( draw(), draw() ) and the fixQuantize body at in0=INT64_MAX, in1=65537), cc -O2 -ffp-contract=off:
+arm64  Apple clang 21.0.0     argument order: r0=draw#1 r1=draw#2   fixQuantize out=9223372036854775807
+x86-64 GCC 13.3.0             argument order: r0=draw#2 r1=draw#1   fixQuantize out=9223372036854775808
+x86-64 Ubuntu clang 18.1.3    argument order: r0=draw#1 r1=draw#2   fixQuantize out=9223372036854775808
+=> argument order follows the COMPILER (clang left-to-right, GCC right-to-left); the overflowing conversion follows the ARCHITECTURE.
+
+Unchanged BASE oracle built with clang 18 on x86-64 (hetzner2), --op per row:
+ORACLE FAIL fixMulQuat: hash 89460e7fdc0afa12, baseline ff696a9b57ac0860
+ORACLE FAIL fixNormalizeQuat: hash c5c7a65be194eb17, baseline 5e439ba2ea83daeb
+ORACLE FAIL fixRotateVector: hash 10e435cf24ccc1e3, baseline 64afce887683c703
+ORACLE FAIL fixInvRotateVector: hash 6f67b302b04a739b, baseline a7d02b0685663640
+ORACLE FAIL fixNLerp: hash e5e48786b2a432ba, baseline 315cf27e3e31527e
+ORACLE FAIL fixAABB_Transform: hash da3ead85eb02e6aa, baseline d105925232ba6473
+ORACLE OK   fixQuantize  count=50063756  hash=f27ed579335213a8
+=> the six quaternion hashes are EXACTLY the arm64 hashes of the NEON spike run (neon-w10 oracle-full.log), on x86-64. fixQuantize matches x86-64 GCC.
+
+## STEP 3. Fix in benchmark/oracle.c only (no src/ or include/ change, no test/ hash touched):
+##   oracleQuatDraw(): the two draws sequenced into locals, r1 then r0 (the GCC order the baseline was written by).
+##   fillQuantizeInDomain(): fixQuantize's fill halves the raw value toward zero until |value*scale|+0.5 < 2^63. fixDequantize keeps fillQuantize.
+x86-64 GCC 13.3.0, fixed tree vs the UNCHANGED baseline, full oracle:
+  native:   30 rows OK, 1 FAIL: fixQuantize hash 8100e7c61c94a956 (expected: its input set changed)   real 2m05.5s
+  emulated: 30 rows OK, 1 FAIL: fixQuantize hash 8100e7c61c94a956                                   real 4m02.8s
+  => the six quaternion rows and every other row are unchanged on x86-64.
+arm64 Apple clang 21, fixed tree vs the unchanged baseline, full oracle:
+  native:   30 rows OK, 1 FAIL: fixQuantize hash 8100e7c61c94a956, segments a11287fa8713863a ... 98d208004aeeaa77 (same 16 segments as x86-64)   1:57.6
+  emulated: 30 rows OK, 1 FAIL: fixQuantize hash 8100e7c61c94a956, same segments                                                                  4:00.9
+x86-64 clang 18, fixed tree: the six quaternion rows OK at the baseline hashes, fixQuantize 8100e7c61c94a956, fixDequantize OK 1be2b75e26b7a4d1.
+Both architectures (and both compilers on x86-64) agree on fixQuantize=8100e7c61c94a956, so ONLY that row was regenerated
+(fixed_oracle_check --op fixQuantize --write on x86-64 GCC, spliced into line 35):
+  fixQuantize 50063756 f27ed579335213a8 -> 8100e7c61c94a956
+After the splice: x86-64 native full oracle "ORACLE: all operations match" (31 rows OK); --op fixQuantize matches on x86-64 emulated, arm64 native, arm64 emulated.
+ctest, fixed tree: x86-64 GCC 100% of 36 passed; arm64 Apple clang 100% of 36 passed (oracle_unit's frozen fixQuantize prefix hash 0x22e364f7b025cf17 unchanged: the first 1000 inputs have scale 1 and are all in domain).

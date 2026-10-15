@@ -197,6 +197,20 @@ static fixQuat oracleQuat( fixOracleRng* rng_or_null, uint64_t r0, uint64_t r1 )
 	return q;
 }
 
+// Draw the two words of a random quaternion in a SEQUENCED order. The draws used to be
+// written as two arguments of one call, oracleQuat( NULL, next( rng ), next( rng ) ), and
+// C leaves the order of evaluation of function arguments unspecified (C11 6.5.2.2p10):
+// GCC 13 on x86-64 drew the second argument first, Apple clang 21 on arm64 drew the first
+// argument first, so the two machines hashed the same operation over swapped quaternions
+// and six rows disagreed (benchmark/findings/oracle-rows-x86-arm64.md). The baseline
+// was written by the GCC order, so that order is the one kept: r1 is drawn, then r0.
+static fixQuat oracleQuatDraw( fixOracleRng* rng )
+{
+	const uint64_t r1 = oracleRngNext( rng );
+	const uint64_t r0 = oracleRngNext( rng );
+	return oracleQuat( NULL, r0, r1 );
+}
+
 static fixQuat oracleQuatFrom( int64_t a, int64_t b, int64_t c, int64_t d )
 {
 	fixQuat raw = { { a, b, c }, d };
@@ -210,6 +224,25 @@ static fixQuat oracleQuatFrom( int64_t a, int64_t b, int64_t c, int64_t d )
 }
 
 static fixed_t oracleAlpha( uint64_t r ) { return (fixed_t)( r % (uint64_t)( FIX_ONE + 1 ) ); }
+
+// fixQuantize's domain: the rounded scaled value must fit int64_t. Outside it the
+// double-to-int64 conversion is undefined behaviour (C11 6.3.1.4p1) and the hardware
+// answers differ: x86-64 cvttsd2si returns INT64_MIN, arm64 fcvtzs saturates to
+// INT64_MAX. The oracle polices output bits over inputs the operation's contract accepts,
+// so a raw value whose scaled magnitude would leave int64_t is halved (toward zero) until
+// it is inside. The test is the same double arithmetic applyQuantize and fixQuantize do,
+// which is IEEE-754 and identical everywhere, so the input set is the same on every target.
+static int64_t oracleQuantizeInRange( int64_t raw, int64_t scaleSlot )
+{
+	const int64_t scale = scaleSlot > 0 ? scaleSlot : 1;
+	for ( ;; )
+	{
+		const double scaled = ( ( double )raw / ( double )FIX_ONE ) * ( double )scale;
+		const double rounded = scaled >= 0.0 ? scaled + 0.5 : -scaled + 0.5;
+		if ( rounded < 9223372036854775808.0 ) return raw;
+		raw /= 2;
+	}
+}
 
 static fixVec3 oracleVec( int64_t a, int64_t b, int64_t c )
 {
@@ -497,7 +530,7 @@ static void applyNormalize( const fixOracleInput* in, fixOracleOutput* out )
 static void fillQuat( fixOracleInput* in, uint64_t index, fixOracleRng* rng )
 {
 	( void )index;
-	fixQuat q = oracleQuat( NULL, oracleRngNext( rng ), oracleRngNext( rng ) );
+	fixQuat q = oracleQuatDraw( rng );
 	in->s[0] = q.v.x;
 	in->s[1] = q.v.y;
 	in->s[2] = q.v.z;
@@ -506,8 +539,8 @@ static void fillQuat( fixOracleInput* in, uint64_t index, fixOracleRng* rng )
 static void fillQuatx2( fixOracleInput* in, uint64_t index, fixOracleRng* rng )
 {
 	( void )index;
-	fixQuat a = oracleQuat( NULL, oracleRngNext( rng ), oracleRngNext( rng ) );
-	fixQuat b = oracleQuat( NULL, oracleRngNext( rng ), oracleRngNext( rng ) );
+	fixQuat a = oracleQuatDraw( rng );
+	fixQuat b = oracleQuatDraw( rng );
 	in->s[0] = a.v.x;
 	in->s[1] = a.v.y;
 	in->s[2] = a.v.z;
@@ -531,7 +564,7 @@ static void applyNormalizeQuat( const fixOracleInput* in, fixOracleOutput* out )
 static void fillQuatVec( fixOracleInput* in, uint64_t index, fixOracleRng* rng )
 {
 	( void )index;
-	fixQuat q = oracleQuat( NULL, oracleRngNext( rng ), oracleRngNext( rng ) );
+	fixQuat q = oracleQuatDraw( rng );
 	in->s[0] = q.v.x;
 	in->s[1] = q.v.y;
 	in->s[2] = q.v.z;
@@ -604,7 +637,7 @@ static void applySolve3( const fixOracleInput* in, fixOracleOutput* out )
 static void fillAABBTransform( fixOracleInput* in, uint64_t index, fixOracleRng* rng )
 {
 	( void )index;
-	fixQuat q = oracleQuat( NULL, oracleRngNext( rng ), oracleRngNext( rng ) );
+	fixQuat q = oracleQuatDraw( rng );
 	in->s[0] = q.v.x;
 	in->s[1] = q.v.y;
 	in->s[2] = q.v.z;
@@ -652,6 +685,14 @@ static void fillQuantize( fixOracleInput* in, uint64_t index, fixOracleRng* rng 
 	in->s[0] = ( int64_t )oracleRngNext( rng );
 	in->s[1] = ( int64_t )( oracleRngNext( rng ) % 1000000 ) + 1; // scale > 0, per the contract
 }
+// fixQuantize's own fill: the same draws, then the raw value pulled inside the domain
+// where the conversion is defined. fixDequantize keeps fillQuantize, whose every input
+// is already in its domain, so its row does not move.
+static void fillQuantizeInDomain( fixOracleInput* in, uint64_t index, fixOracleRng* rng )
+{
+	fillQuantize( in, index, rng );
+	in->s[0] = oracleQuantizeInRange( in->s[0], in->s[1] );
+}
 static void applyQuantize( const fixOracleInput* in, fixOracleOutput* out )
 {
 	double value = ( double )in->s[0] / ( double )FIX_ONE;
@@ -694,7 +735,7 @@ static const fixOracleOp oracleOps[] = {
 	{ "fixInvertMatrix", 9, 100, 0, fillMatrix, applyInvertMatrix },
 	{ "fixSolve3", 12, 100, 0, fillSolve3, applySolve3 },
 	{ "fixAABB_Transform", 13, 20, 0, fillAABBTransform, applyAABBTransform },
-	{ "fixQuantize", 2, 1, 0, fillQuantize, applyQuantize },
+	{ "fixQuantize", 2, 1, 0, fillQuantizeInDomain, applyQuantize },
 	{ "fixDequantize", 2, 1, 0, fillQuantize, applyDequantize },
 };
 
@@ -798,8 +839,10 @@ static void oracleFillRest( const fixOracleOp* op, fixOracleInput* in, uint64_t 
 	for ( int slot = 0; slot < op->arity; ++slot )
 	{
 		if ( op->fill == fillNLerp && slot == 8 ) in->s[slot] = oracleAlpha( ( uint64_t )in->s[slot] );
-		if ( op->fill == fillQuantize && slot == 1 ) in->s[slot] = ( in->s[slot] % 1000000 ) + 1;
+		if ( ( op->fill == fillQuantize || op->fill == fillQuantizeInDomain ) && slot == 1 )
+			in->s[slot] = ( in->s[slot] % 1000000 ) + 1;
 	}
+	if ( op->fill == fillQuantizeInDomain ) in->s[0] = oracleQuantizeInRange( in->s[0], in->s[1] );
 	if ( op->fill == fillQuat || op->fill == fillQuatx2 || op->fill == fillQuatVec || op->fill == fillNLerp ||
 		 op->fill == fillAABBTransform )
 	{

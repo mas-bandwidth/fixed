@@ -1,0 +1,263 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 6c7f627..3531296 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -113,6 +113,22 @@ if (NOT WIN32)
+ endif()
+ add_test(NAME isa_dispatch_saturated COMMAND fixed_isa_dispatch_saturated_test 1000000)
+ 
++# THE fixMul FITS-64 ARM (aarch64 only, compile-time): fixMul, fixMulBatch tails and fixCross
++# against the compiler's own __int128 reference, over the edge grid, the gate boundary and
++# 100 million seeded full-width plus 100 million magnitude-stratified pairs. On aarch64 the
++# native build FAILS if the arm is absent; the emulated and saturated twins pin it absent.
++add_executable(fixed_fixmul_fits64_arm64_test test/fixmul_fits64_arm64_test.c)
++target_link_libraries(fixed_fixmul_fits64_arm64_test PRIVATE fixed)
++add_test(NAME FixMulFits64Arm64EquivalenceTest COMMAND fixed_fixmul_fits64_arm64_test)
++
++add_executable(fixed_fixmul_fits64_arm64_saturated_test test/fixmul_fits64_arm64_test.c ${FIX_SOURCES})
++target_include_directories(fixed_fixmul_fits64_arm64_saturated_test PRIVATE include)
++target_compile_definitions(fixed_fixmul_fits64_arm64_saturated_test PRIVATE FIX_SATURATE)
++if (NOT WIN32)
++    target_link_libraries(fixed_fixmul_fits64_arm64_saturated_test PRIVATE m)
++endif()
++add_test(NAME FixMulFits64Arm64EquivalenceTest_saturated COMMAND fixed_fixmul_fits64_arm64_saturated_test 10000000)
++
+ add_executable(fixed_aabb_test test/aabb_test.c)
+ target_link_libraries(fixed_aabb_test PRIVATE fixed)
+ add_test(NAME aabb COMMAND fixed_aabb_test)
+@@ -299,6 +315,10 @@ if (TARGET fixed_emulated)
+     target_link_libraries(fixed_batch_emulated_test PRIVATE fixed_emulated)
+     add_test(NAME batch_emulated COMMAND fixed_batch_emulated_test)
+ 
++    add_executable(fixed_fixmul_fits64_arm64_emulated_test test/fixmul_fits64_arm64_test.c)
++    target_link_libraries(fixed_fixmul_fits64_arm64_emulated_test PRIVATE fixed_emulated)
++    add_test(NAME FixMulFits64Arm64EquivalenceTest_emulated COMMAND fixed_fixmul_fits64_arm64_emulated_test 10000000)
++
+     add_executable(fixed_isa_dispatch_emulated_test test/isa_dispatch_test.c benchmark/oracle.c)
+     target_link_libraries(fixed_isa_dispatch_emulated_test PRIVATE fixed_emulated)
+     add_test(NAME isa_dispatch_emulated COMMAND fixed_isa_dispatch_emulated_test 10000000)
+diff --git a/include/fixed/fixed.h b/include/fixed/fixed.h
+index a76db23..514aa47 100644
+--- a/include/fixed/fixed.h
++++ b/include/fixed/fixed.h
+@@ -197,8 +197,30 @@ FIX_ALWAYS_INLINE fixInt128 fixInt128Div( fixInt128 a, fixInt128 b )
+ /// compiling fixed3d's 83 optimized objects each way and finding them byte-identical.
+ /// The saturation tail deliberately stays on the seam: it is off by default, cold when
+ /// on, and duplicating it would buy nothing.
++// The fixMul fits-64 arm is compile-time and aarch64-only: there the 128-bit product is MUL
++// plus SMULH, and a proven-small product is one MUL. x86-64 is excluded (measured 0.43x in
++// spike-fixmul-product-fits-64-arm: imul already writes rdx:rax). Native int128 arm only; the
++// emulated arm and FIX_SATURATE keep the unchanged route.
++#if ( defined( __aarch64__ ) || defined( __arm64__ ) ) && !defined( FIX_SATURATE ) && !defined( FIX_FORCE_EMULATED_INT128 ) && !defined( _MSC_VER )
++	#define FIX_MUL_FITS64_ARM64 1
++	FIX_ALWAYS_INLINE int fixClz64( uint64_t x )
++	{
++		return x == 0 ? 64 : __builtin_clzll( x );
++	}
++#endif
++
+ FIX_ALWAYS_INLINE fixed_t fixMul( fixed_t a, fixed_t b )
+ {
++#if defined( FIX_MUL_FITS64_ARM64 )
++	// When clz(|a|) + clz(|b|) >= 65, |a|*|b| < 2^63 - 2^15, so one 64-bit multiply, add
++	// and arithmetic shift is bit-identical to the 128-bit route below.
++	{
++		uint64_t ua = a < 0 ? -(uint64_t)a : (uint64_t)a;
++		uint64_t ub = b < 0 ? -(uint64_t)b : (uint64_t)b;
++		if ( fixClz64( ua ) + fixClz64( ub ) >= 65 )
++			return (fixed_t)( (int64_t)( (uint64_t)( a * b ) + (uint64_t)FIX_HALF ) >> FIX_FRACTION_BITS );
++	}
++#endif
+ 	// Round half up, then shift out the fraction bits (arithmetic shift)
+ #if FIX_INT128_EMULATED
+ 	fixInt128 product = fixInt128MulI64( a, b );
+diff --git a/test/fixmul_fits64_arm64_test.c b/test/fixmul_fits64_arm64_test.c
+new file mode 100644
+index 0000000..7f681b4
+--- /dev/null
++++ b/test/fixmul_fits64_arm64_test.c
+@@ -0,0 +1,184 @@
++// SPDX-FileCopyrightText: 2026 Más Bandwidth LLC
++// SPDX-License-Identifier: MIT
++// FixMulFits64Arm64EquivalenceTest: on aarch64 fixMul takes a one-MUL arm when
++// clz(|a|) + clz(|b|) >= 65, and must be bit-identical to the compiler's own __int128
++// reference on every input. Held against an independent reference (not the library's seam):
++// the structured edge grid crossed with itself, the gate-boundary products, 100 million
++// seeded full-width pairs, 100 million seeded magnitude-stratified pairs (so the fast arm
++// is taken about half the time), fixMulBatch over every tail length at unaligned pointers,
++// and fixCross. No clock: work is counted, never timed. The seeded count is argument 1.
++//
++// RED AT BASE: on aarch64, a native non-saturated build with no FIX_MUL_FITS64_ARM64 fails
++// with "fits-64 arm absent". The emulated and FIX_SATURATE builds keep the unchanged route,
++// so there the macro must be ABSENT.
++#include "fixed/fixed.h"
++#include "fixed/fixed_isa.h"
++#include "fixed/fixed_vec.h"
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++
++#if !defined( __SIZEOF_INT128__ )
++int main( void ) { printf( "FixMulFits64Arm64EquivalenceTest SKIP: no native __int128 reference\n" ); return 0; }
++#else
++typedef __int128 refInt128;
++static int fails;
++#define CHECK( cond ) \
++	do { if ( !( cond ) ) { if ( fails < 10 ) printf( "FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond ); fails++; } } while ( 0 )
++
++static fixed_t refMul( fixed_t a, fixed_t b )
++{
++	refInt128 r = ( refInt128 )( ( unsigned __int128 )( ( refInt128 )a * b ) + ( unsigned __int128 )( refInt128 )FIX_HALF ) >> FIX_FRACTION_BITS;
++#if defined( FIX_SATURATE )
++	if ( r > ( refInt128 )INT64_MAX ) return FIX_MAX;
++	if ( r < -( refInt128 )INT64_MAX ) return FIX_MIN;
++#endif
++	return ( fixed_t )( int64_t )r;
++}
++
++static int gateTaken( fixed_t a, fixed_t b )
++{
++	uint64_t ua = a < 0 ? -( uint64_t )a : ( uint64_t )a;
++	uint64_t ub = b < 0 ? -( uint64_t )b : ( uint64_t )b;
++	int ca = ua ? __builtin_clzll( ua ) : 64, cb = ub ? __builtin_clzll( ub ) : 64;
++	return ca + cb >= 65;
++}
++
++static uint64_t s = UINT64_C( 0x9E3779B97F4A7C15 );
++static uint64_t nextRand( void )
++{
++	s = s * UINT64_C( 6364136223846793005 ) + UINT64_C( 1442695040888963407 );
++	uint64_t x = s;
++	x ^= x >> 33; x *= UINT64_C( 0xff51afd7ed558ccd ); x ^= x >> 33;
++	return x;
++}
++
++int main( int argc, char** argv )
++{
++	const long long seeded = argc > 1 ? atoll( argv[1] ) : 100000000LL;
++#if defined( __aarch64__ ) || defined( __arm64__ )
++	#if defined( FIX_MUL_FITS64_ARM64 )
++		#if defined( FIX_SATURATE ) || defined( FIX_FORCE_EMULATED_INT128 )
++			printf( "FixMulFits64Arm64EquivalenceTest FAIL: arm present in a build that must keep the unchanged route\n" );
++			return 1;
++		#endif
++	#elif !defined( FIX_SATURATE ) && !defined( FIX_FORCE_EMULATED_INT128 )
++		printf( "FixMulFits64Arm64EquivalenceTest FAIL: aarch64 native build but the fits-64 arm absent (FIX_MUL_FITS64_ARM64 undefined)\n" );
++		return 1;
++	#endif
++#endif
++	long long taken = 0, total = 0;
++
++	// 1. the structured grid crossed with itself
++	static int64_t grid[4 * 64 + 8];
++	int gn = 0;
++	grid[gn++] = 0; grid[gn++] = 1; grid[gn++] = -1;
++	for ( int k = 0; k <= 63; ++k )
++	{
++		int64_t p = ( int64_t )( ( uint64_t )1 << k );
++		grid[gn++] = p; grid[gn++] = -p; grid[gn++] = p - 1; grid[gn++] = -( p - 1 );
++	}
++	grid[gn++] = INT64_MIN; grid[gn++] = INT64_MAX;
++	for ( int i = 0; i < gn; ++i )
++		for ( int j = 0; j < gn; ++j )
++		{
++			CHECK( fixMul( grid[i], grid[j] ) == refMul( grid[i], grid[j] ) );
++			taken += gateTaken( grid[i], grid[j] ); total++;
++		}
++
++	// 2. the gate boundary: products at 2^62, 2^63 - 2^15 - 1, 2^63 - 2^15, factor splits
++	{
++		int64_t bp[] = { ( int64_t )( ( uint64_t )1 << 62 ), ( int64_t )( ( ( uint64_t )1 << 63 ) - ( uint64_t )FIX_HALF - 1 ),
++						 ( int64_t )( ( ( uint64_t )1 << 63 ) - ( uint64_t )FIX_HALF ) };
++		for ( int i = 0; i < 3; ++i )
++		{
++			int64_t P = bp[i];
++			int64_t as[] = { 1, -1, P, -P, 2, -2, P / 2, -( P / 2 ), 1LL << 31, -( 1LL << 31 ), ( 1LL << 31 ) + 1, ( 1LL << 31 ) - 1 };
++			int64_t bs[] = { P, -P, 1, -1, P / 2, -( P / 2 ), 2, -2, 1LL << 31, -( 1LL << 31 ), ( 1LL << 31 ) + 1, ( 1LL << 31 ) - 1 };
++			for ( int x = 0; x < 12; ++x )
++				for ( int y = 0; y < 12; ++y )
++				{
++					CHECK( fixMul( as[x], bs[y] ) == refMul( as[x], bs[y] ) );
++					taken += gateTaken( as[x], bs[y] ); total++;
++				}
++		}
++		// every split of a product just under the limit across two factors
++		for ( int k = 1; k < 63; ++k )
++		{
++			uint64_t lo = ( uint64_t )1 << k;
++			for ( int64_t d = -2; d <= 2; ++d )
++			{
++				int64_t a = ( int64_t )( lo + d ), b = ( int64_t )( ( ( ( uint64_t )1 << 63 ) / lo ) + d );
++				CHECK( fixMul( a, b ) == refMul( a, b ) );
++				CHECK( fixMul( -a, b ) == refMul( -a, b ) );
++				taken += gateTaken( a, b ); total += 1;
++			}
++		}
++	}
++
++	// 3. seeded full-width pairs, then magnitude-stratified pairs
++	for ( long long i = 0; i < seeded; ++i )
++	{
++		fixed_t a = ( fixed_t )( int64_t )nextRand(), b = ( fixed_t )( int64_t )nextRand();
++		CHECK( fixMul( a, b ) == refMul( a, b ) );
++		taken += gateTaken( a, b ); total++;
++	}
++	for ( long long i = 0; i < seeded; ++i )
++	{
++		uint64_t r = nextRand();
++		fixed_t a = ( fixed_t )( int64_t )( nextRand() >> ( r & 63 ) );
++		fixed_t b = ( fixed_t )( int64_t )( nextRand() >> ( ( r >> 8 ) & 63 ) );
++		if ( r & ( 1u << 16 ) ) a = -a;
++		if ( r & ( 1u << 17 ) ) b = -b;
++		CHECK( fixMul( a, b ) == refMul( a, b ) );
++		taken += gateTaken( a, b ); total++;
++	}
++
++	// 4. fixMulBatch: every tail length 0..70 at an unaligned offset, mixed magnitudes
++	{
++		enum { CAP = 80 };
++		static fixed_t A[CAP + 1], B[CAP + 1], O[CAP + 1];
++		for ( int rep = 0; rep < 2000; ++rep )
++		{
++			for ( int i = 0; i < CAP; ++i )
++			{
++				uint64_t r = nextRand();
++				A[i + 1] = ( fixed_t )( int64_t )( nextRand() >> ( r & 63 ) );
++				B[i + 1] = ( fixed_t )( int64_t )( nextRand() >> ( ( r >> 8 ) & 63 ) ) * ( ( r & 1 ) ? -1 : 1 );
++			}
++			for ( int n = 0; n <= 70; ++n )
++			{
++				fixMulBatch( O + 1, A + 1, B + 1, ( size_t )n );
++				for ( int i = 0; i < n; ++i ) CHECK( O[i + 1] == refMul( A[i + 1], B[i + 1] ) );
++			}
++		}
++	}
++
++	// 5. fixCross (three-term products through fixMul) against the reference products
++	for ( long long i = 0; i < seeded / 10; ++i )
++	{
++		uint64_t r = nextRand();
++		fixed_t v[6];
++		for ( int k = 0; k < 6; ++k ) v[k] = ( fixed_t )( int64_t )( nextRand() >> ( ( r >> ( k * 6 ) ) & 63 ) );
++		fixVec3 a = { v[0], v[1], v[2] }, b = { v[3], v[4], v[5] };
++		fixVec3 c = fixCross( a, b );
++		CHECK( c.x == ( fixed_t )( ( uint64_t )refMul( a.y, b.z ) - ( uint64_t )refMul( a.z, b.y ) ) );
++		CHECK( c.y == ( fixed_t )( ( uint64_t )refMul( a.z, b.x ) - ( uint64_t )refMul( a.x, b.z ) ) );
++		CHECK( c.z == ( fixed_t )( ( uint64_t )refMul( a.x, b.y ) - ( uint64_t )refMul( a.y, b.x ) ) );
++	}
++
++	if ( fails )
++	{
++		printf( "FixMulFits64Arm64EquivalenceTest FAIL: %d mismatches\n", fails );
++		return 1;
++	}
++	printf( "FixMulFits64Arm64EquivalenceTest PASS: arm %s, %lld scalar pairs checked, fast gate taken on %lld (%.1f%%)\n",
++#if defined( FIX_MUL_FITS64_ARM64 )
++			"PRESENT",
++#else
++			"absent (unchanged route)",
++#endif
++			total, taken, total ? 100.0 * ( double )taken / ( double )total : 0.0 );
++	return 0;
++}
++#endif

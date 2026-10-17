@@ -734,6 +734,149 @@ static void applyDequantize( const fixOracleInput* in, fixOracleOutput* out )
 	ORACLE_OUT1( out, oracleDoubleBits( fixDequantize( in->s[0], scale ) ) );
 }
 
+// --- geometry: the wide matrix arms and transform/quaternion helpers ---
+// The wide matrix functions take the same in-domain matrix the 128-bit rows do: a
+// well-conditioned draw, and one input in eight with two columns nearly dependent so
+// the near-singular slice is hashed as well.
+static void fillMatrixWide( fixOracleInput* in, uint64_t index, fixOracleRng* rng )
+{
+	fillMatrix( in, index, rng );
+	if ( index % 8 == 0 )
+	{
+		in->s[6] = in->s[3];
+		in->s[7] = in->s[4];
+		in->s[8] = in->s[5] + 1; // third column = second + one quantum
+	}
+}
+static void fillSolve3Wide( fixOracleInput* in, uint64_t index, fixOracleRng* rng )
+{
+	fillMatrixWide( in, index, rng );
+	for ( int i = 9; i < 12; ++i )
+	{
+		uint64_t r = oracleRngNext( rng );
+		in->s[i] = ( int64_t )( r % 1048577 ) - 524288;
+	}
+}
+static void applyInvertMatrixWide( const fixOracleInput* in, fixOracleOutput* out )
+{
+	fixMatrix3 m = { { in->s[0], in->s[1], in->s[2] }, { in->s[3], in->s[4], in->s[5] }, { in->s[6], in->s[7], in->s[8] } };
+	ORACLE_OUT_MAT( out, fixInvertMatrixWide( m ) );
+}
+static void applySolve3Wide( const fixOracleInput* in, fixOracleOutput* out )
+{
+	fixMatrix3 m = { { in->s[0], in->s[1], in->s[2] }, { in->s[3], in->s[4], in->s[5] }, { in->s[6], in->s[7], in->s[8] } };
+	ORACLE_OUT_VEC( out, fixSolve3Wide( m, oracleVec( in->s[9], in->s[10], in->s[11] ) ) );
+}
+
+static void fillMakeQuatFromMatrix( fixOracleInput* in, uint64_t index, fixOracleRng* rng )
+{
+	( void )index;
+	fixQuat q = oracleQuatDraw( rng );
+	fixMatrix3 m = fixMakeMatrixFromQuat( q );
+	in->s[0] = m.cx.x;
+	in->s[1] = m.cx.y;
+	in->s[2] = m.cx.z;
+	in->s[3] = m.cy.x;
+	in->s[4] = m.cy.y;
+	in->s[5] = m.cy.z;
+	in->s[6] = m.cz.x;
+	in->s[7] = m.cz.y;
+	in->s[8] = m.cz.z;
+}
+static void applyMakeQuatFromMatrix( const fixOracleInput* in, fixOracleOutput* out )
+{
+	fixMatrix3 m = { { in->s[0], in->s[1], in->s[2] }, { in->s[3], in->s[4], in->s[5] }, { in->s[6], in->s[7], in->s[8] } };
+	ORACLE_OUT_QUAT( out, fixMakeQuatFromMatrix( &m ) );
+}
+
+static void fillTransformPoint( fixOracleInput* in, uint64_t index, fixOracleRng* rng )
+{
+	( void )index;
+	fixQuat q = oracleQuatDraw( rng );
+	in->s[0] = q.v.x;
+	in->s[1] = q.v.y;
+	in->s[2] = q.v.z;
+	in->s[3] = q.s;
+	for ( int i = 4; i < 10; ++i )
+	{
+		uint64_t r = oracleRngNext( rng );
+		in->s[i] = ( int64_t )( r % 1048577 ) - 524288; // translation then point
+	}
+}
+static void applyTransformPoint( const fixOracleInput* in, fixOracleOutput* out )
+{
+	fixTransform t;
+	t.q = ( fixQuat ){ { in->s[0], in->s[1], in->s[2] }, in->s[3] };
+	t.p = oracleVec( in->s[4], in->s[5], in->s[6] );
+	ORACLE_OUT_VEC( out, fixTransformPoint( t, oracleVec( in->s[7], in->s[8], in->s[9] ) ) );
+}
+
+static void fillMulTransforms( fixOracleInput* in, uint64_t index, fixOracleRng* rng )
+{
+	( void )index;
+	fixQuat a = oracleQuatDraw( rng );
+	fixQuat b = oracleQuatDraw( rng );
+	in->s[0] = a.v.x;
+	in->s[1] = a.v.y;
+	in->s[2] = a.v.z;
+	in->s[3] = a.s;
+	in->s[7] = b.v.x;
+	in->s[8] = b.v.y;
+	in->s[9] = b.v.z;
+	in->s[10] = b.s;
+	for ( int i = 4; i < 7; ++i )
+	{
+		uint64_t r = oracleRngNext( rng );
+		in->s[i] = ( int64_t )( r % 1048577 ) - 524288; // translation of a
+	}
+	for ( int i = 11; i < 14; ++i )
+	{
+		uint64_t r = oracleRngNext( rng );
+		in->s[i] = ( int64_t )( r % 1048577 ) - 524288; // translation of b
+	}
+}
+static void applyMulTransforms( const fixOracleInput* in, fixOracleOutput* out )
+{
+	fixTransform a;
+	a.q = ( fixQuat ){ { in->s[0], in->s[1], in->s[2] }, in->s[3] };
+	a.p = oracleVec( in->s[4], in->s[5], in->s[6] );
+	fixTransform b;
+	b.q = ( fixQuat ){ { in->s[7], in->s[8], in->s[9] }, in->s[10] };
+	b.p = oracleVec( in->s[11], in->s[12], in->s[13] );
+	fixTransform r = fixMulTransforms( a, b );
+	out->s[0] = r.q.v.x;
+	out->s[1] = r.q.v.y;
+	out->s[2] = r.q.v.z;
+	out->s[3] = r.q.s;
+	out->s[4] = r.p.x;
+	out->s[5] = r.p.y;
+	out->s[6] = r.p.z;
+	out->n = 7;
+}
+
+static void applyGetLengthAndNormalize( const fixOracleInput* in, fixOracleOutput* out )
+{
+	fixed_t length = 0;
+	fixVec3 v = fixGetLengthAndNormalize( &length, oracleVec( in->s[0], in->s[1], in->s[2] ) );
+	out->s[0] = length;
+	out->s[1] = v.x;
+	out->s[2] = v.y;
+	out->s[3] = v.z;
+	out->n = 4;
+}
+
+static void fillUnwindAngle( fixOracleInput* in, uint64_t index, fixOracleRng* rng )
+{
+	( void )index;
+	const int64_t twoPi = FIX( 6.28318530718 );
+	const uint64_t span = ( uint64_t )( 33 * twoPi ); // over sixteen turns each way
+	in->s[0] = ( int64_t )( oracleRngNext( rng ) % span ) - 16 * twoPi;
+}
+static void applyUnwindAngle( const fixOracleInput* in, fixOracleOutput* out )
+{
+	ORACLE_OUT1( out, fixUnwindAngle( in->s[0] ) );
+}
+
 static const fixOracleOp oracleOps[] = {
 	{ "fixMul", 2, 1, 0, fillScalar2, applyMul },
 	{ "fixDiv_below2p47", 2, 1, 0, fillDivBelow, applyDiv },
@@ -768,6 +911,13 @@ static const fixOracleOp oracleOps[] = {
 	{ "fixDequantize", 2, 1, 0, fillQuantize, applyDequantize },
 	{ "fixMulBatch", 2, 1, 0, fillScalar2, applyMulBatch },
 	{ "fixDotBatch3", 6, 1, 0, fillVec3x2, applyDotBatch3 },
+	{ "fixSolve3Wide", 12, 100, 0, fillSolve3Wide, applySolve3Wide },
+	{ "fixInvertMatrixWide", 9, 100, 0, fillMatrixWide, applyInvertMatrixWide },
+	{ "fixMakeQuatFromMatrix", 9, 100, 0, fillMakeQuatFromMatrix, applyMakeQuatFromMatrix },
+	{ "fixTransformPoint", 10, 20, 0, fillTransformPoint, applyTransformPoint },
+	{ "fixMulTransforms", 14, 20, 0, fillMulTransforms, applyMulTransforms },
+	{ "fixGetLengthAndNormalize", 3, 4, 0, fillVec3, applyGetLengthAndNormalize },
+	{ "fixUnwindAngle", 1, 4, 0, fillUnwindAngle, applyUnwindAngle },
 };
 
 #define FIX_ORACLE_OP_COUNT ( int )( sizeof oracleOps / sizeof oracleOps[0] )
@@ -901,6 +1051,43 @@ static void oracleFillRest( const fixOracleOp* op, fixOracleInput* in, uint64_t 
 		{
 			in->s[slot] = ( in->s[slot] & 0x7FFFF ) + 1;
 		}
+	}
+	if ( op->fill == fillMakeQuatFromMatrix )
+	{
+		// The input is a rotation matrix, so build it from the normalized quaternion
+		// the structured passes derived rather than from raw grid slots.
+		fixQuat q = oracleQuatFrom( in->s[0], in->s[1], in->s[2], in->s[3] );
+		fixMatrix3 m = fixMakeMatrixFromQuat( q );
+		in->s[0] = m.cx.x;
+		in->s[1] = m.cx.y;
+		in->s[2] = m.cx.z;
+		in->s[3] = m.cy.x;
+		in->s[4] = m.cy.y;
+		in->s[5] = m.cy.z;
+		in->s[6] = m.cz.x;
+		in->s[7] = m.cz.y;
+		in->s[8] = m.cz.z;
+	}
+	if ( op->fill == fillTransformPoint )
+	{
+		fixQuat q = oracleQuatFrom( in->s[0], in->s[1], in->s[2], in->s[3] );
+		in->s[0] = q.v.x;
+		in->s[1] = q.v.y;
+		in->s[2] = q.v.z;
+		in->s[3] = q.s;
+	}
+	if ( op->fill == fillMulTransforms )
+	{
+		fixQuat a = oracleQuatFrom( in->s[0], in->s[1], in->s[2], in->s[3] );
+		in->s[0] = a.v.x;
+		in->s[1] = a.v.y;
+		in->s[2] = a.v.z;
+		in->s[3] = a.s;
+		fixQuat b = oracleQuatFrom( in->s[7], in->s[8], in->s[9], in->s[10] );
+		in->s[7] = b.v.x;
+		in->s[8] = b.v.y;
+		in->s[9] = b.v.z;
+		in->s[10] = b.s;
 	}
 	if ( op->fill == fillInt128Div )
 	{

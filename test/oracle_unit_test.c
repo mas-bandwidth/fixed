@@ -75,6 +75,13 @@ static const struct
 	{ "fixDequantize", UINT64_C( 0x99e81db2278ac2fd ) },
 	{ "fixMulBatch", UINT64_C( 0xf74d919d55ad89c8 ) },
 	{ "fixDotBatch3", UINT64_C( 0xa967efd82587b494 ) },
+	{ "fixSolve3Wide", UINT64_C( 0xa1320d129f7ea401 ) },
+	{ "fixInvertMatrixWide", UINT64_C( 0x961cfdc0ee9c3d5a ) },
+	{ "fixMakeQuatFromMatrix", UINT64_C( 0x129d3c72f079144a ) },
+	{ "fixTransformPoint", UINT64_C( 0x36260e6ec8d0417c ) },
+	{ "fixMulTransforms", UINT64_C( 0x49f8165f0c72acb4 ) },
+	{ "fixGetLengthAndNormalize", UINT64_C( 0x3fff5c7c6f8ed5c7 ) },
+	{ "fixUnwindAngle", UINT64_C( 0xe7aedb5782532f5f ) },
 };
 
 static int fails = 0;

@@ -1039,6 +1039,57 @@ static void testRandomizedPass( void )
 }
 
 // ================================================================================
+// Singular wide inverse/solve, zero-quaternion normalize and shifted-divide saturation.
+//
+// These pin branches the structured sweeps never reach: the singular (zero-deteminant)
+// return of the 256-bit wide inverse and solve, normalization of the zero quaternion,
+// and the saturation arms of the shifted divides. None of these feed the frozen hash.
+// ================================================================================
+
+static void WideSingularAndZeroQuatCases( void )
+{
+	int before = fails;
+
+	// fixNormalizeQuat of the zero quaternion is the identity quaternion, per the
+	// documented degenerate-norm path (fixQuat_identity).
+	{
+		fixQuat zero = { fixVec3_zero, 0 };
+		CHECK( QuatEq( fixNormalizeQuat( zero ), fixQuat_identity ) );
+	}
+
+	// Singular wide inverse: the zero matrix and a rank-2 matrix both have zero
+	// determinant, so fixInvertMatrixWide returns the zero matrix (fixMat3_zero).
+	{
+		fixMatrix3 rank2 = { V( 1.0f, 0.0f, 0.0f ), V( 0.0f, 1.0f, 0.0f ), V( 1.0f, 1.0f, 0.0f ) };
+		CHECK( MatEq( fixInvertMatrixWide( fixMat3_zero ), fixMat3_zero ) );
+		CHECK( MatEq( fixInvertMatrixWide( rank2 ), fixMat3_zero ) );
+	}
+
+	// Singular wide solve: same matrices, fixSolve3Wide returns the zero vector.
+	{
+		fixMatrix3 rank2 = { V( 1.0f, 0.0f, 0.0f ), V( 0.0f, 1.0f, 0.0f ), V( 1.0f, 1.0f, 0.0f ) };
+		fixVec3 target = V( 1.0f, -2.0f, 0.5f );
+		CHECK( VecEq( fixSolve3Wide( fixMat3_zero, target ), fixVec3_zero ) );
+		CHECK( VecEq( fixSolve3Wide( rank2, target ), fixVec3_zero ) );
+	}
+
+	// fixDivShifted saturation: a ratio outside Q48.16 saturates to FIX_MAX/FIX_MIN
+	// with the sign of the true quotient. 65536 << 60 = 2^76 > FIX_MAX.
+	{
+		CHECK( fixDivShifted( fixInt128FromI64( 65536 ), 60, fixInt128FromI64( 1 ) ) == FIX_MAX );
+		CHECK( fixDivShifted( fixInt128FromI64( -65536 ), 60, fixInt128FromI64( 1 ) ) == FIX_MIN );
+	}
+
+	// fixDivShifted256 saturation, both signs. 1 << 63 = 2^63 > FIX_MAX.
+	{
+		CHECK( fixDivShifted256( fixUInt256FromU64( 1 ), 63, fixUInt256FromU64( 1 ), false ) == FIX_MAX );
+		CHECK( fixDivShifted256( fixUInt256FromU64( 1 ), 63, fixUInt256FromU64( 1 ), true ) == FIX_MIN );
+	}
+
+	if ( fails == before ) section( "singular wide inverse/solve, zero-quaternion normalize and shifted-divide saturation" );
+}
+
+// ================================================================================
 
 int main( void )
 {
@@ -1049,6 +1100,7 @@ int main( void )
 	testTransforms();
 	testSeamVocabulary();
 	testRandomizedPass();
+	WideSingularAndZeroQuatCases();
 
 	if ( EXPECTED_GEOMETRY_HASH == 0ULL )
 	{

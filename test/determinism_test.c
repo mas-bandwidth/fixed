@@ -34,6 +34,71 @@ static fixed_t refMulDiv( fixed_t a, fixed_t b, fixed_t c )
 #define HAVE_REF_MULDIV 1
 #endif
 
+// fixMulDiv edge cases, pinned from the contract in include/fixed/fixed.h: the product is
+// held exactly at 128 bits with one truncation toward zero; c == 0 saturates with the sign of
+// a * b (0 when a * b == 0); a quotient past the range saturates with its true sign. FIX_MIN
+// is -INT64_MAX = -(2^63 - 1), NOT INT64_MIN, so a quotient of exactly -2^63 is below FIX_MIN
+// and saturates. These never feed an existing hash (fnv/fnv2/fnv3): the frozen hashes must not
+// move; every expected value is independent integer reasoning, never the function's own output.
+static int MulDivEdgeCases( void )
+{
+    int bad = 0, checked = 0;
+
+    // INT64_MIN * 1 / 1: product -2^63, quotient exactly -2^63. It is below FIX_MIN
+    // ( -INT64_MAX ), so the contract saturates it to FIX_MIN.
+    if ( fixMulDiv( INT64_MIN, 1, 1 ) != FIX_MIN ) bad++;
+    checked++;
+
+    // INT64_MIN * -1 / 1: product 2^63, above FIX_MAX, saturates to FIX_MAX.
+    if ( fixMulDiv( INT64_MIN, -1, 1 ) != FIX_MAX ) bad++;
+    checked++;
+
+    // INT64_MIN * INT64_MIN / INT64_MIN: product 2^126, quotient 2^126 / -2^63 = -2^63,
+    // below FIX_MIN, saturates to FIX_MIN.
+    if ( fixMulDiv( INT64_MIN, INT64_MIN, INT64_MIN ) != FIX_MIN ) bad++;
+    checked++;
+
+    // Divisor INT64_MIN.
+    // 1 * 1 / INT64_MIN: 1 / -2^63 truncates toward zero to 0.
+    if ( fixMulDiv( 1, 1, INT64_MIN ) != 0 ) bad++;
+    checked++;
+
+    // FIX_MAX * FIX_MAX / INT64_MIN: (2^63-1)^2 / -2^63 = -(2^63 - 2) = FIX_MIN + 1,
+    // still in range, returned as is.
+    if ( fixMulDiv( FIX_MAX, FIX_MAX, INT64_MIN ) != FIX_MIN + 1 ) bad++;
+    checked++;
+
+    // Zero divisor saturates with the sign of a * b: a > 0, b < 0 -> negative -> FIX_MIN;
+    // a < 0, b < 0 -> positive -> FIX_MAX.
+    if ( fixMulDiv( FIX_ONE, -FIX_ONE, 0 ) != FIX_MIN ) bad++;
+    checked++;
+    if ( fixMulDiv( -FIX_ONE, -FIX_ONE, 0 ) != FIX_MAX ) bad++;
+    checked++;
+
+    // a * b / b == a for 64 seeded pairs with b != 0 and the product well in range. The
+    // exact quotient is a when b != 0, so truncation cannot lose anything.
+    {
+        uint64_t s = 0xF0F0F0F0F0F0F0ULL;
+        for ( int i = 0; i < 64; i++ )
+        {
+            s = s * 6364136223846793005ULL + 1442695040888963407ULL;
+            fixed_t a = (fixed_t)( (int64_t)s % 1000001 ) - 500000;
+            s = s * 6364136223846793005ULL + 1442695040888963407ULL;
+            fixed_t b = (fixed_t)( (int64_t)s % 1000001 ) - 500000;
+            if ( b == 0 ) b = FIX_ONE;
+            if ( fixMulDiv( a, b, b ) != a ) bad++;
+            checked++;
+        }
+    }
+
+    // Truncation toward zero for a negative result: -5 * 1 / 2 = -2.5 -> -2 in raw units.
+    if ( fixMulDiv( -5, 1, 2 ) != -2 ) bad++;
+    checked++;
+
+    printf( "MulDivEdgeCases checked=%d\n", checked );
+    return bad;
+}
+
 int main( void )
 {
     // deterministic integer LCG (no float) drives the inputs
@@ -166,6 +231,11 @@ int main( void )
             printf( "DETERMINISM FAILURE (fixMulDiv stream): expected 0x53a562ddd9c3ade5\n" );
             return 1;
         }
+    }
+    if ( MulDivEdgeCases() != 0 )
+    {
+        printf( "MulDivEdgeCases FAILURE\n" );
+        return 1;
     }
     return 0;
 }

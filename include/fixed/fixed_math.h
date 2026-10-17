@@ -45,7 +45,10 @@ FIX_INLINE fixed_t fixUnwindAngle( fixed_t radians )
 /// Interpolate a scalar.
 FIX_INLINE fixed_t fixLerp( fixed_t a, fixed_t b, fixed_t alpha )
 {
-	return fixMul( ( FIX( 1.0f ) - alpha ) , a ) + fixMul( alpha , b );
+	// INT64_MIN policy: the subtract is unsigned so INT64_MIN is taken as FIX_MIN, not a trap.
+	fixed_t oneMinusAlpha = (fixed_t)( (uint64_t)FIX_ONE - (uint64_t)alpha );
+	// INT64_MIN policy: the sum is unsigned so extremes wrap in two's complement, never signed overflow.
+	return (fixed_t)( (uint64_t)fixMul( oneMinusAlpha, a ) + (uint64_t)fixMul( alpha, b ) );
 }
 
 // ---------------------------------------------------------------------------------------------

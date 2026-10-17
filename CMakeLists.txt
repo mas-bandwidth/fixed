@@ -205,6 +205,59 @@ if (NOT WIN32)
 endif()
 add_test(NAME numerical_saturated COMMAND fixed_numerical_saturated_test)
 
+# THE BOUNDARY SUITE: every scalar entry point over INT64_MIN, FIX_MIN, -1, 0,
+# 1 and FIX_MAX in every argument position. It is built for both 128-bit arms by
+# the foreach below.
+add_executable(fixed_boundary_test test/boundary_test.c)
+target_link_libraries(fixed_boundary_test PRIVATE fixed)
+add_test(NAME boundary COMMAND fixed_boundary_test)
+
+# Its planted removal, the card's negative control. At configure time the headers
+# and the two library sources are copied, every INT64_MIN guard this card added is
+# deleted from the copies, and the suite is built against the unguarded copy. The
+# deleted text is replaced exactly; a replacement that changes nothing is a
+# configure error, so the control cannot go vacuous. The suite MUST fail (WILL_FAIL)
+# -- it traps with SIGFPE through fixAbs and mishandles the other edges.
+set(FIX_UNGUARDED_DIR "${CMAKE_BINARY_DIR}/unguarded")
+file(REMOVE_RECURSE "${FIX_UNGUARDED_DIR}")
+file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/include" DESTINATION "${FIX_UNGUARDED_DIR}")
+file(MAKE_DIRECTORY "${FIX_UNGUARDED_DIR}/src")
+file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/src/fixed_math.c" "${CMAKE_CURRENT_SOURCE_DIR}/src/fixed_vec.c"
+	 DESTINATION "${FIX_UNGUARDED_DIR}/src")
+
+set(FIX_GUARD_ABS "\t// INT64_MIN policy: it is reserved and taken as FIX_MIN, so its magnitude saturates to FIX_MAX.\n\tmagnitude = magnitude > (uint64_t)FIX_MAX ? (uint64_t)FIX_MAX : magnitude;\n")
+set(FIX_GUARD_LERP "\t// INT64_MIN policy: the subtract is unsigned so INT64_MIN is taken as FIX_MIN, not a trap.\n\tfixed_t oneMinusAlpha = (fixed_t)( (uint64_t)FIX_ONE - (uint64_t)alpha );\n\t// INT64_MIN policy: the sum is unsigned so extremes wrap in two's complement, never signed overflow.\n\treturn (fixed_t)( (uint64_t)fixMul( oneMinusAlpha, a ) + (uint64_t)fixMul( alpha, b ) );\n")
+set(FIX_GUARD_SMOOTH "\tfixed_t omega = fixDiv( 2 * FIX_PI, smoothTime );\n\tfixed_t onePlus = (fixed_t)( (uint64_t)FIX_ONE + (uint64_t)fixMul( omega, deltaTime ) ); // INT64_MIN policy: unsigned add, so extremes wrap instead of trapping.\n\tfixed_t denominator = fixMul( onePlus, onePlus );\n\n\tfixed_t difference = (fixed_t)( (uint64_t)current - (uint64_t)target ); // INT64_MIN policy: unsigned subtract keeps INT64_MIN defined.\n\tfixed_t spring = fixMul( fixMul( fixMul( omega, omega ), deltaTime ), difference );\n\n\t*velocity = fixDiv( (fixed_t)( (uint64_t)*velocity - (uint64_t)spring ), denominator ); // INT64_MIN policy: unsigned subtract keeps INT64_MIN defined.\n\treturn (fixed_t)( (uint64_t)current + (uint64_t)fixMul( *velocity, deltaTime ) ); // INT64_MIN policy: unsigned add, so extremes wrap instead of trapping.\n")
+set(FIX_UNGUARDED_SMOOTH "\tfixed_t omega = fixDiv( 2 * FIX_PI, smoothTime );\n\tfixed_t onePlus = FIX_ONE + fixMul( omega, deltaTime );\n\tfixed_t denominator = fixMul( onePlus, onePlus );\n\n\tfixed_t spring = fixMul( fixMul( fixMul( omega, omega ), deltaTime ), current - target );\n\n\t*velocity = fixDiv( *velocity - spring, denominator );\n\n\treturn current + fixMul( *velocity, deltaTime );\n")
+
+function(fix_delete_guard path guard replacement)
+	file(READ "${path}" content)
+	string(FIND "${content}" "${guard}" found)
+	if(found EQUAL -1)
+		message(FATAL_ERROR "negative control: guard not found in ${path}")
+	endif()
+	string(REPLACE "${guard}" "${replacement}" unguarded "${content}")
+	if(unguarded STREQUAL content)
+		message(FATAL_ERROR "negative control: deleting the guard in ${path} changed nothing")
+	endif()
+	file(WRITE "${path}" "${unguarded}")
+endfunction()
+
+fix_delete_guard("${FIX_UNGUARDED_DIR}/include/fixed/fixed.h" "${FIX_GUARD_ABS}" "")
+fix_delete_guard("${FIX_UNGUARDED_DIR}/include/fixed/fixed_math.h" "${FIX_GUARD_LERP}" "\treturn fixMul( ( FIX( 1.0f ) - alpha ) , a ) + fixMul( alpha , b );\n")
+fix_delete_guard("${FIX_UNGUARDED_DIR}/src/fixed_math.c" "${FIX_GUARD_SMOOTH}" "${FIX_UNGUARDED_SMOOTH}")
+
+add_library(fixed_unguarded STATIC "${FIX_UNGUARDED_DIR}/src/fixed_math.c" "${FIX_UNGUARDED_DIR}/src/fixed_vec.c")
+target_include_directories(fixed_unguarded PUBLIC "${FIX_UNGUARDED_DIR}/include")
+if (NOT WIN32)
+	target_link_libraries(fixed_unguarded PUBLIC m)
+endif()
+
+add_executable(fixed_boundary_negative_control test/boundary_test.c)
+target_link_libraries(fixed_boundary_negative_control PRIVATE fixed_unguarded)
+add_test(NAME boundary_negative_control COMMAND fixed_boundary_negative_control)
+set_tests_properties(boundary_negative_control PROPERTIES WILL_FAIL TRUE)
+
 option(FIX_BUILD_BENCHMARKS "Build the numerical public-API microbenchmarks" OFF)
 if (FIX_BUILD_BENCHMARKS)
     add_executable(fixed_numerical_bench benchmark/numerical_bench.c)
@@ -221,7 +274,7 @@ if (TARGET fixed_emulated)
     # inverse_envelope is in this list for a specific reason: the 256-bit layer the wide
     # arm runs on is written entirely in the fixUInt128 vocabulary, so an emulated build
     # is the only thing that checks the emulated 256-bit arithmetic at all.
-    foreach(suite determinism transcendental wide_time exhaustive aabb port_equality int128 geometry inverse_envelope int256_division numerical_regression)
+    foreach(suite determinism transcendental wide_time exhaustive aabb port_equality int128 geometry inverse_envelope int256_division numerical_regression boundary)
         add_executable(fixed_${suite}_emulated_test test/${suite}_test.c)
         target_link_libraries(fixed_${suite}_emulated_test PRIVATE fixed_emulated)
         if (NOT WIN32)

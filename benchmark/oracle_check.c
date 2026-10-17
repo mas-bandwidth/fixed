@@ -80,6 +80,19 @@ int main( int argc, char** argv )
 		}
 	}
 
+	if ( onlyOp != NULL && fixOracleFindOp( onlyOp ) < 0 )
+	{
+		fprintf( stderr, "ORACLE: no such operation: %s\n", onlyOp );
+		fprintf( stderr, "valid operations: " );
+		for ( int i = 0; i < fixOracleOpCount(); ++i )
+		{
+			if ( i != 0 ) fprintf( stderr, ", " );
+			fprintf( stderr, "%s", fixOracleOpName( i ) );
+		}
+		fprintf( stderr, "\n" );
+		return 2;
+	}
+
 	// --- read the baseline (also for --dump, so a dump walks the same base_random the hash did) ---
 	uint64_t fileBase = ORACLE_DEFAULT_BASE_RANDOM;
 	static OracleRow rows[64];

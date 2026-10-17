@@ -17,6 +17,9 @@
 // No clock, no files, no network: the seeded lane count is the argument (default 100
 // million), and detection is exercised on faked words. The VARIANTS part reads the real host's
 // facts, which is the point of it; a variant the host cannot run is a SKIP, not a pass.
+#if defined( _MSC_VER )
+	#define _CRT_SECURE_NO_WARNINGS // getenv, read once to see whether FIXED_ISA was set
+#endif
 #include "fixed/fixed_isa.h"
 #include "fixed/fixed_vec.h"
 

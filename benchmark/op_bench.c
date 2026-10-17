@@ -140,7 +140,14 @@ static uint64_t opBenchBatch( int opIndex, uint64_t passes )
 static double opBenchNowNs( void )
 {
 	struct timespec ts;
+#if defined( _WIN32 )
+	// Windows has no clock_gettime; C11 timespec_get is in the UCRT (100 ns ticks, far below
+	// a repeat's length). This target never compiled on Windows before, so CI's Windows
+	// arms failed at Build before any test ran.
+	timespec_get( &ts, TIME_UTC );
+#else
 	clock_gettime( CLOCK_MONOTONIC, &ts );
+#endif
 	return ( double )ts.tv_sec * 1e9 + ( double )ts.tv_nsec;
 }
 

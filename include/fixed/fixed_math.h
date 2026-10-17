@@ -25,7 +25,7 @@ FIX_API fixCosSin fixComputeCosSin( fixed_t radians );
 /// at 128 bits: the angle itself is exact there, and the one error is pi/2 rounded to 62 fraction
 /// bits (0.38 of its last unit), which the quadrant count k multiplies. That shifts the reduced
 /// angle by up to 7.5e-6 rad, 0.49 ulp of Q48.16, at the top of the range (|radians| near 2^47;
-/// 2^-16 ulp at 2^31 radians), on top of the 0.5 ulp of the final rounding. Then degree 11/12
+/// about 2^-17 ulp at 2^31 radians), on top of the 0.5 ulp of the final rounding. Then degree 11/12
 /// Taylor polynomials in Q32.32. Deterministic. About
 /// four times the cost of fixComputeCosSin, whose error is ~0.0017: use this one where the
 /// result feeds geometry (tessellation, rotation matrices built from angles).

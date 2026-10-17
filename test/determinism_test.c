@@ -134,9 +134,9 @@ int main( void )
         if ( fixMulDiv( 3, 5, 7 ) != 2 || fixDiv( fixMul( 3, 5 ), 7 ) != 0 ) bad++;
         printf( "fixMulDiv determinism hash = 0x%016llx (%d mismatches)\n", (unsigned long long)fnv3, bad );
         // FROZEN 2026-10-17 (rowan/stone-needs), verified identical on x86-64 (hetzner) and arm64 (macOS).
-        if ( bad != 0 || fnv3 != 0x0000000000000000ULL )
+        if ( bad != 0 || fnv3 != 0x53a562ddd9c3ade5ULL )
         {
-            printf( "DETERMINISM FAILURE (fixMulDiv stream)\n" );
+            printf( "DETERMINISM FAILURE (fixMulDiv stream): expected 0x53a562ddd9c3ade5\n" );
             return 1;
         }
     }

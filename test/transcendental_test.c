@@ -157,9 +157,9 @@ int main( void )
         CHECK( maxUnitP <= 2 );
         printf( "precise cos/sin determinism hash = 0x%016llx\n", (unsigned long long)pfnv );
         // FROZEN 2026-10-17 (rowan/stone-needs), verified identical on x86-64 (hetzner) and arm64 (macOS).
-        if ( pfnv != 0x0000000000000000ULL )
+        if ( pfnv != 0x71f0b7ede7f72b06ULL )
         {
-            printf( "DETERMINISM FAILURE (precise cos/sin)\n" );
+            printf( "DETERMINISM FAILURE (precise cos/sin): expected 0x71f0b7ede7f72b06\n" );
             fails++;
         }
     }

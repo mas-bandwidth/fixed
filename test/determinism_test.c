@@ -86,5 +86,59 @@ int main( void )
         printf( "DETERMINISM FAILURE (signed stream): expected 0x19889034915c2911\n" );
         return 1;
     }
+
+    // A THIRD STREAM: fixMulDiv, the single-rounding a * b / c. Checked against the
+    // 128-bit seam spelled out by hand (product, then truncating divide, then saturate),
+    // then hashed with its own frozen constant.
+    {
+        uint64_t fnv3 = 0xCBF29CE484222325ULL;
+        int bad = 0;
+        s = 0x8CB92BA72F3D8DD7ULL;
+        for ( int i = 0; i < 200000; i++ )
+        {
+            s = s * 6364136223846793005ULL + 1442695040888963407ULL;
+            fixed_t a = (fixed_t)( (int64_t)s >> ( 20 + ( i % 24 ) ) );
+            s = s * 6364136223846793005ULL + 1442695040888963407ULL;
+            fixed_t b = (fixed_t)( (int64_t)s >> ( 20 + ( ( i / 24 ) % 24 ) ) );
+            s = s * 6364136223846793005ULL + 1442695040888963407ULL;
+            fixed_t c = (fixed_t)( (int64_t)s >> ( 16 + ( ( i / 7 ) % 40 ) ) );
+            if ( i % 997 == 0 ) c = 0;
+            fixed_t r = fixMulDiv( a, b, c );
+            fixInt128 p = fixInt128MulI64( a, b );
+            fixed_t expect;
+            if ( c == 0 )
+            {
+                expect = fixInt128Eq( p, fixInt128FromI64( 0 ) ) ? 0 : ( fixInt128IsNegative( p ) ? FIX_MIN : FIX_MAX );
+            }
+            else
+            {
+                fixInt128 q = fixInt128Div( p, fixInt128FromI64( c ) );
+                expect = fixInt128Gt( q, fixInt128FromI64( INT64_MAX ) ) ? FIX_MAX
+                       : fixInt128Lt( q, fixInt128FromI64( -INT64_MAX ) ) ? FIX_MIN
+                       : (fixed_t)fixInt128ToI64( q );
+            }
+            if ( r != expect ) bad++;
+            const uint8_t* bytes = (const uint8_t*)&r;
+            for ( int k = 0; k < 8; k++ ) { fnv3 ^= bytes[k]; fnv3 *= 0x00000100000001B3ULL; }
+        }
+        // known answers: exact, truncating toward zero, single rounding, zero divisor
+        if ( fixMulDiv( FIX( 3.0 ), FIX( 4.0 ), FIX( 2.0 ) ) != FIX( 6.0 ) ) bad++;
+        if ( fixMulDiv( FIX( -1.0 ), FIX( 1.0 ), FIX( 3.0 ) ) != -21845 ) bad++;   // -0.33333 truncated
+        if ( fixMulDiv( 1, 1, 1 ) != 1 ) bad++;                                     // 2^-32 / 2^-16 = 2^-16
+        if ( fixMulDiv( FIX( 1.0 ), FIX( 1.0 ), 0 ) != FIX_MAX ) bad++;
+        if ( fixMulDiv( FIX( -1.0 ), FIX( 1.0 ), 0 ) != FIX_MIN ) bad++;
+        if ( fixMulDiv( 0, FIX( 1.0 ), 0 ) != 0 ) bad++;
+        if ( fixMulDiv( FIX_MAX, FIX_MAX, 1 ) != FIX_MAX ) bad++;
+        if ( fixMulDiv( FIX_MAX, -FIX_MAX, 1 ) != FIX_MIN ) bad++;
+        // a small product keeps its fraction bits where fixDiv( fixMul ) loses them
+        if ( fixMulDiv( 3, 5, 7 ) != 2 || fixDiv( fixMul( 3, 5 ), 7 ) != 0 ) bad++;
+        printf( "fixMulDiv determinism hash = 0x%016llx (%d mismatches)\n", (unsigned long long)fnv3, bad );
+        // FROZEN 2026-10-17 (rowan/stone-needs), verified identical on x86-64 (hetzner) and arm64 (macOS).
+        if ( bad != 0 || fnv3 != 0x0000000000000000ULL )
+        {
+            printf( "DETERMINISM FAILURE (fixMulDiv stream)\n" );
+            return 1;
+        }
+    }
     return 0;
 }

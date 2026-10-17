@@ -20,6 +20,13 @@ FIX_API fixed_t fixAtan2( fixed_t y, fixed_t x );
 /// Cosine and sine of an angle in radians. Deterministic.
 FIX_API fixCosSin fixComputeCosSin( fixed_t radians );
 
+/// Cosine and sine to within one ulp of Q48.16 (|error| <= 2^-16 against the true cosine and
+/// sine of the input angle) over the whole representable range. Exact range reduction by pi/2
+/// in Q2.62 at 128 bits, then degree 11/12 Taylor polynomials in Q32.32. Deterministic. About
+/// four times the cost of fixComputeCosSin, whose error is ~0.0017: use this one where the
+/// result feeds geometry (tessellation, rotation matrices built from angles).
+FIX_API fixCosSin fixComputeCosSinPrecise( fixed_t radians );
+
 FIX_INLINE fixed_t fixSin( fixed_t radians ) { fixCosSin cs = fixComputeCosSin( radians ); return cs.sine; }
 FIX_INLINE fixed_t fixCos( fixed_t radians ) { fixCosSin cs = fixComputeCosSin( radians ); return cs.cosine; }
 

@@ -102,5 +102,66 @@ int main( void )
     printf( "sanity: cos(0)=%.5f sin(0)=%.5f cos(pi/2)=%.5f sin(pi/2)=%.5f\n",
         fixToDouble(fixCos(fixFromDouble(0))), fixToDouble(fixSin(fixFromDouble(0))),
         fixToDouble(fixCos(fixFromDouble(1.57079632679))), fixToDouble(fixSin(fixFromDouble(1.57079632679))) );
+
+    // --- fixComputeCosSinPrecise: within one ulp of the true value of the input angle ---
+    // The reference is libm at double precision on the exact double value of the fixed input,
+    // which is itself within 1e-16 of the truth, so a one-ulp (2^-16) bound is a real bound.
+    {
+        static uint64_t pfnv = 0xCBF29CE484222325ULL;
+        #define PMIX( v ) do { fixed_t pv = ( v ); const uint8_t* pb = (const uint8_t*)&pv; \
+            for ( int pi = 0; pi < 8; pi++ ) { pfnv ^= pb[pi]; pfnv *= 0x00000100000001B3ULL; } } while ( 0 )
+        double maxErr = 0.0;
+        fixed_t maxUnitP = 0;
+        // every raw angle step across two turns near zero, then a strided sweep of the range
+        for ( int64_t raw = -( (int64_t)1 << 19 ); raw <= ( (int64_t)1 << 19 ); raw += 3 )
+        {
+            fixCosSin cs = fixComputeCosSinPrecise( (fixed_t)raw );
+            double a = fixToDouble( (fixed_t)raw );
+            double e = fmax( fabs( fixToDouble( cs.cosine ) - cos( a ) ), fabs( fixToDouble( cs.sine ) - sin( a ) ) );
+            if ( e > maxErr ) maxErr = e;
+            fixed_t unit = fixMul( cs.cosine, cs.cosine ) + fixMul( cs.sine, cs.sine ) - FIX_ONE;
+            if ( unit < 0 ) unit = -unit;
+            if ( unit > maxUnitP ) maxUnitP = unit;
+            PMIX( cs.cosine ); PMIX( cs.sine );
+        }
+        uint64_t st = 0x2545F4914F6CDD1DULL;
+        for ( int i = 0; i < 200000; i++ )
+        {
+            st = st * 6364136223846793005ULL + 1442695040888963407ULL;
+            // angles up to about +/-2^30 radians, signed
+            fixed_t raw = (fixed_t)( (int64_t)st >> 17 );
+            fixCosSin cs = fixComputeCosSinPrecise( raw );
+            double a = fixToDouble( raw );
+            double e = fmax( fabs( fixToDouble( cs.cosine ) - cos( a ) ), fabs( fixToDouble( cs.sine ) - sin( a ) ) );
+            if ( e > maxErr ) maxErr = e;
+            PMIX( cs.cosine ); PMIX( cs.sine );
+        }
+        // the extremes of the range reduce exactly too
+        fixed_t extremes[] = { FIX_MAX, FIX_MIN, FIX_MAX / 3, -( FIX_MAX / 7 ), ( (int64_t)1 << 53 ) - 1, -( ( (int64_t)1 << 53 ) - 1 ), 1, -1, 0 };
+        for ( unsigned i = 0; i < sizeof( extremes ) / sizeof( extremes[0] ); i++ )
+        {
+            fixCosSin cs = fixComputeCosSinPrecise( extremes[i] );
+            double a = fixToDouble( extremes[i] );
+            // the double reference is exact only while the raw value fits 53 bits
+            if ( extremes[i] > -( (int64_t)1 << 53 ) && extremes[i] < ( (int64_t)1 << 53 ) )
+            {
+                double e = fmax( fabs( fixToDouble( cs.cosine ) - cos( a ) ), fabs( fixToDouble( cs.sine ) - sin( a ) ) );
+                if ( e > maxErr ) maxErr = e;
+            }
+            PMIX( cs.cosine ); PMIX( cs.sine );
+        }
+        CHECK( fixComputeCosSinPrecise( 0 ).cosine == FIX_ONE && fixComputeCosSinPrecise( 0 ).sine == 0 );
+        printf( "precise cos/sin: max err vs libm %.3e (%.3f ulp), unit-circle %lld ulp\n", maxErr, maxErr * 65536.0,
+                (long long)maxUnitP );
+        CHECK( maxErr <= 1.0 / 65536.0 );
+        CHECK( maxUnitP <= 2 );
+        printf( "precise cos/sin determinism hash = 0x%016llx\n", (unsigned long long)pfnv );
+        // FROZEN 2026-10-17 (rowan/stone-needs), verified identical on x86-64 (hetzner) and arm64 (macOS).
+        if ( pfnv != 0x0000000000000000ULL )
+        {
+            printf( "DETERMINISM FAILURE (precise cos/sin)\n" );
+            fails++;
+        }
+    }
     return ( fails == 0 && maxCosErr < 0.01 && maxSinErr < 0.01 && maxAtanErr < 0.01 ) ? 0 : 1;
 }

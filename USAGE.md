@@ -348,9 +348,11 @@ fixed_t m = fixLerp( a, b, alpha );
 ```
 
 Accuracy against `libm`: cos and sin within 0.0017, atan2 within 0.00004 rad.
-`fixComputeCosSinPrecise` is within one ulp (2^-16; measured 0.5 ulp) over the whole range:
-an exact range reduction by pi/2 in Q2.62 at 128 bits, then Taylor polynomials in Q32.32, at
-about four times the cost. Use it where an angle becomes geometry (a tessellated ring, a
+`fixComputeCosSinPrecise` is within one ulp (2^-16) over the whole range: measured 0.50 ulp up
+to 2^30 radians and 0.97 ulp at the top of the range. It reduces by pi/2 in Q2.62 at 128 bits;
+the angle is exact there, but pi/2 is rounded to 62 fraction bits, and the quadrant count
+multiplies that rounding into up to 0.49 ulp of angle near 2^47 radians. Then Taylor
+polynomials in Q32.32, at about four times the cost. Use it where an angle becomes geometry (a tessellated ring, a
 rotation built from an angle), where 0.0017 is 19 micrometres at an 11 mm radius.
 
 Critically damped smoothing, for deterministic control dynamics:

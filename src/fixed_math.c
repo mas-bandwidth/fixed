@@ -59,7 +59,9 @@ static inline fixed_t fixQ32ToFix( int64_t a )
 
 fixCosSin fixComputeCosSinPrecise( fixed_t radians )
 {
-	// The angle in Q2.62 at 128 bits is exact: radians * 2^46
+	// The angle in Q2.62 at 128 bits is exact: radians * 2^46. The reduction below is not quite:
+	// FIX_Q62_HALF_PI is pi/2 rounded to 62 fraction bits, so r is off by k times its rounding
+	// (0.38 Q2.62 units), up to 0.49 ulp of Q48.16 at |radians| near 2^47 (fixed_math.h).
 	fixInt128 x = fixInt128ShiftLeft( fixInt128FromI64( radians ), 46 );
 	fixInt128 halfPi = fixInt128FromI64( FIX_Q62_HALF_PI );
 

@@ -136,7 +136,7 @@ int main( void )
             if ( e > maxErr ) maxErr = e;
             PMIX( cs.cosine ); PMIX( cs.sine );
         }
-        // the extremes of the range reduce exactly too
+        // the extremes of the range, against libm while the raw value fits a double exactly
         fixed_t extremes[] = { FIX_MAX, FIX_MIN, FIX_MAX / 3, -( FIX_MAX / 7 ), ( (int64_t)1 << 53 ) - 1, -( ( (int64_t)1 << 53 ) - 1 ), 1, -1, 0 };
         for ( unsigned i = 0; i < sizeof( extremes ) / sizeof( extremes[0] ); i++ )
         {
@@ -150,6 +150,43 @@ int main( void )
             }
             PMIX( cs.cosine ); PMIX( cs.sine );
         }
+        // Past 2^30 radians, out to the top of the range. libm on the double of the angle is no
+        // reference there (the raw value no longer fits 53 bits), so reduce by pi/2 exactly in
+        // the test: x - k pi/2 with pi/2 to 126 fraction bits, in the compiler's native 128-bit
+        // integers, then libm on the small remainder. Not mixed into the frozen hash above.
+#if defined( __SIZEOF_INT128__ )
+        {
+            __extension__ typedef __int128 RefInt128;
+            const RefInt128 H = (RefInt128)INT64_C( 0x6487ed5110b4611a );  // floor( pi/2 * 2^62 )
+            const RefInt128 L = (RefInt128)INT64_C( 0x62633145c06e0e68 );  // the next 64 bits
+            double maxHigh = 0.0;
+            fixed_t worstAngle = 0;
+            uint64_t sh = 0x9C6E2F0D3B1A5E47ULL;
+            for ( int i = 0; i < 400000; i++ )
+            {
+                sh = sh * 6364136223846793005ULL + 1442695040888963407ULL;
+                fixed_t raw;
+                if ( i < 64 ) raw = i < 32 ? FIX_MAX - i * INT64_C( 9876543211 ) : -( FIX_MAX - ( i - 32 ) * INT64_C( 1234567891 ) );
+                else raw = (fixed_t)( (int64_t)sh >> ( 1 + i % 17 ) ); // |radians| from 2^30 to 2^47
+                RefInt128 x = (RefInt128)raw * ( (RefInt128)1 << 46 );    // Q2.62, exact
+                RefInt128 k = ( x + ( x < 0 ? -H / 2 : H / 2 ) ) / H;      // nearest quadrant
+                RefInt128 I = x - k * H, kL = k * L;                       // r * 2^62 = I - kL / 2^64
+                double r = ( (double)I - (double)kL * 0x1p-64 ) * 0x1p-62;
+                double c = cos( r ), sn = sin( r );
+                int quadrant = (int)( (int64_t)k & 3 );
+                double rc = quadrant == 0 ? c : quadrant == 1 ? -sn : quadrant == 2 ? -c : sn;
+                double rs = quadrant == 0 ? sn : quadrant == 1 ? c : quadrant == 2 ? -sn : -c;
+                fixCosSin cs = fixComputeCosSinPrecise( raw );
+                double e = fmax( fabs( fixToDouble( cs.cosine ) - rc ), fabs( fixToDouble( cs.sine ) - rs ) );
+                if ( e > maxHigh ) { maxHigh = e; worstAngle = raw; }
+            }
+            printf( "precise cos/sin past 2^30 rad, to the top of the range: max err %.3e (%.3f ulp) at %.6e rad\n", maxHigh,
+                    maxHigh * 65536.0, (double)worstAngle / 65536.0 );
+            CHECK( maxHigh <= 1.0 / 65536.0 );
+        }
+#else
+        printf( "precise cos/sin past 2^30 rad: skipped, no native 128-bit integer for the reference\n" );
+#endif
         CHECK( fixComputeCosSinPrecise( 0 ).cosine == FIX_ONE && fixComputeCosSinPrecise( 0 ).sine == 0 );
         printf( "precise cos/sin: max err vs libm %.3e (%.3f ulp), unit-circle %lld ulp\n", maxErr, maxErr * 65536.0,
                 (long long)maxUnitP );

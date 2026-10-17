@@ -102,5 +102,103 @@ int main( void )
     printf( "sanity: cos(0)=%.5f sin(0)=%.5f cos(pi/2)=%.5f sin(pi/2)=%.5f\n",
         fixToDouble(fixCos(fixFromDouble(0))), fixToDouble(fixSin(fixFromDouble(0))),
         fixToDouble(fixCos(fixFromDouble(1.57079632679))), fixToDouble(fixSin(fixFromDouble(1.57079632679))) );
+
+    // --- fixComputeCosSinPrecise: within one ulp of the true value of the input angle ---
+    // The reference is libm at double precision on the exact double value of the fixed input,
+    // which is itself within 1e-16 of the truth, so a one-ulp (2^-16) bound is a real bound.
+    {
+        static uint64_t pfnv = 0xCBF29CE484222325ULL;
+        #define PMIX( v ) do { fixed_t pv = ( v ); const uint8_t* pb = (const uint8_t*)&pv; \
+            for ( int pi = 0; pi < 8; pi++ ) { pfnv ^= pb[pi]; pfnv *= 0x00000100000001B3ULL; } } while ( 0 )
+        double maxErr = 0.0;
+        fixed_t maxUnitP = 0;
+        // every raw angle step across two turns near zero, then a strided sweep of the range
+        for ( int64_t raw = -( (int64_t)1 << 19 ); raw <= ( (int64_t)1 << 19 ); raw += 3 )
+        {
+            fixCosSin cs = fixComputeCosSinPrecise( (fixed_t)raw );
+            double a = fixToDouble( (fixed_t)raw );
+            double e = fmax( fabs( fixToDouble( cs.cosine ) - cos( a ) ), fabs( fixToDouble( cs.sine ) - sin( a ) ) );
+            if ( e > maxErr ) maxErr = e;
+            fixed_t unit = fixMul( cs.cosine, cs.cosine ) + fixMul( cs.sine, cs.sine ) - FIX_ONE;
+            if ( unit < 0 ) unit = -unit;
+            if ( unit > maxUnitP ) maxUnitP = unit;
+            PMIX( cs.cosine ); PMIX( cs.sine );
+        }
+        uint64_t st = 0x2545F4914F6CDD1DULL;
+        for ( int i = 0; i < 200000; i++ )
+        {
+            st = st * 6364136223846793005ULL + 1442695040888963407ULL;
+            // angles up to about +/-2^30 radians, signed
+            fixed_t raw = (fixed_t)( (int64_t)st >> 17 );
+            fixCosSin cs = fixComputeCosSinPrecise( raw );
+            double a = fixToDouble( raw );
+            double e = fmax( fabs( fixToDouble( cs.cosine ) - cos( a ) ), fabs( fixToDouble( cs.sine ) - sin( a ) ) );
+            if ( e > maxErr ) maxErr = e;
+            PMIX( cs.cosine ); PMIX( cs.sine );
+        }
+        // the extremes of the range, against libm while the raw value fits a double exactly
+        fixed_t extremes[] = { FIX_MAX, FIX_MIN, FIX_MAX / 3, -( FIX_MAX / 7 ), ( (int64_t)1 << 53 ) - 1, -( ( (int64_t)1 << 53 ) - 1 ), 1, -1, 0 };
+        for ( unsigned i = 0; i < sizeof( extremes ) / sizeof( extremes[0] ); i++ )
+        {
+            fixCosSin cs = fixComputeCosSinPrecise( extremes[i] );
+            double a = fixToDouble( extremes[i] );
+            // the double reference is exact only while the raw value fits 53 bits
+            if ( extremes[i] > -( (int64_t)1 << 53 ) && extremes[i] < ( (int64_t)1 << 53 ) )
+            {
+                double e = fmax( fabs( fixToDouble( cs.cosine ) - cos( a ) ), fabs( fixToDouble( cs.sine ) - sin( a ) ) );
+                if ( e > maxErr ) maxErr = e;
+            }
+            PMIX( cs.cosine ); PMIX( cs.sine );
+        }
+        // Past 2^30 radians, out to the top of the range. libm on the double of the angle is no
+        // reference there (the raw value no longer fits 53 bits), so reduce by pi/2 exactly in
+        // the test: x - k pi/2 with pi/2 to 126 fraction bits, in the compiler's native 128-bit
+        // integers, then libm on the small remainder. Not mixed into the frozen hash above.
+#if defined( __SIZEOF_INT128__ )
+        {
+            __extension__ typedef __int128 RefInt128;
+            const RefInt128 H = (RefInt128)INT64_C( 0x6487ed5110b4611a );  // floor( pi/2 * 2^62 )
+            const RefInt128 L = (RefInt128)INT64_C( 0x62633145c06e0e68 );  // the next 64 bits
+            double maxHigh = 0.0;
+            fixed_t worstAngle = 0;
+            uint64_t sh = 0x9C6E2F0D3B1A5E47ULL;
+            for ( int i = 0; i < 400000; i++ )
+            {
+                sh = sh * 6364136223846793005ULL + 1442695040888963407ULL;
+                fixed_t raw;
+                if ( i < 64 ) raw = i < 32 ? FIX_MAX - i * INT64_C( 9876543211 ) : -( FIX_MAX - ( i - 32 ) * INT64_C( 1234567891 ) );
+                else raw = (fixed_t)( (int64_t)sh >> ( 1 + i % 17 ) ); // |radians| from 2^30 to 2^47
+                RefInt128 x = (RefInt128)raw * ( (RefInt128)1 << 46 );    // Q2.62, exact
+                RefInt128 k = ( x + ( x < 0 ? -H / 2 : H / 2 ) ) / H;      // nearest quadrant
+                RefInt128 I = x - k * H, kL = k * L;                       // r * 2^62 = I - kL / 2^64
+                double r = ( (double)I - (double)kL * 0x1p-64 ) * 0x1p-62;
+                double c = cos( r ), sn = sin( r );
+                int quadrant = (int)( (int64_t)k & 3 );
+                double rc = quadrant == 0 ? c : quadrant == 1 ? -sn : quadrant == 2 ? -c : sn;
+                double rs = quadrant == 0 ? sn : quadrant == 1 ? c : quadrant == 2 ? -sn : -c;
+                fixCosSin cs = fixComputeCosSinPrecise( raw );
+                double e = fmax( fabs( fixToDouble( cs.cosine ) - rc ), fabs( fixToDouble( cs.sine ) - rs ) );
+                if ( e > maxHigh ) { maxHigh = e; worstAngle = raw; }
+            }
+            printf( "precise cos/sin past 2^30 rad, to the top of the range: max err %.3e (%.3f ulp) at %.6e rad\n", maxHigh,
+                    maxHigh * 65536.0, (double)worstAngle / 65536.0 );
+            CHECK( maxHigh <= 1.0 / 65536.0 );
+        }
+#else
+        printf( "precise cos/sin past 2^30 rad: skipped, no native 128-bit integer for the reference\n" );
+#endif
+        CHECK( fixComputeCosSinPrecise( 0 ).cosine == FIX_ONE && fixComputeCosSinPrecise( 0 ).sine == 0 );
+        printf( "precise cos/sin: max err vs libm %.3e (%.3f ulp), unit-circle %lld ulp\n", maxErr, maxErr * 65536.0,
+                (long long)maxUnitP );
+        CHECK( maxErr <= 1.0 / 65536.0 );
+        CHECK( maxUnitP <= 2 );
+        printf( "precise cos/sin determinism hash = 0x%016llx\n", (unsigned long long)pfnv );
+        // FROZEN 2026-10-17 (rowan/stone-needs), verified identical on x86-64 (hetzner) and arm64 (macOS).
+        if ( pfnv != 0x71f0b7ede7f72b06ULL )
+        {
+            printf( "DETERMINISM FAILURE (precise cos/sin): expected 0x71f0b7ede7f72b06\n" );
+            fails++;
+        }
+    }
     return ( fails == 0 && maxCosErr < 0.01 && maxSinErr < 0.01 && maxAtanErr < 0.01 ) ? 0 : 1;
 }

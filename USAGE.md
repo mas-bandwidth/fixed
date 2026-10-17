@@ -315,6 +315,7 @@ fixSqrt( FIX( 144.0 ) )                // 12.0, exact, rounds toward zero; negat
 fixAbs( FIX( -2.0 ) )                  // 2.0
 fixMin( a, b )  fixMax( a, b )         // branchless csel on arm64
 fixClamp( a, lower, upper )
+fixMulDiv( a, b, c )                   // a * b / c, exact 128-bit product, one truncation
 fixFloor( FIX( 1.5 ) )                 // 1.0
 fixCeil( FIX( 1.5 ) )                  // 2.0
 fixShiftLeft( a, n )                   // << that is defined for negative values
@@ -334,6 +335,7 @@ Integer-only, so `pow` is deterministic here where `libm`'s is not.
 
 ```c
 fixCosSin cs = fixComputeCosSin( FIX( 0.7 ) );   // both at once, the cheap form
+fixCosSin pc = fixComputeCosSinPrecise( FIX( 0.7 ) ); // within one ulp, for geometry
 fixed_t s = fixSin( radians );                   // convenience wrappers over the above
 fixed_t c = fixCos( radians );
 fixed_t angle = fixAtan2( y, x );                // ~0.0023 degrees
@@ -346,6 +348,12 @@ fixed_t m = fixLerp( a, b, alpha );
 ```
 
 Accuracy against `libm`: cos and sin within 0.0017, atan2 within 0.00004 rad.
+`fixComputeCosSinPrecise` is within one ulp (2^-16) over the whole range: measured 0.50 ulp up
+to 2^30 radians and 0.98 ulp at the top of the range. It reduces by pi/2 in Q2.62 at 128 bits;
+the angle is exact there, but pi/2 is rounded to 62 fraction bits, and the quadrant count
+multiplies that rounding into up to 0.49 ulp of angle near 2^47 radians. Then Taylor
+polynomials in Q32.32, at about four times the cost. Use it where an angle becomes geometry (a tessellated ring, a
+rotation built from an angle), where 0.0017 is 19 micrometres at an 11 mm radius.
 
 Critically damped smoothing, for deterministic control dynamics:
 

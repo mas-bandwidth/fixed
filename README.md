@@ -58,11 +58,11 @@ excludes by design.
 
 ## What is here
 
-- **Core scalar type and arithmetic** (`fixed.h`): `fixMul`, `fixDiv`, `fixSqrt`,
+- **Core scalar type and arithmetic** (`fixed.h`): `fixMul`, `fixDiv`, `fixMulDiv`, `fixSqrt`,
   `fixAbs`, `fixFloor`, `fixCeil`, `fixClamp`, `fixMin`, `fixMax` and the conversions.
 - **Integer transcendentals** (`fixed_math.h`): `fixComputeCosSin`, `fixSin`, `fixCos`,
   `fixAtan2`, `fixUnwindAngle` — pure fixed-point, and correct against libm
-  (cos/sin < 0.0017, atan2 < 0.00004 rad).
+  (cos/sin < 0.0017, atan2 < 0.00004 rad) — and `fixComputeCosSinPrecise`, within one ulp.
 - **The exponential ladder** `fixLog2`, `fixExp2`, `fixPow`, and `fixLerp` — integer-only,
   so `pow` is deterministic where libm's is not.
 - **Critically damped smoothing** (`fixSmoothCriticallyDamped`,

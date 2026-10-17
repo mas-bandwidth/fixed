@@ -16,6 +16,22 @@ static uint64_t fnv2 = 0xCBF29CE484222325ULL;
 static void mix2( fixed_t v ) { const uint8_t* b=(const uint8_t*)&v;
     for (int i=0;i<8;i++){ fnv2 ^= b[i]; fnv2 *= 0x00000100000001B3ULL; } }
 
+#if defined( __SIZEOF_INT128__ )
+// The fixMulDiv contract, a * b / c with one truncation toward zero, computed by the compiler's
+// own 128-bit integers: independent of the library's fixInt128 seam, native or emulated.
+__extension__ typedef __int128 RefInt128;
+static fixed_t refMulDiv( fixed_t a, fixed_t b, fixed_t c )
+{
+    RefInt128 p = (RefInt128)a * (RefInt128)b;
+    if ( c == 0 ) return p == 0 ? 0 : ( p < 0 ? FIX_MIN : FIX_MAX );
+    RefInt128 q = p / c; // C division truncates toward zero
+    if ( q > (RefInt128)FIX_MAX ) return FIX_MAX;
+    if ( q < (RefInt128)FIX_MIN ) return FIX_MIN;
+    return (fixed_t)q;
+}
+#define HAVE_REF_MULDIV 1
+#endif
+
 int main( void )
 {
     // deterministic integer LCG (no float) drives the inputs
@@ -85,6 +101,69 @@ int main( void )
     {
         printf( "DETERMINISM FAILURE (signed stream): expected 0x19889034915c2911\n" );
         return 1;
+    }
+
+    // A THIRD STREAM: fixMulDiv, the single-rounding a * b / c. Checked against the compiler's
+    // native __int128 where it has one (refMulDiv above: an independent implementation, which
+    // the emulated-128-bit build is held to as well), and against known answers everywhere,
+    // then hashed with its own frozen constant.
+    {
+        uint64_t fnv3 = 0xCBF29CE484222325ULL;
+        int bad = 0, checked = 0;
+        s = 0x8CB92BA72F3D8DD7ULL;
+        for ( int i = 0; i < 200000; i++ )
+        {
+            s = s * 6364136223846793005ULL + 1442695040888963407ULL;
+            fixed_t a = (fixed_t)( (int64_t)s >> ( 20 + ( i % 24 ) ) );
+            s = s * 6364136223846793005ULL + 1442695040888963407ULL;
+            fixed_t b = (fixed_t)( (int64_t)s >> ( 20 + ( ( i / 24 ) % 24 ) ) );
+            s = s * 6364136223846793005ULL + 1442695040888963407ULL;
+            fixed_t c = (fixed_t)( (int64_t)s >> ( 16 + ( ( i / 7 ) % 40 ) ) );
+            if ( i % 997 == 0 ) c = 0;
+            fixed_t r = fixMulDiv( a, b, c );
+#if defined( HAVE_REF_MULDIV )
+            if ( r != refMulDiv( a, b, c ) ) bad++;
+            checked++;
+#endif
+            const uint8_t* bytes = (const uint8_t*)&r;
+            for ( int k = 0; k < 8; k++ ) { fnv3 ^= bytes[k]; fnv3 *= 0x00000100000001B3ULL; }
+        }
+        // known answers: exact, truncating toward zero, single rounding, zero divisor
+        if ( fixMulDiv( FIX( 3.0 ), FIX( 4.0 ), FIX( 2.0 ) ) != FIX( 6.0 ) ) bad++;
+        if ( fixMulDiv( FIX( -1.0 ), FIX( 1.0 ), FIX( 3.0 ) ) != -21845 ) bad++;   // -0.33333 truncated
+        if ( fixMulDiv( 1, 1, 1 ) != 1 ) bad++;                                     // 2^-32 / 2^-16 = 2^-16
+        if ( fixMulDiv( FIX( 1.0 ), FIX( 1.0 ), 0 ) != FIX_MAX ) bad++;
+        if ( fixMulDiv( FIX( -1.0 ), FIX( 1.0 ), 0 ) != FIX_MIN ) bad++;
+        if ( fixMulDiv( 0, FIX( 1.0 ), 0 ) != 0 ) bad++;
+        if ( fixMulDiv( FIX_MAX, FIX_MAX, 1 ) != FIX_MAX ) bad++;
+        if ( fixMulDiv( FIX_MAX, -FIX_MAX, 1 ) != FIX_MIN ) bad++;
+        // a small product keeps its fraction bits where fixDiv( fixMul ) loses them
+        if ( fixMulDiv( 3, 5, 7 ) != 2 || fixDiv( fixMul( 3, 5 ), 7 ) != 0 ) bad++;
+        // truncation toward zero in every sign combination (raw: 7 * 1 / 2 = 3.5)
+        if ( fixMulDiv( 7, 1, 2 ) != 3 || fixMulDiv( -7, 1, 2 ) != -3 || fixMulDiv( 7, -1, 2 ) != -3 ) bad++;
+        if ( fixMulDiv( 7, 1, -2 ) != -3 || fixMulDiv( -7, -1, 2 ) != 3 || fixMulDiv( -7, -1, -2 ) != -3 ) bad++;
+        // products far past 64 bits, exact quotients in range
+        if ( fixMulDiv( FIX_MAX, FIX_MAX, FIX_MAX ) != FIX_MAX ) bad++;
+        if ( fixMulDiv( -FIX_MAX, FIX_MAX, FIX_MAX ) != -FIX_MAX ) bad++;
+        if ( fixMulDiv( (fixed_t)1 << 40, (fixed_t)1 << 40, (fixed_t)1 << 20 ) != (fixed_t)1 << 60 ) bad++;
+        if ( fixMulDiv( INT64_C( 3037000499 ), INT64_C( 3037000499 ), INT64_C( 3037000499 ) ) != INT64_C( 3037000499 ) ) bad++;
+        // (2^62 + 1) * 3 / 4 = 3458764513820540928.75, truncated
+        if ( fixMulDiv( ( (fixed_t)1 << 62 ) + 1, 3, 4 ) != INT64_C( 3458764513820540928 ) ) bad++;
+        if ( fixMulDiv( -( ( (fixed_t)1 << 62 ) + 1 ), 3, 4 ) != -INT64_C( 3458764513820540928 ) ) bad++;
+        // a quotient one past the range saturates: (2^63 - 1) * 2 / 2 is in range, * 3 / 2 is not
+        if ( fixMulDiv( FIX_MAX, 2, 2 ) != FIX_MAX || fixMulDiv( FIX_MAX, 3, 2 ) != FIX_MAX || fixMulDiv( FIX_MAX, -3, 2 ) != FIX_MIN ) bad++;
+#if defined( HAVE_REF_MULDIV )
+        printf( "fixMulDiv: %d results against native __int128, known answers\n", checked );
+#else
+        printf( "fixMulDiv: no native __int128 on this compiler; known answers and the hash only\n" );
+#endif
+        printf( "fixMulDiv determinism hash = 0x%016llx (%d mismatches)\n", (unsigned long long)fnv3, bad );
+        // FROZEN 2026-10-17 (rowan/stone-needs), verified identical on x86-64 (hetzner) and arm64 (macOS).
+        if ( bad != 0 || fnv3 != 0x53a562ddd9c3ade5ULL )
+        {
+            printf( "DETERMINISM FAILURE (fixMulDiv stream): expected 0x53a562ddd9c3ade5\n" );
+            return 1;
+        }
     }
     return 0;
 }

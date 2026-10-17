@@ -16,7 +16,9 @@ static uint64_t fnv2 = 0xCBF29CE484222325ULL;
 static void mix2( fixed_t v ) { const uint8_t* b=(const uint8_t*)&v;
     for (int i=0;i<8;i++){ fnv2 ^= b[i]; fnv2 *= 0x00000100000001B3ULL; } }
 
-#if defined( __SIZEOF_INT128__ )
+// clang-cl (_MSC_VER with __SIZEOF_INT128__) compiles __int128 but links no compiler-rt, so native
+// 128-bit division is an undefined symbol (__divti3) there. The reference needs the runtime.
+#if defined( __SIZEOF_INT128__ ) && !defined( _MSC_VER )
 // The fixMulDiv contract, a * b / c with one truncation toward zero, computed by the compiler's
 // own 128-bit integers: independent of the library's fixInt128 seam, native or emulated.
 __extension__ typedef __int128 RefInt128;

@@ -154,7 +154,9 @@ int main( void )
         // reference there (the raw value no longer fits 53 bits), so reduce by pi/2 exactly in
         // the test: x - k pi/2 with pi/2 to 126 fraction bits, in the compiler's native 128-bit
         // integers, then libm on the small remainder. Not mixed into the frozen hash above.
-#if defined( __SIZEOF_INT128__ )
+// Not on clang-cl (_MSC_VER): it compiles __int128 but links no compiler-rt, so native 128-bit
+// division and 128-bit to double conversion (__divti3, __floattidf) fail to link there.
+#if defined( __SIZEOF_INT128__ ) && !defined( _MSC_VER )
         {
             __extension__ typedef __int128 RefInt128;
             const RefInt128 H = (RefInt128)INT64_C( 0x6487ed5110b4611a );  // floor( pi/2 * 2^62 )

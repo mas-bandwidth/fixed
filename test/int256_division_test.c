@@ -421,6 +421,53 @@ static void testRandomSweep( void )
 }
 
 // ================================================================================
+// 5. Shift edge cases.
+// ================================================================================
+
+static void testShiftEdgeCases( void )
+{
+	int before = fails;
+
+	const fixUInt256 zero = make256( 0, 0, 0, 0 );
+	const fixUInt256 one = fixUInt256FromU64( 1 );
+	// 2^255: the top bit of a 256-bit value. Shifting it left by 1 would need bit 256,
+	// which does not exist, so any left shift by 1 or more of it is zero; shifting it
+	// right by 255 moves it to bit 0, which is one.
+	const fixUInt256 topBit = make256( 0x8000000000000000ULL, 0, 0, 0 );
+
+	// Shifts by 256 or more are documented to return zero, whatever the operand.
+	// 256 and 257 land on the >= 256 branch; 511 is chosen to exceed any plausible limb
+	// arithmetic while remaining a positive shift amount.
+	CHECK( eq256( fixUInt256Shl( one, 256 ), zero ) );
+	CHECK( eq256( fixUInt256Shl( one, 257 ), zero ) );
+	CHECK( eq256( fixUInt256Shl( one, 511 ), zero ) );
+	CHECK( eq256( fixUInt256Shr( one, 256 ), zero ) );
+	CHECK( eq256( fixUInt256Shr( one, 257 ), zero ) );
+	CHECK( eq256( fixUInt256Shr( one, 511 ), zero ) );
+
+	// A shift by 0 is documented to return the input unchanged, for left and right.
+	CHECK( eq256( fixUInt256Shl( one, 0 ), one ) );
+	CHECK( eq256( fixUInt256Shr( one, 0 ), one ) );
+	CHECK( eq256( fixUInt256Shl( topBit, 0 ), topBit ) );
+	CHECK( eq256( fixUInt256Shr( topBit, 0 ), topBit ) );
+
+	// A shift by 255 is the largest in-range shift: 1 << 255 is the top bit, and the
+	// top bit >> 255 is 1. The inverse directions fall off the end to zero.
+	CHECK( eq256( fixUInt256Shl( one, 255 ), topBit ) );
+	CHECK( eq256( fixUInt256Shr( one, 255 ), zero ) );
+	CHECK( eq256( fixUInt256Shl( topBit, 255 ), zero ) );
+	CHECK( eq256( fixUInt256Shr( topBit, 255 ), one ) );
+
+	// fixCountLeadingZeros64 is documented to count the leading zeros before the highest
+	// set bit, and to return 64 for zero (all 64 bits are leading zeros). One has 63
+	// leading zeros.
+	CHECK( fixCountLeadingZeros64( 0 ) == 64 );
+	CHECK( fixCountLeadingZeros64( 1 ) == 63 );
+
+	if ( fails == before ) section( "shift edges: 256+ shifts zero, 0 returns input, 255 of 1 and top bit, clz64 of 0 and 1" );
+}
+
+// ================================================================================
 
 int main( void )
 {
@@ -428,6 +475,7 @@ int main( void )
 	testLimbCounts();
 	testAddBack();
 	testRandomSweep();
+	testShiftEdgeCases();
 
 	if ( fails )
 	{

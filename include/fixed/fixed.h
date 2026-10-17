@@ -379,7 +379,13 @@ FIX_ALWAYS_INLINE fixed_t fixSqrt( fixed_t a )
 /// Absolute value
 FIX_ALWAYS_INLINE fixed_t fixAbs( fixed_t a )
 {
-	return a < 0 ? -a : a;
+	// Branch-free negation: mask is all ones when a is negative, zero otherwise.
+	uint64_t sign = (uint64_t)a >> 63;
+	uint64_t mask = 0 - sign;
+	uint64_t magnitude = ( (uint64_t)a ^ mask ) - mask;
+	// INT64_MIN policy: it is reserved and taken as FIX_MIN, so its magnitude saturates to FIX_MAX.
+	magnitude = magnitude > (uint64_t)FIX_MAX ? (uint64_t)FIX_MAX : magnitude;
+	return (fixed_t)magnitude;
 }
 
 /// Minimum of two fixed-point numbers

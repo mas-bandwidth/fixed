@@ -540,6 +540,19 @@ fixIsValidPlane( p )        // normal representable AND unit length
 fixIsValidAABB( a )         // both bounds valid, and lower <= upper on every axis
 ```
 
+Fixed point has no error channel, no NaN and no infinity. INT64_MIN is reserved
+(`fixIsValidFixed` is false only for it), but it is reachable: `fixLog2` returns it as its
+documented no-value result and `FIX_MIN - 1` produces it, so no scalar function may turn it
+into a trap or undefined behavior. An INT64_MIN argument is never refused — there is nothing
+to refuse with — and wherever it would be negated it is taken as FIX_MIN, with its magnitude
+saturating to FIX_MAX (`fixAbs( INT64_MIN ) == FIX_MAX`). `fixDiv`, `fixMulDiv`,
+`fix30FromFix` and `fixWideToFixed` saturate and division by zero is defined. Arithmetic that
+overflows on in-range values wraps in two's complement through unsigned arithmetic, as
+`fixMul`'s wrap is documented, never signed overflow; such a wrap can land on the reserved
+bit pattern, and `fixFloor( FIX_MIN )` / `fixCeil( FIX_MAX )` are the exact integral edges at
+that same pattern. The only sentinel return of INT64_MIN is `fixLog2`'s documented result for
+an argument <= 0.
+
 ### Bounding volumes and planes
 
 ```c

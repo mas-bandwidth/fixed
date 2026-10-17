@@ -401,14 +401,14 @@ fixed_t fixSmoothCriticallyDamped( fixed_t current, fixed_t target, fixed_t* vel
 	}
 
 	fixed_t omega = fixDiv( 2 * FIX_PI, smoothTime );
-	fixed_t onePlus = FIX_ONE + fixMul( omega, deltaTime );
+	fixed_t onePlus = (fixed_t)( (uint64_t)FIX_ONE + (uint64_t)fixMul( omega, deltaTime ) ); // INT64_MIN policy: unsigned add, so extremes wrap instead of trapping.
 	fixed_t denominator = fixMul( onePlus, onePlus );
 
-	fixed_t spring = fixMul( fixMul( fixMul( omega, omega ), deltaTime ), current - target );
+	fixed_t difference = (fixed_t)( (uint64_t)current - (uint64_t)target ); // INT64_MIN policy: unsigned subtract keeps INT64_MIN defined.
+	fixed_t spring = fixMul( fixMul( fixMul( omega, omega ), deltaTime ), difference );
 
-	*velocity = fixDiv( *velocity - spring, denominator );
-
-	return current + fixMul( *velocity, deltaTime );
+	*velocity = fixDiv( (fixed_t)( (uint64_t)*velocity - (uint64_t)spring ), denominator ); // INT64_MIN policy: unsigned subtract keeps INT64_MIN defined.
+	return (fixed_t)( (uint64_t)current + (uint64_t)fixMul( *velocity, deltaTime ) ); // INT64_MIN policy: unsigned add, so extremes wrap instead of trapping.
 }
 
 fixed_t fixSmoothCriticallyDampedUpDown( fixed_t current, fixed_t target, fixed_t* velocity, fixed_t smoothTimeUp,

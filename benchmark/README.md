@@ -214,6 +214,9 @@ command that names the first differing input exactly:
 ./build/fixed_oracle_check --dump fixMul <start> <end>   # index/input/output triples
 # run it in both trees and diff: the first differing line is the first differing input
 ```
+`--op NAME` checks a single operation; a name with no row (a typo) is refused with
+`ORACLE: no such operation` and exit 2 instead of quietly matching, so a bad name cannot
+pass in CI.
 
 ### A/B protocol
 

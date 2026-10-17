@@ -12,6 +12,61 @@ static int fails = 0;
 #define CHECK( cond ) \
     do { if ( !( cond ) ) { printf( "FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond ); fails++; } } while ( 0 )
 
+// Precise cos/sin at the edge of the input range: INT64_MIN (FIX_MIN is -INT64_MAX, so
+// this one input was missing), exact even/odd symmetry over a log sweep, and the quarter
+// turn. None of this touches mix() or any frozen hash.
+static void CosSinPreciseEdgeCases( void )
+{
+    int checked = 0;
+    const int failsBefore = fails;
+    #define ECHECK( cond ) do { checked++; CHECK( cond ); } while ( 0 )
+
+    // INT64_MIN negates to nothing representable, so only the unit-circle contract applies:
+    // |cos^2 + sin^2 - 1| <= 2 ulp, the bound the precise block above already uses. The pair
+    // is printed so the native and emulated runs can be compared line for line.
+    {
+        fixCosSin cs = fixComputeCosSinPrecise( INT64_MIN );
+        fixed_t unit = fixMul( cs.cosine, cs.cosine ) + fixMul( cs.sine, cs.sine ) - FIX_ONE;
+        if ( unit < 0 ) unit = -unit;
+        ECHECK( unit <= 2 );
+        printf( "CosSinPreciseEdgeCases INT64_MIN cos=%lld sin=%lld unit=%lld arm=%s\n", (long long)cs.cosine,
+                (long long)cs.sine, (long long)unit, FIX_INT128_EMULATED ? "emulated" : "native" );
+    }
+
+    // cos is even and sin is odd exactly, over 512 magnitudes log-spaced from 1 to 2^62 and
+    // both signs. INT64_MIN never occurs here (2^62 is the largest magnitude) but is skipped
+    // explicitly: its negation does not exist.
+    for ( int i = 0; i < 512; i++ )
+    {
+        fixed_t magnitude = (fixed_t)( (int64_t)1 << ( ( i * 62 ) / 511 ) );
+        for ( int sign = -1; sign <= 1; sign += 2 )
+        {
+            fixed_t x = sign * magnitude;
+            if ( x == INT64_MIN )
+            {
+                continue;
+            }
+            fixCosSin p = fixComputeCosSinPrecise( x );
+            fixCosSin m = fixComputeCosSinPrecise( -x );
+            ECHECK( p.cosine == m.cosine );
+            ECHECK( p.sine == -m.sine );
+        }
+    }
+
+    // 102944 is the nearest raw value to pi/2 (the existing atan2 axes pin Q32ToFix(HALF_PI)
+    // = 102944). 102944 / 65536 = 1.57080078125, which is 4.4544551e-6 rad above pi/2, so
+    // the true cosine is -sin(4.4544551e-6) = -4.4544551e-6 = -0.292 raw (rounds to 0) and
+    // the true sine is cos(4.4544551e-6) = 1 - 9.9226e-12 = 65535.99999935 (rounds to 65536).
+    {
+        fixCosSin cs = fixComputeCosSinPrecise( 102944 );
+        ECHECK( cs.cosine >= -1 && cs.cosine <= 1 );
+        ECHECK( cs.sine >= 65535 && cs.sine <= 65537 );
+    }
+
+    printf( "CosSinPreciseEdgeCases checked=%d mismatches=%d\n", checked, fails - failsBefore );
+    #undef ECHECK
+}
+
 int main( void )
 {
     // --- determinism: hash sin/cos/atan2 over a deterministic angle sweep ---
@@ -202,5 +257,6 @@ int main( void )
             fails++;
         }
     }
+    CosSinPreciseEdgeCases();
     return ( fails == 0 && maxCosErr < 0.01 && maxSinErr < 0.01 && maxAtanErr < 0.01 ) ? 0 : 1;
 }

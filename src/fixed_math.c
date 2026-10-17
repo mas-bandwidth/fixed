@@ -171,8 +171,45 @@ fixCosSin fixComputeCosSin( fixed_t radians )
 	const int64_t pi2 = 42389628127LL;		 // pi^2 in Q32.32
 	const int64_t fivePi2 = 211948140636LL; // 5*pi^2 in Q32.32
 
-	// The unwound angle is in [-pi, pi] to within an ulp; promote to Q32.32
-	int64_t x = fixShiftLeft( fixUnwindAngle( radians ), 16 );
+	// The unwound angle is in [-pi, pi] to within an ulp; promote to Q32.32.
+	// Below 32 rad, keep the single-word fixUnwindAngle path bit for bit: it is frozen by
+	// test/transcendental_test.c. At and above 32 rad, its one-word 2*pi is off by 0.17 raw
+	// per turn, which grows without bound; reduce there with a two-word 2*pi in Q2.62 instead.
+	// The error bound is 107 ulps of Q48.16 at every angle, checked against CORE-MATH at the
+	// pin in test/sincos_core_math_test.c.
+	int64_t x;
+	if ( radians > -( (fixed_t)32 << 16 ) && radians < ( (fixed_t)32 << 16 ) )
+	{
+		x = fixShiftLeft( fixUnwindAngle( radians ), 16 );
+	}
+	else
+	{
+		// xw is the angle in Q2.62, exact (radians * 2^46). twoPi is 4 * round(pi/2 * 2^62),
+		// whose per-turn error is corrected below.
+		fixInt128 xw = fixInt128ShiftLeft( fixInt128FromI64( radians ), 46 );
+		fixInt128 twoPi = fixInt128ShiftLeft( fixInt128FromI64( FIX_Q62_HALF_PI ), 2 );
+		fixInt128 bias = fixInt128Shr( twoPi, 1 );
+		fixInt128 numerator = fixInt128IsNegative( xw ) ? fixInt128Sub( xw, bias ) : fixInt128Add( xw, bias );
+		fixInt128 n = fixInt128Div( numerator, twoPi );
+		fixInt128 r = fixInt128Sub( xw, fixInt128Mul( n, twoPi ) );
+
+		// corr = round( n * ( 2*pi*2^62 - twoPi ) ), the twoPi rounding error times the turn
+		// count. 6602671383 = round( ( 2*pi*2^62 - 4*7244019458077122842 ) * 2^32 ):
+		//   $ bc -l
+		//   scale=60
+		//   pi=4*a(1)
+		//   2*pi*2^62
+		//   => 28976077832308491369.537304227940439549844109316229232808384851519475345105354752
+		//   (2*pi*2^62 - 4*7244019458077122842)*2^32
+		//   => 6602671383.006717302445411411453476951183171857962514305812334318190592
+		fixInt128 corr = fixInt128Shr(
+			fixInt128Add( fixInt128Mul( n, fixInt128FromI64( INT64_C( 6602671383 ) ) ), fixInt128FromI64( INT64_C( 1 ) << 31 ) ),
+			32 );
+		r = fixInt128Sub( r, corr );
+
+		// Q2.62 to Q32.32, rounded to nearest.
+		x = fixInt128ToI64( fixInt128Shr( fixInt128Add( r, fixInt128FromI64( INT64_C( 1 ) << 29 ) ), 30 ) );
+	}
 	x = x < -pi ? -pi : ( x > pi ? pi : x );
 
 	// cosine needs angle in [-pi/2, pi/2]

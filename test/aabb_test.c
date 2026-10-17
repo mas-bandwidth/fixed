@@ -86,8 +86,87 @@ static fixAABBWide Widen( fixAABB a, fixedWide_t base )
 	return w;
 }
 
+// ---- AABB y/z-axis branches ----
+// The hand-value block exercises only the x branch of fixAABB_Contains,
+// fixAABB_Overlaps and fixIsValidAABB. These cases pin the y and z branches so
+// every axis is covered. Contracts (doc comments in include/fixed/fixed_vec.h):
+//   - fixAABB_Contains: closed boxes -- equality counts, so contains is false
+//     exactly when b pokes outside a on some axis.
+//   - fixAABB_Overlaps: boxes separate only when a full gap exists on one axis;
+//     sharing a face (equality) is overlap, not separation.
+//   - fixIsValidAABB: false when either bound holds an unrepresentable INT64_MIN
+//     component, or when lower > upper on any axis.
+static void AABBAxisBranchCases( void )
+{
+	fixAABB a = Box( -1.0f, -2.0f, -3.0f, 1.0f, 2.0f, 3.0f );
+
+	// ---- x axis (baseline; y and z coincide in every case) ----
+	{
+		// disjoint ONLY on x
+		fixAABB bx = Box( 2.0f, -2.0f, -3.0f, 4.0f, 2.0f, 3.0f );
+		CHECK( fixAABB_Overlaps( a, bx ) == false );
+
+		// pokes outside ONLY on x
+		fixAABB ox = Box( 0.0f, -1.0f, -2.0f, 2.0f, 1.0f, 2.0f );
+		CHECK( fixAABB_Contains( a, ox ) == false );
+
+		// touching faces on x count as overlap (>= boundary), not separation
+		fixAABB tx = Box( 1.0f, -2.0f, -3.0f, 2.0f, 2.0f, 3.0f );
+		CHECK( fixAABB_Overlaps( a, tx ) );
+	}
+
+	// ---- y axis ----
+	{
+		// disjoint ONLY on y
+		fixAABB by = Box( -1.0f, 3.0f, -3.0f, 1.0f, 5.0f, 3.0f );
+		CHECK( fixAABB_Overlaps( a, by ) == false );
+
+		// pokes outside ONLY on y
+		fixAABB oy = Box( -0.5f, -1.0f, -2.0f, 0.5f, 3.0f, 2.0f );
+		CHECK( fixAABB_Contains( a, oy ) == false );
+
+		// touching faces on y count as overlap
+		fixAABB ty = Box( -1.0f, 2.0f, -3.0f, 1.0f, 4.0f, 3.0f );
+		CHECK( fixAABB_Overlaps( a, ty ) );
+	}
+
+	// ---- z axis ----
+	{
+		// disjoint ONLY on z
+		fixAABB bz = Box( -1.0f, -2.0f, 4.0f, 1.0f, 2.0f, 6.0f );
+		CHECK( fixAABB_Overlaps( a, bz ) == false );
+
+		// pokes outside ONLY on z
+		fixAABB oz = Box( -0.5f, -1.0f, 2.0f, 0.5f, 1.0f, 4.0f );
+		CHECK( fixAABB_Contains( a, oz ) == false );
+
+		// touching faces on z count as overlap
+		fixAABB tz = Box( -1.0f, -2.0f, 3.0f, 1.0f, 2.0f, 5.0f );
+		CHECK( fixAABB_Overlaps( a, tz ) );
+	}
+
+	// ---- validity: lower > upper on y alone and on z alone ----
+	{
+		// only y inverted: x and z are valid
+		fixAABB invY = Box( -1.0f, 3.0f, 0.0f, 1.0f, 0.0f, 0.0f );
+		CHECK( fixIsValidAABB( invY ) == false );
+
+		// only z inverted
+		fixAABB invZ = Box( -1.0f, 0.0f, 3.0f, 1.0f, 2.0f, 0.0f );
+		CHECK( fixIsValidAABB( invZ ) == false );
+	}
+
+	// ---- validity: invalid upper bound (INT64_MIN reserved sentinel) ----
+	{
+		fixAABB ubad = { { FIX( 0.0f ), FIX( 0.0f ), FIX( 0.0f ) }, { INT64_MIN, 0, 0 } };
+		CHECK( fixIsValidAABB( ubad ) == false );
+	}
+}
+
 int main( void )
 {
+	AABBAxisBranchCases();
+
 	// ---- fixPlane ----
 	{
 		fixPlane good = { V( 1.0f, 0.0f, 0.0f ), FIX( 2.5f ) };

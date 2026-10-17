@@ -258,6 +258,33 @@ target_link_libraries(fixed_boundary_negative_control PRIVATE fixed_unguarded)
 add_test(NAME boundary_negative_control COMMAND fixed_boundary_negative_control)
 set_tests_properties(boundary_negative_control PROPERTIES WILL_FAIL TRUE)
 
+# CORE-MATH as a test-only oracle. The two vendored files are built into an object library
+# with their own flags and warnings off, and linked only into the sincos tests below; the
+# fixed library itself gains no dependency. ClangCL defines MSVC, and that arm has no
+# __int128 for this code, so it is skipped there with the rest of the MSVC-only paths.
+if (NOT MSVC)
+    add_library(fixed_core_math_object OBJECT extern/core-math/sin.c extern/core-math/cos.c)
+    target_compile_options(fixed_core_math_object PRIVATE -O2 -ffp-contract=off -w)
+
+    add_executable(fixed_sincos_core_math_test test/sincos_core_math_test.c)
+    target_link_libraries(fixed_sincos_core_math_test PRIVATE fixed fixed_core_math_object)
+    add_test(NAME sincos_core_math COMMAND fixed_sincos_core_math_test)
+
+    # The same oracle against the emulated 128-bit arm: the reduction must be bit-identical.
+    if (TARGET fixed_emulated)
+        add_executable(fixed_sincos_core_math_emulated_test test/sincos_core_math_test.c)
+        target_link_libraries(fixed_sincos_core_math_emulated_test PRIVATE fixed_emulated fixed_core_math_object)
+        add_test(NAME sincos_core_math_emulated COMMAND fixed_sincos_core_math_emulated_test)
+    endif()
+
+    # The planted single-word 2*pi reduction, fed through fixUnwindAngle exactly as the old
+    # fixComputeCosSin did. It must exceed the bound and fail, so CTest expects failure.
+    add_executable(fixed_sincos_negative_control test/sincos_core_math_test.c)
+    target_link_libraries(fixed_sincos_negative_control PRIVATE fixed fixed_core_math_object)
+    target_compile_definitions(fixed_sincos_negative_control PRIVATE SINCOS_NEGATIVE_CONTROL)
+    add_test(NAME sincos_negative_control COMMAND fixed_sincos_negative_control)
+    set_tests_properties(sincos_negative_control PROPERTIES WILL_FAIL TRUE)
+endif()
 option(FIX_BUILD_BENCHMARKS "Build the numerical public-API microbenchmarks" OFF)
 if (FIX_BUILD_BENCHMARKS)
     add_executable(fixed_numerical_bench benchmark/numerical_bench.c)

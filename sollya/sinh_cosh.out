@@ -1,0 +1,10 @@
+sinh/cosh cut-off and saturation checks (working precision 400 bits)
+nearestint(sinh(2344 * 2^-16) * 2^16) == 2344: true
+nearestint(sinh(2345 * 2^-16) * 2^16) != 2345: true  value: 2346
+sinh(2180452 * 2^-16) * 2^16 < 2^63 - 3/2: true
+cosh(2180452 * 2^-16) * 2^16 < 2^63 - 3/2: true
+sinh(2180453 * 2^-16) * 2^16 >= 2^63 - 3/2: true
+cosh(2180453 * 2^-16) * 2^16 >= 2^63 - 3/2: true
+exp kernel certificate (sollya/exp_kernel.out): |P - e^r| <= 2^ -102.6738433837890625  on [0, ln2/128 + 2^-130]
+exp kernel bound log2: -102.6738433837890625
+sinh/cosh exp-path budget 2^62 * (2^-101.67 + 2^-102.67 + 2^-126), log2: -39.0850372314453125

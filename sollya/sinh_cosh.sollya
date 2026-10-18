@@ -1,0 +1,85 @@
+// SPDX-License-Identifier: MIT
+//
+// The cut-off and saturation edges of fixSinhExact / fixCoshExact, checked in Sollya.
+//
+// sinh and cosh have no polynomial of their own (docs/design/transcendentals.md section 6):
+// the exp path uses the exp kernel, and sinh's small-|x| odd kernel is certified by
+// sollya/exp_kernel.sollya. This script only restates the bounds and checks the edges:
+//
+//   * the sinh identity edge, raw 2344, and the first raw past it, 2345;
+//   * the saturation edge, raw 2180452 below 2^63 - 3/2 and raw 2180453 at or above it,
+//     for both sinh and cosh;
+//   * the exp kernel certificate, read from the log2 bound sollya/exp_kernel.out prints,
+//     and the sinh/cosh exp-path budget of section 1.3 as a log2.
+//
+// No fpminimax here: the kernels belong to sollya/exp_kernel.sollya.
+//
+// Regenerate with:  sollya sollya/sinh_cosh.sollya > sollya/sinh_cosh.out
+prec = 400!;
+display = decimal!;
+verbosity = 0!;
+
+// First occurrence of needle in s, or -1. Sollya has no substring search built in.
+procedure findsub(s, needle) {
+  var n, m, i, j, ok;
+  n = length(s);
+  m = length(needle);
+  for i from 0 to n - m do {
+    ok = 1;
+    for j from 0 to m - 1 do {
+      if (s[i + j] != needle[j]) then { ok = 0; };
+    };
+    if (ok == 1) then { return i; };
+  };
+  return -1;
+};
+
+// The exp kernel's certified log2 bound, read from the committed output of
+// sollya/exp_kernel.sollya. The literal is the same value, used only if that file is absent
+// (the design that commits it is this card's dependency).
+b = -102.6738433837890625;
+have = bashevaluate("test -f sollya/exp_kernel.out && echo yes || echo no");
+if (have == "yes") then {
+  text = readfile("sollya/exp_kernel.out");
+  pos = findsub(text, "log2 of the certified bound:");
+  if (pos >= 0) then {
+    i = pos + length("log2 of the certified bound:");
+    line = "";
+    while (i < length(text) && text[i] != "\n") do {
+      line = line @ text[i];
+      i = i + 1;
+    };
+    num = "";
+    started = 0;
+    i = 0;
+    while (i < length(line)) do {
+      if (started == 1 || line[i] != " ") then {
+        started = 1;
+        num = num @ line[i];
+      };
+      i = i + 1;
+    };
+    if (length(num) > 0) then { b = parse(num); };
+  };
+};
+
+print("sinh/cosh cut-off and saturation checks (working precision", prec, "bits)");
+print("nearestint(sinh(2344 * 2^-16) * 2^16) == 2344:",
+      nearestint(sinh(2344 * 2^-16) * 2^16) == 2344);
+print("nearestint(sinh(2345 * 2^-16) * 2^16) != 2345:",
+      nearestint(sinh(2345 * 2^-16) * 2^16) != 2345,
+      " value:", nearestint(sinh(2345 * 2^-16) * 2^16));
+print("sinh(2180452 * 2^-16) * 2^16 < 2^63 - 3/2:",
+      sinh(2180452 * 2^-16) * 2^16 < 2^63 - 3/2);
+print("cosh(2180452 * 2^-16) * 2^16 < 2^63 - 3/2:",
+      cosh(2180452 * 2^-16) * 2^16 < 2^63 - 3/2);
+print("sinh(2180453 * 2^-16) * 2^16 >= 2^63 - 3/2:",
+      sinh(2180453 * 2^-16) * 2^16 >= 2^63 - 3/2);
+print("cosh(2180453 * 2^-16) * 2^16 >= 2^63 - 3/2:",
+      cosh(2180453 * 2^-16) * 2^16 >= 2^63 - 3/2);
+print("exp kernel certificate (sollya/exp_kernel.out): |P - e^r| <= 2^", b,
+      " on [0, ln2/128 + 2^-130]");
+print("exp kernel bound log2:", round(b, 24, RN));
+print("sinh/cosh exp-path budget 2^62 * (2^-101.67 + 2^-102.67 + 2^-126), log2:",
+      round(log2(2^62 * (2^-101.67 + 2^-102.67 + 2^-126)), 24, RN));
+quit;

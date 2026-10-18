@@ -1,30 +1,23 @@
 # fixDiv results
 
-Base: sprint/fixed-core at 3869958. No proof was run: this environment has no reachable
-WP (see notes.md). There is no `Proved goals:` line for fixDiv, so no WP goal is listed
-below; the only goals this card could examine are the two Eva imprecision alarms in the main
-card's pass-4 results.
+Attempt 2, base: sprint/fixed-core at 5e35893 (proofs/framac landed). No proof was run:
+this job's sandbox on the studio Mac has no reachable WP (see notes.md). There is no
+`Proved goals:` line for fixDiv, so no WP goal is listed below; the only goals this card
+could examine are the two Eva imprecision alarms in the main card's pass-4 results.
 
 ## Status against DONE-WHEN
 
 | item | state |
 |---|---|
-| `make -C proofs/framac/fixdiv fixdiv` ends within 600 s with a summary for the emulated path | **not done**: Frama-C 33 + WP is behind a denied path (`~/.opam`); the runnable Frama-C is 25.0-beta without WP |
+| `make -C proofs/framac/fixdiv fixdiv` ends within 600 s with a summary for the emulated path | **not done**: no `frama-c` (and no Alt-Ergo/Z3/Why3) is on PATH or found anywhere under `/usr`, `/opt`, `$HOME/sdk`, `/Users/glenn/sdk`, `/Users/glenn/.local`; there is no WP-capable Frama-C to run |
 | every unproved goal listed with line and reason | **not done for WP**: no goals were generated. The two known Eva alarms are analysed below and are not undefined behaviour |
 | notes.md records what was tried, with time and whether it ended | done for the start conditions and the UBSan check; the WP attempts are recorded as not runnable |
 | Makefile `nightly` includes fixDiv only if it ends in its cap | done: `nightly` does not call fixDiv |
 | `git diff --stat` shows only NEW files under proofs/framac/fixdiv | done |
 
-Red line from `make -C proofs/framac/fixdiv fixdiv` in this environment, in 0.23 s:
-
-```
-proveFixDiv              emulated           NO SUMMARY: run cut off by LIMIT or stopped (see log)
-[kernel] User Error: option `-wp-fct' is unknown.
-[kernel] Frama-C aborted: invalid user input.
-```
-
-The fallback `/usr/bin/frama-c` is 25.0-beta without the WP plugin; the WP-enabled
-`~/.opam` Frama-C is not executable here (notes.md).
+No `make -C proofs/framac/fixdiv fixdiv` red line can be produced here: `frama-c` does not
+exist in this sandbox (`command -v frama-c` prints nothing), so the make target cannot start.
+See notes.md for the probe table and the bench-only toolchain.
 
 ## The two Eva alarms at fixed.h:235
 
@@ -52,7 +45,7 @@ rc=0
 
 ## What is left
 
-1. Land the main card (`proofs/framac`) on sprint/fixed-core; this checkout does not have it.
+1. The main card has landed; `proofs/framac` is on sprint/fixed-core.
 2. Run `make -C proofs/framac/fixdiv fixdiv` on a bench where the named toolchain is
    reachable (Frama-C 33 with WP, Alt-Ergo 2.4.3, Z3 4.13.3, Why3 1.8.2), then paste its
    `Proved goals: N / M` line here and list each unproved goal with its line and reason.

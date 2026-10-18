@@ -555,19 +555,19 @@ fixed_t fixPow( fixed_t base, fixed_t exponent )
 //                     (truncated, see fixPowSquare128, then cut back to Q126) loses under
 //                     2^-124 + 2^-126 of a value >= 1, and a loss at digit k enters L weighted
 //                     by 2^-(k+1), so those sum below 2^-123.1; the last 58 digits run on a Q62
-//                     mantissa, losing under 2^-62 each from digit F - 58 on, which sums below
-//                     2^-(F+3.5). With F = msb(|Y|)+57, |y| * ( 1.09 * 2^-F + 2^-123.1 ) <
-//                     2^-71.9 + 2^-76.1.
+//                     mantissa, losing under 2^-62 at the Q126-to-Q62 cut and at each digit
+//                     after it, which sums below 2^-(F+2.4). With F = msb(|Y|)+57,
+//                     |y| * ( 1.19 * 2^-F + 2^-123.1 ) < 2^-71.7 + 2^-76.1.
 //   product:          truncation of |Y| * |L| to 2^-120: below 2^-120.
 //   exp2 tables:      32 table entries rounded to 2^-127 and at most 32 truncating
 //                     multiplies at 2^-126 each, plus the 2^g remainder (truncated Taylor
 //                     tail t^4/24 < 2^-134, three truncating multiplies): below 2^-120 relative.
-//   total:            ln2 * ( 2^-71.9 + 2^-76.1 + 2^-120 ) + 2^-120 < 2^-72.3 relative, so under
-//                     2^-9.3 raw even for a result near 2^63 raw; with the final round to
+//   total:            ln2 * ( 2^-71.7 + 2^-76.1 + 2^-120 ) + 2^-120 < 2^-72.1 relative, so under
+//                     2^-9.1 raw even for a result near 2^63 raw; with the final round to
 //                     nearest (ties to even) the result is within 0.502 raw of exact, so within
 //                     1 raw of the correctly rounded value. Bound claimed: 2 raw.
 //   zero:             a true result below half a raw returns 0 unless it lies within that
-//                     2^-72.3 relative error of half a raw; an exact half (base a power of two,
+//                     2^-72.1 relative error of half a raw; an exact half (base a power of two,
 //                     z = -17 exactly, where every stage is exact) rounds to even, to 0.
 //   measured:         maxulp 1 on every piece of test/pow_exact_test.c where the CORE-MATH
 //                     cr_pow reference (at the pin) is exact, and 0 beyond the half spacing of
@@ -655,8 +655,8 @@ static fixUInt128 fixPowLog2Wide( uint64_t x, int digits, bool* negative )
 
 	// A loss at digit k enters L weighted by 2^-(k+1), so only the first digits need the
 	// 128-bit mantissa: after digits - 58 of them, the rest run on a 64-bit Q62 mantissa (one
-	// 64x64 product per digit, as fixLog2 does), whose losses of 2^-62 per digit sum below
-	// 2^-(digits+3.5) in L.
+	// 64x64 product per digit, as fixLog2 does), whose losses of 2^-62 at the cut and per
+	// digit sum below 2^-(digits+2.4) in L.
 	int wideDigits = digits > 58 ? digits - 58 : 0;
 	const fixUInt128 two = fixUInt128Shl( fixUInt128FromU64( 1 ), 125 ); // 2.0 in Q252, high half
 	fixUInt128 fraction = FIX_UINT128_ZERO;

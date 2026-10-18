@@ -171,7 +171,7 @@ static void check( int64_t base, int64_t exponent, row* r )
 // Against a value known exactly, on the inputs as given (no clearing).
 static void check_exact( int64_t base, int64_t exponent, int64_t expected, row* r )
 {
-	record( r, base, exponent, COMPUTE( base, exponent ), expected, BOUND );
+	record( r, base, exponent, COMPUTE( base, exponent ), expected, expected == 0 ? 0 : BOUND );
 }
 
 static void print_row( const char* piece, row* r )

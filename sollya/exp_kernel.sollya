@@ -33,10 +33,12 @@ print("supnorm |P - e^r| on [0, ln2/128 + 2^-130], absolute:", s);
 print("log2 of the certified bound:", round(log2(sup(s)), 24, RU));
 
 print("LN2_128 = round(ln2 * 2^128) =", ni(log(2) * 2^128));
-print("INV_LN2_64 = round(2^64 / ln2) =", ni(2^64 / log(2)));
+print("INV_LN2_63 = round(2^63 / ln2) =", ni(2^63 / log(2)));
 print("table T_j = round(2^(j/128) * 2^126), j = 0..127, as hi:lo 64-bit words");
 for j from 0 to 2^t - 1 do {
   v = ni(2^(j/2^t) * 2^126);
   h = floor(v / 2^64);
   print("T", j, h, v - h * 2^64);
 };
+
+quit;

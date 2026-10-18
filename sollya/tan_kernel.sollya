@@ -43,3 +43,5 @@ for j from 0 to 101 do {
   hh = floor(v / 2^64);
   print("T", j, hh, v - hh * 2^64);
 };
+
+quit;

@@ -40,3 +40,5 @@ for i from 0 to 2^t - 1 do {
   h = floor(v / 2^64);
   print("L", i, inv, h, v - h * 2^64);
 };
+
+quit;

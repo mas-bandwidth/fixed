@@ -53,15 +53,17 @@ so plain MSVC builds it.
 * **Domains too large to sweep** (ln, log2, log10, tan above 2^20 raw): the margin there is
   not small by accident, it is small by counting. In the top input binade [2^62, 2^63) the
   inputs are 2^-62 apart in relative terms, so the outputs of ln are about 2^-46 raw apart, and
-  every output midpoint has an input within about 2^-46 raw of it. Any `eps` above ~2^-46 raw
-  therefore fails on thousands of inputs (section 2.2 shows this happening to `fixLog2`).
+  every output midpoint has an input within about 2^-46 raw of it. With any `eps` above ~2^-46
+  raw correct rounding can no longer be proved there, and an error biased to one side fails on
+  thousands of inputs (section 2.2 shows this happening to `fixLog2`).
   The proof there is the BaCSeL list of card `fixed-bacsel-hard-cases`: for each input binade
   it is the complete list of inputs whose `y` lies within 2^-k raw of a midpoint (k chosen per
   binade, about e + 9 for the binade [2^e, 2^(e+1)) of x, 55 at the top). Every input not on
   the list is at least 2^-k from a midpoint, so `eps < 2^-k` makes it correctly rounded, and
   every input on the list is a sweep piece checked exactly. So the condition each budget
-  below states is `eps < 2^-k` for every k the list uses, i.e. `eps <= 2^-62` raw is enough
-  for every list with k <= 61 (the BaCSeL card expects k near e + 9, 55 at the top binade).
+  below states is `eps < 2^-k` for every k the list uses. The tightest budget here is tan's
+  pole path, 2^-61 raw, which serves every list with k <= 60 (the BaCSeL card expects k near
+  e + 9, 55 at the top binade).
 
 Shared arithmetic. The kernels need the high 128 bits of a 128 x 128 product. The library has
 one, `fixUInt128Mul128` in `src/fixed_math.c`, but it is `static` there and that file is not
@@ -90,12 +92,16 @@ Integer form, exact in the stored-constant world:
 
 * `LN2_128 = round( ln 2 * 2^128 )` = 235865763225513294137944142764154484399 (u128;
   `exp_kernel.out`), 128 bits of ln 2, error below 2^-129.
-* `N0 = ( raw * INV_LN2_64 ) >> 73` in fixInt128 (floor shift), with
-  `INV_LN2_64 = round( 2^64 / ln 2 )` = 26613026195688644983. This is floor(raw * 2^-9 / ln 2)
-  or one off.
-* `D = raw * 2^119 - N0 * LN2_128` in 256 bits (raw * 2^119 is x * 2^135). Correct `N0` by
-  one in either direction until `0 <= D < LN2_128` (at most one step). Then `N = N0` and
-  `r = D * 2^-135` exactly, `D < 2^128`.
+* `N0 = sign(raw) * ( ( |raw| * INV_LN2_63 ) >> 72 )`, the product by `fixUInt128MulU64`
+  (|raw| < 2^22 as u64), with `INV_LN2_63 = round( 2^63 / ln 2 )` = 13306513097844322492
+  (a u64; 2^64 / ln 2 would need 65 bits). This is floor(raw * 2^-9 / ln 2) or one off (the
+  shift truncates toward zero; the correction below makes it the floor).
+* `D = raw * 2^119 - N0 * LN2_128` as a signed 256-bit value (raw * 2^119 is x * 2^135):
+  `fixUInt256Shl( fixUInt256FromU64( |raw| ), 119 )` and `fixUInt256MulU128ByU64( LN2_128, |N0| )`,
+  each negated by `fixUInt256Neg` when its sign is negative, then `fixUInt256Sub`, the sign read
+  from the top bit. (`LN2_128` is above 2^127, so `fixInt256MulI128ByI64` does not take it.)
+  Correct `N0` by one in either direction until `0 <= D < LN2_128` (at most one step, adding or
+  subtracting `LN2_128`). Then `N = N0` and `r = D * 2^-135` exactly, `D < 2^128`.
 * `r128 = D >> 7`, r in unsigned Q0.128 (r < 2^-7.53, so r128 < 2^121).
 * N is in [-2176, 6015] on the exp domain, m in [-17, 46].
 
@@ -209,7 +215,7 @@ the output is at most 2,135,026 raw in magnitude.
 
 **Reduction (Tang, 2^7 cells).** `msb` = index of the top set bit of raw (portable, no builtin),
 `e = msb - 16`, `m = raw << (62 - msb)` as u64 (exact: raw < 2^63), m in [2^62, 2^63) is the
-mantissa in Q2.62. `i = (m >> 55) & 127`, the top 7 fraction bits.
+mantissa in Q1.62. `i = (m >> 55) & 127`, the top 7 fraction bits.
 
 * **Tables** (`sollya/log_kernel.sollya`, the `L i INV hi lo` lines of `log_kernel.out`):
   `INV_i = ceil( 2^24 / (128 + i) )`, an 18-bit integer, `1/c_i` rounded **up** to 2^-17
@@ -314,9 +320,12 @@ carries **240** bits, which also covers the 232 a floating-point tan would need 
 the input's sign and by the side of the pole: on an odd k, tan x = -cot r, so r > 0 gives
 -INT64_MAX. Because the convergents are the records of closeness, the smallest |raw| that
 saturates is the first pole-side convergent past f_sat, **raw 195734331562903**
-(x = 2.99e9 rad, tan x * 2^16 = +1.18e20). The closest approach that does not saturate is
-**raw 130146176612260** (tan x * 2^16 = -8558550789933375681.40, 2^62.89). Below 32 rad nothing saturates
-(the largest |y| is 2^36.75, at raw 1750043). All three are named test points.
+(x = 2.99e9 rad, tan x * 2^16 = +1.18e20). The largest unsaturated |y| among the
+convergents is at **raw 130146176612260** (tan x * 2^16 = -8558550789933375681.40, 2^62.89);
+raws that are not records come closer to the edge further up, e.g. **2544546310317739**
+(+9.114e18, 2^62.98), **5870999813598064** (-8.756e18) and **8285399947303543** (+8.901e18),
+all unsaturated (MPFR, found by the cold read). Below 32 rad nothing saturates
+(the largest |y| is 2^36.75, at raw 1750043). All of these are named test points.
 
 ### 3.2 Reduction: Payne-Hanek, shared with fixed-sincos-exact
 
@@ -349,9 +358,10 @@ five words (no truncation). With 2^-16 for the input scale, `q = t * 2^-256`: th
 quarter), and the fraction as a signed 256-bit value is `f` in [-1/2, 1/2), error below
 2^-193 from the 2/pi truncation. Normalise |f|: `z` = its leading zeros (z <= 65 by the
 tool), `F` = the 128 bits from the leading one (relative truncation 2^-127). Then
-`R = ( F * PIO2_127 ) >> 127` with `PIO2_127 = round( pi/2 * 2^127 )` =
-267257146016241686964920093290467695825 gives `|r| = R * 2^(-128-z)`, a 128-bit mantissa and
-an exponent, relative error below 2^-125.7 (2/pi, F, pi/2 and the product).
+`R = ( F * PIO2_127 ) >> 128` with `PIO2_127 = round( pi/2 * 2^127 )` =
+267257146016241686964920093290467695825 gives `|r| = R * 2^(-127-z)`, R in [2^126.65, 2^127.65)
+(shifting by 127 would need 129 bits), a 128-bit mantissa and an exponent, relative error below
+2^-125.7 (2/pi, F, pi/2 and the product's truncation, now 2^-126.65 relative).
 
 ### 3.3 Table and kernel
 
@@ -366,8 +376,9 @@ an exponent, relative error below 2^-125.7 (2/pi, F, pi/2 and the product).
   shifted up 128. The odd quarters use cot.
 * **Pole-and-zero path, |r| < 1/256 (j = 0).** r stays as mantissa and exponent.
   `tan r = r * (1 + w)`, `w = r^2 * q(r^2)` in fixed Q0.127 (|w| < 2^-16). Even quarter:
-  `y = 2^16 * tan r`, under 256 raw. Odd quarter: `y = 2^16 / ( r * (1 + w) )` as
-  `2^255 / ( R * (1 + w) )` (one divide) and a shift by the exponent; |r| < 2^-48 saturates
+  `y = 2^16 * tan r`, under 256 raw. Odd quarter: `y = 2^16 / ( r * (1 + w) )`:
+  `D = ( R * (2^127 + w) ) >> 127`, below 2^127.66 so no overflow, then `2^255 / D` (one
+  `fixUInt256DivMod`) and a shift by the exponent; |r| < 2^-48 saturates
   without dividing, and a computed `|Y| >= 2^63 - 3/2` saturates.
 
 **Kernel.** `tan(s) = s + sum_{k=3,5,..,13} C_k * 2^-127 * s^k`, odd degree 13, the s
@@ -384,18 +395,31 @@ exact shift where a Q.127 factor enters).
 
 Relative error of the value before the final rounding:
 
-| step | table path | pole path |
-|---|---|---|
-| 2/pi to 240 bits, relative at \|f\| >= f_sat | 2^-184 (\|f\| >= 2^-8.6) | 2^-145.35 |
-| F, pi/2, product: r relative | 2^-125.7 | 2^-125.7 |
-| r to Q0.128 (abs 2^-128 at r >= 2^-8) | 2^-120 | - |
-| kernel (Sollya), Horner, TAN_j | 2^-125 abs | 2^-126 |
-| combination, divide | 2^-127 | 2^-127 + 2^-127 |
-| **total** | abs 2^-123.6 on tan r (tan' <= 2) | **relative 2^-124** |
+Table path, absolute on tan r (|r| in [2^-8, pi/4]):
+
+| step | bound |
+|---|---|
+| 2/pi to 240 bits: relative 2^-184.35 at \|f\| >= 2^-8.65, on r | 2^-184.7 |
+| F, pi/2, product: relative 2^-125.7 on r <= 0.786 | 2^-126.05 |
+| r to Q0.128 | 2^-128 |
+| so r absolute 2^-125.7, times tan' = 1 + tan^2 <= 2.02 | 2^-124.7 |
+| kernel (Sollya, absolute 2^-142.32), Horner, TAN_j, through the combination | 2^-125 |
+| combination and divide truncations | 2^-127 |
+| **total, absolute on tan r** | **2^-123.6** |
+
+Pole path, relative on r * (1 + w) and its reciprocal (|r| < 2^-8):
+
+| step | bound |
+|---|---|
+| 2/pi to 240 bits at \|f\| >= f_sat | 2^-145.35 |
+| F, pi/2, product | 2^-125.7 |
+| kernel (Sollya, relative 2^-134.23) and the Horner for w (absolute 2^-126 on 1 + w) | 2^-126 |
+| D truncation, divide truncation | 2^-127 + 2^-127 |
+| **total, relative** | **2^-124** |
 
 **tan budget: eps <= 2^-91.6 raw on the table path (|y| <= 2^24, the odd-quarter case
 2^16 * 2^-123.6 / tan^2 r) and eps <= 2^63 * 2^-124 = 2^-61 raw on the pole path, against
-the exhaustive margin 2^-22.24 below 32 rad and below 2^-k for every BaCSeL k <= 61.** Above
+the exhaustive margin 2^-22.24 below 32 rad and below 2^-k for every BaCSeL k <= 60.** Above
 32 rad the claim is correct rounding wherever `tan_big.txt` covers the binade and within 1
 raw everywhere (eps < 1/2).
 
@@ -408,7 +432,7 @@ raw everywhere (eps < 1/2).
 | cosh | \|raw\| <= 2180452 | 4,360,905 | 2^20 seeded beyond (INT64_MAX exactly) |
 | tanh | \|raw\| <= 408834 | 817,669 | 2^20 seeded beyond (+/-65536 exactly) |
 | ln, log2, log10 | [1, 2^20] | 1,048,576 each | 2^18 seeded per binade above 2^20; the BaCSeL list per function; the midpoint-adjacent probe (2.2), 17 x 65,536 raws for e = 30..46, for log2 and log2_exact |
-| tan | \|raw\| < 2^21 (\|x\| < 32 rad) | 4,194,303 | 2^18 seeded per binade 32 rad..2^47 rad; every raw within 64 of each multiple of pi/2 up to 2^20 rad; `tan_big.txt`; the three named points of 3.1 |
+| tan | \|raw\| < 2^21 (\|x\| < 32 rad) | 4,194,303 | 2^18 seeded per binade 32 rad..2^47 rad; every raw within 64 of each multiple of pi/2 up to 2^20 rad; `tan_big.txt`; the named points of 3.1 |
 
 The sweep card's README numbers ("about 2.9M", "about 4.4M", "about 0.8M") are these.
 
@@ -420,7 +444,9 @@ the 256 worst inputs of the sweep) and checks each exactly, plus these named cas
 
 * **exp**: raw -772244 -> 0, -772243 -> 1 (the first non-zero), 2135026 (largest finite),
   2135027 -> INT64_MAX, INT64_MAX -> INT64_MAX, INT64_MIN -> 0, 0 -> 65536 exactly, the margin raw -129660.
-  Negative control (`test/exact/exp_negative_control.c`, WILL_FAIL): the same points with
+  Negative control (`test/exact/exp_negative_control.c`, WILL_FAIL; **not yet in
+  fixed-exp-exact's NEW list: the coordinator adds it to the card, or the card skips it and
+  says so**): the same points with
   `LN2_128` replaced by a 64-bit ln 2 (`round(ln 2 * 2^64) << 64`): at |N| ~ 6000 that moves r by
   2^-65 * 6000 / 128 = 2^-59.4 and y by up to 2^63 * 2^-59.4 = 12 raw, so it must fail.
 * **sinh / cosh**: 0 -> 0 / 65536; 2344 -> 2344 and 2345 (the identity edge); +/-2180452 and
@@ -432,12 +458,14 @@ the 256 worst inputs of the sweep) and checks each exactly, plus these named cas
   2^k raws (log2 exactly k - 16), 655360 for log10 (exactly 1); the margin raws (541866,
   967694, 692513); the two fixLog2 witnesses of 2.2 for log2_exact (and a check that
   `fixLog2` still returns its frozen values there); INT64_MAX.
-* **tan**: 0, +/-1, the three points of 3.1 (195734331562903 -> INT64_MAX,
-  130146176612260 -> -8558550789933375681, 6173953965003744831 -> INT64_MAX), raw 1750043, the
+* **tan**: 0, +/-1, the points of 3.1 (195734331562903 -> INT64_MAX,
+  130146176612260 -> -8558550789933375681, 6173953965003744831 -> INT64_MAX, and the three
+  near-edge unsaturated raws 2544546310317739, 5870999813598064, 8285399947303543), raw 1750043, the
   margin raw 557409, INT64_MIN (odd, and saturation sign), raws on both sides of pi/4
   (the j = 101 cell) and of 1/256 (the path switch). A unit test that the four 2/pi words and
-  the first entries of each table match `tan_kernel.out`. Negative control: W2 and W3
-  zeroed (112 bits, the sincos reduction): it must fail at 130146176612260.
+  the first entries of each table match `tan_kernel.out`. Negative control
+  (`test/exact/tan_negative_control.c`, WILL_FAIL; likewise not yet in fixed-tan-exact's NEW
+  list): W2 and W3 zeroed (112 bits, the sincos reduction): it must fail at 130146176612260.
 
 Every card also runs the whole existing suite unchanged on both arms and both compilers and
 quotes the four sweep hashes.
@@ -446,11 +474,11 @@ quotes the four sweep hashes.
 
 | card | functions (new header) | method | constants and tables | budget, margin |
 |---|---|---|---|---|
-| fixed-exp-exact | `fixExpExact` (fixed_exp.h); `src/exact/exp_kernel.h` | 1.1, 1.2 | LN2_128, INV_LN2_64, T_j (128) from exp_kernel.out; C_2..C_8 | 2^-39.67 vs 2^-21.15 |
+| fixed-exp-exact | `fixExpExact` (fixed_exp.h); `src/exact/exp_kernel.h` | 1.1, 1.2 | LN2_128, INV_LN2_63, T_j (128) from exp_kernel.out; C_2..C_8 | 2^-39.67 vs 2^-21.15 |
 | fixed-sinh-cosh-exact | `fixSinhExact`, `fixCoshExact` (fixed_sinh_cosh.h) | 1.3, includes exp_kernel.h | none of its own (identity cut-off 2344, saturation 2180453) | 2^-39.09 vs 2^-32.75 / 2^-20.58 |
 | fixed-tanh-exact | `fixTanhExact` (fixed_tanh.h) | 1.4, includes exp_kernel.h | none (cut-offs 1860, 408835) | 2^-86.67 vs 2^-20.28 |
 | fixed-log-exact | `fixLnExact`, `fixLog10Exact`, `fixLog2Exact` (fixed_log.h) | 2.1-2.3 | INV_i, L_i (128), LN2_128, LOG2E_127, LOG10E_128; C_2..C_10 | ln 2^-85.04, log2 2^-84.5, log10 2^-86.2; margins 2^-21.44 / 2^-20.50 / 2^-26.00 and BaCSeL k <= 84 |
-| fixed-tan-exact | `fixTanExact` (fixed_tan.h) | 3.1-3.4 | W0..W3, PIO2_127, TAN_j (102); C_3..C_13 | 2^-61 (pole) / 2^-91.6 vs 2^-22.24 and k <= 61 |
+| fixed-tan-exact | `fixTanExact` (fixed_tan.h) | 3.1-3.4 | W0..W3, PIO2_127, TAN_j (102); C_3..C_13 | 2^-61 (pole) / 2^-91.6 vs 2^-22.24 and k <= 60 |
 
 Each card's own `sollya/<fn>.sollya` is its kernel script: for exp, log and tan it can be the
 matching `*_kernel.sollya` here (same fpminimax and supnorm), so the coefficients pasted in
@@ -461,7 +489,12 @@ Where this design differs from a card's text, the design is the method and the c
 yields: (1) sinh and tanh need no odd/small-|x| polynomial, only the exact identity cut-off
 (1.3, 1.4); (2) `fixLog2Exact` is required, with witnesses (2.2); (3) the tan kernel is fit
 and certified in the relative error, with the absolute bound printed too (3.3); (4) log10's
-constant carries 128 bits, not 64 (2.3).
+constant carries 128 bits, not 64 (2.3); (5) tan holds its own four words of 2/pi, the first
+two equal to and citing sincos's, because there is nothing callable to reuse: fixed-tan-exact's
+"call what is there, never copy it" is met for the method, not for the digits (3.2); (6) the
+exp and log fits run on [2^-20, hi] because the Remez system is degenerate at 0, while the
+supnorm certificate covers the whole of [0, hi] (the scripts say so); (7) the negative-control
+files of section 5 need adding to the exp and tan cards' NEW lists.
 
 Not designed here, each carded on its own: `fixed-asin-acos-exact`, `fixed-rsqrt-exact`,
 `fixed-mod-exact`, `fixed-cbrt-exact`.
@@ -481,7 +514,7 @@ precision measured on random inputs. Its exp via exp2(x/ln 2) double-rounds, whi
 design: Rcp, Pow, Atan and Mod (the latter carded separately); coverage we add: sinh, cosh,
 tanh, log10, and saturation defined exactly at every edge.
 
-## 8. Regenerating every number
+## 8. Regenerating the committed numbers
 
     sollya sollya/exp_kernel.sollya > sollya/exp_kernel.out
     sollya sollya/log_kernel.sollya > sollya/log_kernel.out
@@ -489,6 +522,7 @@ tanh, log10, and saturation defined exactly at every edge.
     cc -O2 tools/tan_reduction_bound.c -lmpfr -lgmp -o tan_reduction_bound && ./tan_reduction_bound
 
 The margins and thresholds of section 0 and the fixLog2 measurements of 2.2 were taken with a
-throwaway MPFR program (256 bits, linked against libfixed at BASE 4ad7979) that is not
-committed: the function cards' exhaustive sweep pieces measure the same facts and commit
-them to `docs/scoreboard/`.
+throwaway MPFR program (256 bits, linked against libfixed at BASE 4ad7979) that this card's NEW
+list does not include, so they cannot be regenerated from this commit: they are point values
+a reader can check (the cold read did), and the function cards' exhaustive sweep pieces
+re-measure each domain minimum and commit it to `docs/scoreboard/`.

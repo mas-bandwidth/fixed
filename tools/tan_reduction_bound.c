@@ -54,8 +54,8 @@ static int ceil_int( double v )
 int main( void )
 {
 	mpfr_set_default_prec( PREC );
-	mpfr_t alpha, pi, theta, a, t, d, best, r, halfpi, fsat, tmp;
-	mpfr_inits( alpha, pi, theta, a, t, d, best, r, halfpi, fsat, tmp, (mpfr_ptr)0 );
+	mpfr_t alpha, pi, theta, a, t, d, r, halfpi, fsat, tmp;
+	mpfr_inits( alpha, pi, theta, a, t, d, r, halfpi, fsat, tmp, (mpfr_ptr)0 );
 	mpfr_const_pi( pi, MPFR_RNDN );
 	mpfr_ui_div( alpha, 1, pi, MPFR_RNDN );
 	mpfr_div_2ui( alpha, alpha, 15, MPFR_RNDN ); // alpha = 2^-15 / pi
@@ -80,7 +80,7 @@ int main( void )
 
 	mpz_t worst_q, worst_p, worst20_q;
 	mpz_inits( worst_q, worst_p, worst20_q, (mpz_ptr)0 );
-	double worst_log2f = 0.0, worst20_log2f = 0.0;
+	double worst_log2f = 0.0, worst_log2r = 0.0, worst20_log2f = 0.0;
 	for ( int k = 0; k < 400; ++k )
 	{
 		// next partial quotient
@@ -111,11 +111,12 @@ int main( void )
 		mpfr_abs( d, d, MPFR_RNDN );
 		mpfr_mul( r, d, halfpi, MPFR_RNDN );
 		double lf = log2_of( d ), lr = log2_of( r );
-		printf( "%-4d %-20s %-6s %-12.4e %-10.3f %-10.3f\n", k + 1, mpz_get_str( NULL, 10, q1 ),
+		gmp_printf( "%-4d %-20Zd %-6s %-12.4e %-10.3f %-10.3f\n", k + 1, q1,
 				mpz_odd_p( p1 ) ? "pole" : "zero", mpfr_get_d( d, MPFR_RNDN ), lf, lr );
 		mpz_set( worst_q, q1 );
 		mpz_set( worst_p, p1 );
 		worst_log2f = lf;
+		worst_log2r = lr;
 		if ( mpz_cmp_ui( q1, (unsigned long)1 << 21 ) < 0 )
 		{
 			mpz_set( worst20_q, q1 );
@@ -146,8 +147,8 @@ int main( void )
 			}
 		}
 		int ok = mpz_cmp_ui( worst20_q, (unsigned long)braw ) == 0;
-		printf( "selfcheck brute force over raw in [1, 2^21): min at raw=%llu log2 f=%.3f, convergent says raw=%s: %s\n",
-				(unsigned long long)braw, ( mpfr_set_d( bm, bmin, MPFR_RNDN ), log2_of( bm ) ), mpz_get_str( NULL, 10, worst20_q ), ok ? "agree" : "DISAGREE" );
+		gmp_printf( "selfcheck brute force over raw in [1, 2^21): min at raw=%llu log2 f=%.3f, convergent says raw=%Zd: %s\n",
+				(unsigned long long)braw, ( mpfr_set_d( bm, bmin, MPFR_RNDN ), log2_of( bm ) ), worst20_q, ok ? "agree" : "DISAGREE" );
 		mpfr_clears( v, w, bm, (mpfr_ptr)0 );
 		if ( !ok )
 		{
@@ -168,17 +169,16 @@ int main( void )
 	double lfloor = worst_log2f > lfsat ? worst_log2f : lfsat;
 	int J = ceil_int( 47.0 + P_TARGET - lfloor );
 	int Jclassic = ceil_int( 47.0 + P_TARGET - worst_log2f );
-	printf( "worst raw (closest to a multiple of pi/2, 1 <= raw <= 2^63): %s, multiple %s of pi/2 (%s), log2 f_min = %.3f, log2 r_min = %.3f\n",
-			mpz_get_str( NULL, 10, worst_q ), mpz_get_str( NULL, 10, worst_p ), mpz_odd_p( worst_p ) ? "a pole" : "a zero of tan",
-			worst_log2f, worst_log2f + 0.651496129472318798 );
-	printf( "worst raw with |x| < 32 rad (raw < 2^21): %s, log2 f = %.3f\n", mpz_get_str( NULL, 10, worst20_q ), worst20_log2f );
+	gmp_printf( "worst raw (closest to a multiple of pi/2, 1 <= raw <= 2^63): %Zd, multiple %Zd of pi/2 (%s), log2 f_min = %.3f, log2 r_min = %.3f\n",
+				worst_q, worst_p, mpz_odd_p( worst_p ) ? "a pole" : "a zero of tan", worst_log2f, worst_log2r );
+	gmp_printf( "worst raw with |x| < 32 rad (raw < 2^21): %Zd, log2 f = %.3f\n", worst20_q, worst20_log2f );
 	printf( "saturation edge: 2^16 cot r = 2^63 - 1.5 at log2 r_sat = %.3f, log2 f_sat = %.3f\n", lrsat, lfsat );
 	printf( "bits of 2/pi needed for relative precision 2^-%d of r: J >= 47 + %d + %.3f = %d (f_floor = max(f_min, f_sat))\n",
 			P_TARGET, P_TARGET, -lfloor, J );
 	printf( "bits of 2/pi without saturation (the floating-point count, f_floor = f_min): %d\n", Jclassic );
-	printf( "tan_reduction_bound: worst_raw=%s bits=%d\n", mpz_get_str( NULL, 10, worst_q ), J );
+	gmp_printf( "tan_reduction_bound: worst_raw=%Zd bits=%d\n", worst_q, J );
 
 	mpz_clears( p0, p1, q0, q1, p2, q2, ai, limit, worst_q, worst_p, worst20_q, (mpz_ptr)0 );
-	mpfr_clears( alpha, pi, theta, a, t, d, best, r, halfpi, fsat, tmp, (mpfr_ptr)0 );
+	mpfr_clears( alpha, pi, theta, a, t, d, r, halfpi, fsat, tmp, (mpfr_ptr)0 );
 	return 0;
 }

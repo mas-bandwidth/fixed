@@ -2,8 +2,30 @@
 
 Attempt 1: sprint/fixed-framac-fixdiv-goal-generation.w1.g1.e21 at
 386995803c6033845e1b79610745819826cc7910, from sprint/fixed-core.
-Attempt 2 (this card): sprint/fixed-framac-fixdiv-goal-generation.w2.g1.e21 at
+Attempt 2: sprint/fixed-framac-fixdiv-goal-generation.w2.g1.e21 at
 954b009 (carrying attempt 1's work), from sprint/fixed-core.
+Attempt 3 (this card): sprint/fixed-framac-fixdiv-goal-generation.w3.g1.e21 at
+5ff0c9c (attempt 2's head), from sprint/fixed-core.
+
+## Start conditions (attempt 3)
+
+1. **The main card has landed.** `proofs/framac` is on sprint/fixed-core and in this checkout
+   (wrappers, Makefile, README, results.md, `proveFixDiv` in `kernels_acsl.c`, a `nightly`
+   target). Nothing there was edited.
+2. **The named toolchain is not runnable here.** Probe at 2026-10-18 22:25 UTC on this host
+   (`b1`, linux), in this job's sandbox:
+
+   | tool | TOOLCHAIN says | what this host has |
+   |---|---|---|
+   | Frama-C | 33.0 (Arsenic), with WP | `command -v frama-c` prints `/home/nova/sdk/bin/frama-c`, a symlink to `/home/nova/.opam/default/bin/frama-c`; every attempt to execute that path fails with `Permission denied` (exit 126). No `/usr/bin/frama-c` fallback exists (`No such file or directory`). |
+   | Alt-Ergo | 2.4.3 | `command -v alt-ergo` prints `/home/nova/sdk/bin/alt-ergo`, a symlink into the denied `~/.opam`; running it fails with `Permission denied`. No `/usr/bin/alt-ergo` fallback. |
+   | Z3 | 4.13.3 | `/usr/bin/z3` is **4.13.3** and runs. |
+   | Why3 | 1.8.2 | `why3` is `/home/nova/sdk/bin/why3`, a symlink into the denied `~/.opam`; running it fails with `Permission denied`. No `/usr/bin/why3` fallback. |
+
+   The sandbox denies reads and exec of `/home/nova/.opam` (external directory), which is where
+   the WP-capable Frama-C 33, Alt-Ergo and Why3 live. No system package was installed and none
+   will be. The card's own rule applies: a tool TOOLCHAIN names that is not runnable is a HOLD
+   at once, naming it.
 
 ## Start conditions (attempt 2)
 
@@ -115,13 +137,14 @@ of the `proveFixDiv` VC. The loop's own goals belong to `proveInt128Div`, which 
 already runs separately. Whether that alone ends generation, and what the summary is, is
 exactly what could not be measured here.
 
-## Verdict (attempt 2)
+## Verdict (attempt 3)
 
 HOLD. The main card has landed (`proofs/framac` is on sprint/fixed-core and in this checkout),
 but the named toolchain (Frama-C 33 + WP, Alt-Ergo 2.4.3, Z3 4.13.3, Why3 1.8.2) is still
-not reachable from this job: no `frama-c` and no prover is on PATH or anywhere under `/usr`,
-`/opt`, `$HOME/sdk`, `/Users/glenn/sdk`, `/Users/glenn/.local`. Without a WP-capable Frama-C,
-`make -C proofs/framac/fixdiv fixdiv` cannot be run, so no summary line can be produced and
-DONE-WHEN does not hold. What is done: the toolchain evidence above, the UBSan disproof of the
-two Eva alarms, and the unrun small-contract wrapper and Makefile that leave fixDiv out of
-`nightly` until a bench can show it ends within 600 s.
+not runnable from this job: the WP-capable Frama-C 33, Alt-Ergo and Why3 exist only under
+`/home/nova/.opam`, which this sandbox denies (reads and exec), and there is no runnable
+fallback on PATH. Without a WP-capable Frama-C, `make -C proofs/framac/fixdiv fixdiv` cannot
+be run, so no summary line can be produced and DONE-WHEN does not hold. What is done: the
+toolchain evidence above, the UBSan disproof of the two Eva alarms, and the unrun
+small-contract wrapper and Makefile that leave fixDiv out of `nightly` until a bench can show
+it ends within 600 s.

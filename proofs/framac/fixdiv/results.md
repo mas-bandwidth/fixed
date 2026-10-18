@@ -1,23 +1,23 @@
 # fixDiv results
 
-Attempt 2, base: sprint/fixed-core at 5e35893 (proofs/framac landed). No proof was run:
-this job's sandbox on the studio Mac has no reachable WP (see notes.md). There is no
-`Proved goals:` line for fixDiv, so no WP goal is listed below; the only goals this card
-could examine are the two Eva imprecision alarms in the main card's pass-4 results.
+Attempt 3, base: sprint/fixed-core at 5e35893 (proofs/framac landed). No proof was run:
+this job's sandbox on host b1 has no reachable WP (see notes.md). There is no `Proved goals:`
+line for fixDiv, so no WP goal is listed below; the only goals this card could examine are the
+two Eva imprecision alarms in the main card's pass-4 results.
 
 ## Status against DONE-WHEN
 
 | item | state |
 |---|---|
-| `make -C proofs/framac/fixdiv fixdiv` ends within 600 s with a summary for the emulated path | **not done**: no `frama-c` (and no Alt-Ergo/Z3/Why3) is on PATH or found anywhere under `/usr`, `/opt`, `$HOME/sdk`, `/Users/glenn/sdk`, `/Users/glenn/.local`; there is no WP-capable Frama-C to run |
+| `make -C proofs/framac/fixdiv fixdiv` ends within 600 s with a summary for the emulated path | **not done**: the WP-capable Frama-C 33, Alt-Ergo and Why3 exist only under `/home/nova/.opam`, which this sandbox denies (reads and exec); no runnable fallback is on PATH. There is no WP-capable Frama-C to run |
 | every unproved goal listed with line and reason | **not done for WP**: no goals were generated. The two known Eva alarms are analysed below and are not undefined behaviour |
 | notes.md records what was tried, with time and whether it ended | done for the start conditions and the UBSan check; the WP attempts are recorded as not runnable |
 | Makefile `nightly` includes fixDiv only if it ends in its cap | done: `nightly` does not call fixDiv |
 | `git diff --stat` shows only NEW files under proofs/framac/fixdiv | done |
 
-No `make -C proofs/framac/fixdiv fixdiv` red line can be produced here: `frama-c` does not
-exist in this sandbox (`command -v frama-c` prints nothing), so the make target cannot start.
-See notes.md for the probe table and the bench-only toolchain.
+No `make -C proofs/framac/fixdiv fixdiv` red line can be produced here: `frama-c` resolves to
+a symlink into the denied `/home/nova/.opam` and every exec fails with `Permission denied`, so
+the make target cannot start. See notes.md for the probe table and the bench-only toolchain.
 
 ## The two Eva alarms at fixed.h:235
 

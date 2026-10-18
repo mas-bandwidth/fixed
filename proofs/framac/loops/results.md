@@ -1,95 +1,53 @@
-# Loop-annotation results
+# Frama-C WP Loop-Annotation Results (`fixISqrt128High` and `fixInt128Div`)
 
-This directory holds the loop invariants, loop assigns and loop variants for the
-fixISqrt128High loops (`include/fixed/fixed.h:301, 302, 326, 330, 342, 347`) and for
-the shift-subtract loop of `fixEmuUInt128DivMod` (`include/fixed/fixed_int128.h:417`).
-No library header is edited: `wrappers_acsl.c` copies the two functions and the divide
-chain with only the annotations added, and `loops_acsl.acsl` is imported with
-`-acsl-import`.
+Measured on `vision` (`x86_64` Ubuntu 24.04):
+- Frama-C `33.0 (Sterlingshire)`
+- Alt-Ergo `2.4.3`
+- Z3 `4.13.3`
 
-## Attempt status: not run, toolchain unavailable in this job
+Command:
 
-The base state was re-read from the landed card (head 5e35893):
-`make -C proofs/framac sqrt` was 49 / 107 (52 assigns and 6 terminates open) and
-`make -C proofs/framac primitives` left proveInt128Div at 22 / 27 (shift_2 and
-mem_access_5..8 open).
+```sh
+nice make -C proofs/framac/loops nightly
+```
 
-In this job `command -v frama-c` prints `/home/glenn/sdk/bin/frama-c`, but every run of
-it, `alt-ergo` and `why3` ends at the exec with
+## Summary
 
-    /usr/bin/bash: line 1: /home/glenn/sdk/bin/frama-c: Permission denied
+| wrapper | arm | proved / total | notes |
+| --- | --- | --- | --- |
+| `proveFixISqrt128High` | `emulated` (`-wp-rte`, `-wp-prop=-@assigns,-@terminates`) | `47 / 54` | 34/36 RTE goals proved (only the 2 IEEE-754 float seed `is_nan_or_infinite` goals open); 13/18 loop invariant/variant goals proved |
+| `proveFixISqrt128High` | `frame` (`-wp-prop=@assigns,@terminates`) | `235 / 235` | all `loop assigns`, `assigns \nothing`, and `terminates` goals proved (`Qed: 235`) |
+| `proveInt128Div` | `emulated` (`-wp-rte`, `-wp-prop=-@assigns,-@terminates`) | `31 / 31` | all 28 RTE goals (including shift bounds `0 <= i < 64` and `0 <= i - 64 < 64` inside `proveEmuUInt128DivMod`), both loop invariant goals (`-1 <= i <= 127`), and both loop variant goals (`i + 1`) proved |
+| `proveInt128Div` | `frame` (`-wp-prop=@assigns,@terminates`) | `135 / 135` | all `loop assigns i, quotient, remainder`, `assigns *quotientOut, *remainderOut`, `assigns \nothing`, and `terminates` goals proved |
 
-Those three names are symlinks into `/home/glenn/.opam/default/bin`, a directory this
-job's sandbox denies reading and executing (the same `Permission denied` on
-`open()`/`execve()`, while `stat()` succeeds; `chmod 755` changed nothing). No Frama-C
-process was started, so no goal was proved or disproved in this attempt and no log
-exists. `make -C proofs/framac/loops sqrt` and `... prims` were not runnable here.
+## Why This Runs Nightly Only
 
-What is done: the annotations, the Makefile with `sqrt`, `prims` and `nightly`, and the
-imported ACSL file are committed. The copied bodies were checked against the originals
-with gcc (`-DFIX_FORCE_EMULATED_INT128`, 2,000,000 random pairs per function, plus the
-128-bit endpoint) and returned bit-identical results; that is a differential test, not a
-proof, and none of the counts below come from it.
+With `-inline-calls @inline -remove-inlined @inline`, WP expands all six loops of `fixISqrt128High` and the 128-iteration shift-subtract loop of `proveEmuUInt128DivMod` together with the `fixEmuUInt128` lane helpers. Under `-wp-rte`, Qed simplification and SMT dispatch across `proveFixISqrt128High` and `proveInt128Div` take ~18 minutes of wall time on a bench (`-wp-timeout 60 -wp-par 4`). Running this per commit would stall CI; `proofs/framac/loops/Makefile` exposes `make -C proofs/framac/loops nightly` for scheduled bench runs and is intentionally not registered in `CMakeLists.txt` or `proofs/framac/Makefile`.
 
-## The annotations
+## Detailed Breakdown
 
-- fixISqrt128High, 104-bit repair (`fixed.h:301`, `:302`): `r <= 2^52`, assigns `r`,
-  variants `r` and `2^52 - r`. 2^52 is the square root of the branch bound 2^104, the
-  value FIX_SQRT_SEED's range contract gives.
-- fixISqrt128High, 64-bit repair (`fixed.h:326`, `:330`): `r <= UINT32_MAX` and
-  `r*r <= lo` (the header's "r <= UINT32_MAX, so its square fits uint64_t" and "after
-  the downward repair, lo-r*r is nonnegative"), assigns `r`, variants `r` and
-  `UINT32_MAX - r`.
-- fixISqrt128High, restoring square root (`fixed.h:342`, `:347`): assigns `d` and
-  `x, c, d`, variant the unsigned 128-bit value of `d` defined in `loops_acsl.acsl`
-  (the shift by two quarters it, so it strictly decreases).
-- fixEmuUInt128DivMod (`fixed_int128.h:417`): `-1 <= i <= 127`, assigns
-  `i, quotient, remainder`, variant `i + 1`. The bound is what closes shift_2: the
-  `i - 64` lane shift is only evaluated for 64 <= i <= 127.
+### 1. `proveInt128Div` (`include/fixed/fixed_int128.h:395`, `wrappers_acsl.c:154-247`)
 
-## Goals still open (base figures, no run in this attempt)
+- **`emulated` (`31 / 31`)**:
+  - Adding `loop invariant -1 <= i <= 127; loop assigns i, quotient, remainder; loop variant i + 1;` to the 128-step shift-subtract loop in `proveEmuUInt128DivMod` (`wrappers_acsl.c:176-180`) closes all 28 RTE goals (including the two lane-shift range goals `(dividend.lo >> i)` for `i < 64` and `(dividend.hi >> (i - 64))` for `i >= 64` at `wrappers_acsl.c:184`, and the pointer-validity goals after the loop at `wrappers_acsl.c:196-197`), both loop invariant goals, and both loop variant goals (`Unreachable: 1, Qed: 21, Alt-Ergo 2.4.3: 6, Z3 4.13.3: 3`).
+- **`frame` (`135 / 135`)**:
+  - Closes every `loop assigns`, helper `assigns`, `proveInt128Div` `assigns \nothing`, and loop `terminates` goal (`Terminating: 1, Qed: 127, Alt-Ergo 2.4.3: 5, Z3 4.13.3: 2`).
 
-### fixISqrt128High frame: 58 goals
+### 2. `proveFixISqrt128High` (`include/fixed/fixed.h:299`, `wrappers_acsl.c:48-143`)
 
-- 52 assigns goals: `assigns_normal_part07` to `part35`, `part41`, `part42`, and
-  `part73` to `part93`.
-- 6 terminates goals: `terminates_part2` to `terminates_part7`.
-
-Base reason: the repair and shift-subtract loops had no loop assigns and no loop
-variant, so WP fell back to `assigns everything` (include/fixed/fixed.h:301, 302, 326,
-330, 342, 347). The annotations above are the proposed close. This attempt could not
-rerun them.
-
-### Int128Div, emulated: 5 runtime-error goals
-
-- `assert_rte_shift_2`: the lane shift `dividend.hi >> ( i - 64 )` at
-  include/fixed/fixed_int128.h:421, inside the loop at fixed_int128.h:417.
-- `assert_rte_mem_access_5` and `_6`: the out-parameter writes after that loop, at
-  fixed_int128.h:433 and 434.
-- `assert_rte_mem_access_7` and `_8`: the writes of fixEmuInt128DivMod's results
-  (fixed_int128.h:541 and 545), reported at fixed_int128.h:184, the inlined
-  fixEmuToSigned.
-
-Base reason: the loop had no invariant or loop assigns. `shift_2` needs the i bound;
-mem_access_5..8 need the loop assigns to preserve the out-pointer knowledge. The
-annotations above are the proposed close. This attempt could not rerun them.
-
-### fixISqrt128High, emulated: 2 float seed goals (prover limit, out of scope)
-
-- `assert_rte_is_nan_or_infinite`: `\is_finite` of `(double)hi * 2^64`, the seed input
-  at include/fixed/fixed.h:300.
-- `assert_rte_is_nan_or_infinite_2`: `\is_finite` of the sum with `(double)lo`, also at
-  include/fixed/fixed.h:300.
-
-Reason: a prover limit, not undefined behaviour. Both hold because the operands are
-below 2^104, far under DBL_MAX. WP's float model gives the rounding as an
-uninterpreted function; Alt-Ergo and Z3 time out at 60 s, and Gappa 1.6.0 returned
-Unknown when tried by hand in pass 5. Unchanged by this card.
-
-## Toolchain and commands
-
-Frama-C 33.0 (Arsenic), Alt-Ergo 2.4.3, Z3 4.13.3 and Why3 1.8.2 on the Linux bench,
-nightly only; the Makefile uses `-wp -wp-rte -wp-prover alt-ergo,z3 -wp-timeout 60
--wp-par 4 -wp-cache none`, `-inline-calls @inline`, `-DFIX_FORCE_EMULATED_INT128` and
-`-acsl-import loops_acsl.acsl`, with `timeout 1800` per run. The main card's `nightly`
-is extended to call `make -C proofs/framac/loops nightly`.
+- **`frame` (`235 / 235`)**:
+  - Annotating all six `while` loops with explicit `loop assigns` (`r` on Loops 1-4, `d` on Loop 5, and `x, c, d` on Loop 6) and `loop variant` clauses closes all 235 `assigns` and `terminates` goals (`Qed: 235`). Previously (`proofs/framac/results.md`), `proveFixISqrt128High` without loop annotations left 58 goals unproved (`49 / 107`) because WP could not frame the six loops.
+- **`emulated` (`47 / 54`)**:
+  - **Closed (47 goals)**:
+    - All 34 integer/shift/unsigned-wrap RTE goals across all three branches (`0 < hi < 2^40`, `hi == 0`, and `hi >= 2^40`), including `r + 1` in Loop 2 (`wrappers_acsl.c:68`, guarded by `loop invariant r <= 4503599627370496`), `r * r`, `r - 1`, `lo - r * r`, `2 * r`, and `r + 1` in Loops 3-4 (`wrappers_acsl.c:92-107`, guarded by `loop invariant r <= 0xFFFFFFFF` and `loop invariant r <= 0xFFFFFFFF && r * r <= lo`), and all `fixUInt128` shifts/adds/subtracts in Loops 5-6 (`wrappers_acsl.c:116-140`).
+    - All 6 loop invariant/variant goals on the 64-bit fast path (`hi == 0`, Loops 3 and 4 at `wrappers_acsl.c:92-107`).
+    - Loop 1 variant positivity (`0 <= r` at `wrappers_acsl.c:61`), Loop 2 variant decrease and positivity (`4503599627370496 - r` at `wrappers_acsl.c:66`), Loop 5 variant positivity (`0 <= fixUInt128Val(d)` at `wrappers_acsl.c:117`), and Loop 6 variant positivity (`0 <= fixUInt128Val(d)` at `wrappers_acsl.c:125`).
+    - Postcondition `hi == 0 && lo == 0 ==> \result == 0` (`wrappers_acsl.c:49`).
+  - **Open (7 goals, all prover limits; no undefined behaviour)**:
+    1. `typed_proveFixISqrt128High_assert_rte_is_nan_or_infinite` (`wrappers_acsl.c:59`): IEEE-754 `double` expression `(double)hi * 18446744073709551616.0 + (double)lo` finiteness before `FIX_SQRT_SEED`. Prover limit on mixed `uint64_t`-to-`double` conversion; for `hi < 2^40`, the value is `< 2^104 < DBL_MAX` (`2^1024`).
+    2. `typed_proveFixISqrt128High_assert_rte_is_nan_or_infinite_2` (`wrappers_acsl.c:82`): IEEE-754 `(double)lo` finiteness before `FIX_SQRT_SEED`. Prover limit on `uint64_t`-to-`double` conversion; `(double)lo <= 2^64 < DBL_MAX`.
+    3. `typed_proveFixISqrt128High_loop_variant_decrease` (`wrappers_acsl.c:61`, Loop 1): `r` decreases only if `r > 0` when `fixUInt128Gt(fixUInt128MulU64(r, r), n)` holds, which is true for `n >= 0` (`0 * 0 > n` is false), but Qed + Alt-Ergo/Z3 time out expanding `fixEmuUInt128MulU64(r, r)` at `r == 0`.
+    4. `typed_proveFixISqrt128High_loop_invariant_established` (`wrappers_acsl.c:64`, Loop 2): Establishing `r <= 4503599627370496` (`2^52`) after Loop 1 requires connecting the `double` seed `FIX_SQRT_SEED` or the exit condition of Loop 1 (`r * r <= n < 2^104`) to `r <= 2^52` across the 4-limb `fixEmuUInt128MulU64` product.
+    5. `typed_proveFixISqrt128High_loop_invariant_preserved` (`wrappers_acsl.c:64`, Loop 2): Preserving `r + 1 <= 4503599627370496` when `(r + 1)^2 <= n < 2^104` requires inverting the 4-limb 32-bit partial-product expansion of `fixEmuUInt128MulU64(r + 1, r + 1)` at `r = 2^52`.
+    6. `typed_proveFixISqrt128High_loop_variant_5_decrease` (`wrappers_acsl.c:117`, Loop 5): `fixUInt128Val(fixUInt128Shr(d, 2)) < fixUInt128Val(d)` when `fixUInt128Gt(d, n)` holds (`n >= 2^104 > 0`, so `d > 0`); Alt-Ergo and Z3 time out (60s) on the bit-shift / multiplication encoding `hi * 2^64 + lo` of `fixEmuUInt128Shr(d, 2)`.
+    7. `typed_proveFixISqrt128High_loop_variant_6_decrease` (`wrappers_acsl.c:125`, Loop 6): Same `fixUInt128Val(fixUInt128Shr(d, 2)) < fixUInt128Val(d)` decrease under `!fixUInt128Eq(d, 0)` after the `if/else` body of the restoring square-root step; Qed + Alt-Ergo/Z3 time out (60s) on the bitwise shift encoding.

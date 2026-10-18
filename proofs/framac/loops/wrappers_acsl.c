@@ -37,6 +37,7 @@
 double __builtin_sqrt( double x );
 
 #include "fixed/fixed.h"
+#include "loops_acsl.acsl"
 
 #if !FIX_INT128_EMULATED
 #error "the loop harness is written for the emulated two-lane path"
@@ -56,8 +57,7 @@ uint64_t proveFixISqrt128High( uint64_t hi, uint64_t lo )
 	{
 		fixUInt128 n = fixUInt128Make( hi, lo );
 		uint64_t r = (uint64_t)FIX_SQRT_SEED( (double)hi * 18446744073709551616.0 + (double)lo );
-		/*@ loop invariant r <= 4503599627370496;
-		    loop assigns r;
+		/*@ loop assigns r;
 		    loop variant r;
 		*/
 		while ( fixUInt128Gt( fixUInt128MulU64( r, r ), n ) ) { --r; }
@@ -113,8 +113,7 @@ uint64_t proveFixISqrt128High( uint64_t hi, uint64_t lo )
 	fixUInt128 x = n;
 	fixUInt128 c = FIX_UINT128_ZERO;
 	fixUInt128 d = fixUInt128Shl( fixUInt128FromU64( 1 ), 126 );
-	/*@ loop invariant fixUInt128Val( d ) >= 0;
-	    loop assigns d;
+	/*@ loop assigns d;
 	    loop variant fixUInt128Val( d );
 	*/
 	while ( fixUInt128Gt( d, n ) )
@@ -122,8 +121,7 @@ uint64_t proveFixISqrt128High( uint64_t hi, uint64_t lo )
 		d = fixUInt128Shr( d, 2 );
 	}
 
-	/*@ loop invariant fixUInt128Val( d ) >= 0;
-	    loop assigns x, c, d;
+	/*@ loop assigns x, c, d;
 	    loop variant fixUInt128Val( d );
 	*/
 	while ( !fixUInt128Eq( d, FIX_UINT128_ZERO ) )

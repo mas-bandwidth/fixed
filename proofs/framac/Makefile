@@ -1,6 +1,13 @@
 # Frama-C WP runtime-error proofs for the integer kernels of mas-bandwidth/fixed.
-# Runs on a Linux bench only, outside CTest and CI. See README.md.
+# Runs nightly on a Linux bench only: no per-commit CI, no CTest entry. See README.md.
 #
+#   make -C proofs/framac nightly   the proved set, from a clean out/: fixmul, sqrt and
+#                                   primitives, then the summary. Leaves fixDiv out (its
+#                                   WP goal generation does not end; results.md)
+#   make -C proofs/framac fixmul    fixMul: emulated, emulated + FIX_SATURATE, frame
+#   make -C proofs/framac sqrt      fixISqrt128High: emulated, frame
+#   make -C proofs/framac primitives  the 13 int128 primitives: emulated, and frame for
+#                                   all but Int128Div (its frame run does not finish)
 #   make -C proofs/framac all       every wrapper on the emulated 128-bit path, then the
 #                                   native path, then the frame goals, then the summary
 #   make -C proofs/framac emulated  emulated path only (RTE and ensures goals)
@@ -13,13 +20,15 @@
 
 FRAMAC   ?= frama-c
 OUT      ?= out
-WPFLAGS  ?= -wp -wp-rte -wp-prover alt-ergo,z3 -wp-timeout 60 -wp-par 4
+# -wp-cache none: every run calls the provers, so a cached timeout or proof from an earlier
+# run never stands in for tonight's.
+WPFLAGS  ?= -wp -wp-rte -wp-prover alt-ergo,z3 -wp-timeout 60 -wp-par 4 -wp-cache none
 # The RTE arms prove the runtime-error and ensures goals. The frame goals (assigns and
 # terminates) are split out: the library loops carry no loop assigns and no loop variant
 # (no header is edited here), so WP cannot discharge them, and at 60 s each they would
 # dominate the run. The frame arm runs them at a short timeout so they are still listed.
 RTEPROPS ?= -wp-prop=-@assigns,-@terminates
-FRAMEFLAGS ?= -wp -wp-prover alt-ergo,z3 -wp-timeout 10 -wp-par 4 -wp-prop=@assigns,@terminates
+FRAMEFLAGS ?= -wp -wp-prover alt-ergo,z3 -wp-timeout 10 -wp-par 4 -wp-cache none -wp-prop=@assigns,@terminates
 # Every frama-c run is bounded, so one wrapper cannot hold the bench.
 LIMIT    ?= timeout 1800
 # The row for one log: WP's summary, or why there is none (no goal, or the run was cut off).
@@ -43,10 +52,27 @@ EMU_LOGS   = $(patsubst %,$(OUT)/%.emulated.log,$(WRAPPERS)) $(OUT)/proveFixMul.
 NAT_LOGS   = $(patsubst %,$(OUT)/%.native.log,$(WRAPPERS))
 FRAME_LOGS = $(patsubst %,$(OUT)/%.frame.log,$(WRAPPERS))
 
-.PHONY: all emulated native frame summary clean
+.PHONY: all emulated native frame summary clean nightly fixmul sqrt primitives
 .NOTPARALLEL:
 
 all: emulated native frame summary
+
+# The proved set. fixDiv is left out: its WP goal generation does not end
+# (fixed-framac-fixdiv-goal-generation). So is the Int128Div frame run, whose loop
+# without annotations keeps it from finishing (fixed-framac-isqrt-loop-annotations).
+FRAME_PRIMITIVES = $(filter-out proveInt128Div,$(PRIMITIVES))
+
+fixmul: $(OUT)/proveFixMul.emulated.log $(OUT)/proveFixMul.emulated-saturate.log $(OUT)/proveFixMul.frame.log
+
+sqrt: $(OUT)/proveFixISqrt128High.emulated.log $(OUT)/proveFixISqrt128High.frame.log
+
+primitives: $(patsubst %,$(OUT)/%.emulated.log,$(PRIMITIVES)) $(patsubst %,$(OUT)/%.frame.log,$(FRAME_PRIMITIVES))
+
+# Nightly on a bench only, never per commit. Starts from a clean out/ so every goal is rerun.
+nightly:
+	rm -rf $(OUT)
+	$(MAKE) fixmul sqrt primitives
+	$(MAKE) summary
 
 # Logs depend on the wrapper file only: run `make clean` after changing a header or a flag.
 

@@ -2,10 +2,26 @@
 
 `kernels_acsl.c` wraps fixMul, fixDiv, fixISqrt128High and the int128 seam primitives
 they use, each wrapper carrying an ACSL contract that states only what the library
-already documents. No library header is edited. `make -C proofs/framac all` runs, one
-wrapper at a time:
+already documents. No library header is edited.
 
-    frama-c -wp -wp-rte -wp-prover alt-ergo,z3 -wp-timeout 60 -wp-par 4 -wp-prop=-@assigns,-@terminates
+## When and where it runs
+
+Nightly, on a Linux bench only. There is no per-commit CI job and no CTest entry for these
+proofs, and no CI file names them. The nightly entry point is
+
+    make -C proofs/framac nightly
+
+which clears `out/` and runs the proved set: `fixmul` (fixMul on the emulated path, under
+FIX_SATURATE, and its frame goals), `sqrt` (fixISqrt128High, emulated and frame) and
+`primitives` (the 13 int128 primitives, emulated, and frame for all but Int128Div), then
+prints the summary. fixDiv is left out of `nightly` because its WP goal generation does not
+end (`results.md`); `make all` still includes it, so do not run `all` unattended.
+
+## What a run does
+
+`make -C proofs/framac all` runs, one wrapper at a time:
+
+    frama-c -wp -wp-rte -wp-prover alt-ergo,z3 -wp-timeout 60 -wp-par 4 -wp-cache none -wp-prop=-@assigns,-@terminates
 
 for the RTE and ensures goals, and the frame arm below for the assigns and terminates goals,
 
@@ -18,8 +34,6 @@ the emulated and native arms prove the RTE and ensures goals at 60 s per goal. E
 frama-c run is bounded by `timeout 1800` (the LIMIT variable). Logs go to `out/` (not
 committed); `make summary` prints the table, which is copied by hand into `results.md`. A
 row marked PROVER MISSING counts Qed goals only.
-
-This runs on Linux benches only. It is not part of CTest and not part of CI.
 
 ## Toolchain
 

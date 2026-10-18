@@ -15,7 +15,7 @@
 // the integer specification the CBMC card verifies against.
 #include "fixed/fixed_mod.h"
 
-#include <limits.h>
+#include <stdint.h>
 
 fixed_t fixFmod( fixed_t a, fixed_t b )
 {

@@ -5,8 +5,17 @@
 
 #include <limits.h>
 
+/* One descriptor covers both remainders: b < 0 exercises the truncated C fmod against
+ * MPFR's mpfr_fmod, and b >= 0 exercises the floored Lua modulo against MPFR's
+ * floor(a/b)*b subtraction. The edge grid and the seeded pairs carry both signs, so
+ * every pair of the edge list and both reference definitions are swept. */
+
 static int64_t eval( int64_t a, int64_t b )
 {
+	if ( b < 0 )
+	{
+		return fixFmod( a, b );
+	}
 	return fixMod( a, b );
 }
 
@@ -27,12 +36,19 @@ static int64_t ref( int64_t a, int64_t b )
 	mpfr_div_2ui( *v, *v, 16, MPFR_RNDN );
 	mpfr_set_si( u, (long)b, MPFR_RNDN );
 	mpfr_div_2ui( u, u, 16, MPFR_RNDN );
-	mpfr_div( *v, *v, u, MPFR_RNDN );
-	mpfr_floor( *v, *v );
-	mpfr_mul( *v, *v, u, MPFR_RNDN );
-	mpfr_set_si( u, (long)a, MPFR_RNDN );
-	mpfr_div_2ui( u, u, 16, MPFR_RNDN );
-	mpfr_sub( *v, u, *v, MPFR_RNDN );
+	if ( b < 0 )
+	{
+		mpfr_fmod( *v, *v, u, MPFR_RNDN );
+	}
+	else
+	{
+		mpfr_div( *v, *v, u, MPFR_RNDN );
+		mpfr_floor( *v, *v );
+		mpfr_mul( *v, *v, u, MPFR_RNDN );
+		mpfr_set_si( u, (long)a, MPFR_RNDN );
+		mpfr_div_2ui( u, u, 16, MPFR_RNDN );
+		mpfr_sub( *v, u, *v, MPFR_RNDN );
+	}
 	mpfr_clear( u );
 	return sweep_mpfr_round( *v );
 }

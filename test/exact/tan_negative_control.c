@@ -32,8 +32,11 @@ FIX_API fixed_t fixTanExactW112( fixed_t x );
 #include "../../src/exact/tan.c"
 #undef fixTanExact
 
-/* Section 3.1: the pole convergent, the below-32-rad worst raw, the first saturating raw,
- * the largest unsaturated near-edge raw, and the three near-edge unsaturated raws. */
+/* Section 3.1, in order: the pole convergent (6173953965003744831), the below-32-rad
+ * worst raw (1750043), the first saturating raw (195734331562903), the largest unsaturated
+ * near-edge raw (130146176612260), and the three near-edge unsaturated raws
+ * (2544546310317739, 5870999813598064, 8285399947303543). Design section 5: "W2 and W3
+ * zeroed (112 bits, the sincos reduction): it must fail at 130146176612260." */
 static const int64_t points[] = {
 	INT64_C( 6173953965003744831 ),
 	INT64_C( 1750043 ),

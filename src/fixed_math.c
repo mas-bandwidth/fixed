@@ -639,6 +639,135 @@ fixed_t fixExp2( fixed_t a )
 	return (fixed_t)( ( r + ( 1ull << ( shift - 1 ) ) ) >> shift );
 }
 
+// ---------------------------------------------------------------------------------------------
+// fixExp2Exact: 2^x within 2 raw units of correctly rounded over the whole Q48.16 domain.
+// This widens fixExp2's binary exponentiation from a Q32 running product to a 128-bit Q126
+// mantissa, so the accumulated product error stays far below the output ulp.
+// ---------------------------------------------------------------------------------------------
+
+// 2^(2^-k), k = 1..16, held to 126 fraction bits as two u64 words each: the value scaled by
+// 2^126, rounded to nearest, split as hi = value >> 64, lo = value & (2^64 - 1). Computed
+// with GNU bc -l at scale 80 then obase=16:
+//
+//   scale=80; obase=16
+//   for(k=1;k<=16;k++){ v=e(l(2)*2^(-k))*2^126; scale=0; r=(v+0.5)/1; hi=r/2^64; lo=r-hi*2^64 }
+//
+// Each entry is in [2^126, 2^127), so hi < 2^63 and lo is any u64.
+static const uint64_t fixExp2ExactTableHi[16] = {
+	0x5A827999FCEF3242ull, // 2^(2^-1)
+	0x4C1BF828C6DC54B7ull, // 2^(2^-2)
+	0x45CAE0F1F545EB73ull, // 2^(2^-3)
+	0x42D561B3E6243D8Aull, // 2^(2^-4)
+	0x4166C34C5615D0EBull, // 2^(2^-5)
+	0x40B268F9DE0183B9ull, // 2^(2^-6)
+	0x4058F6A7ECCCD5B6ull, // 2^(2^-7)
+	0x402C6BE96AF2FB58ull, // 2^(2^-8)
+	0x4016321B687027A8ull, // 2^(2^-9)
+	0x400B18178BA33B14ull, // 2^(2^-10)
+	0x40058BCE410147E8ull, // 2^(2^-11)
+	0x4002C5D7BFF71DAEull, // 2^(2^-12)
+	0x400162E807EE7E5Bull, // 2^(2^-13)
+	0x4000B1730DF6A524ull, // 2^(2^-14)
+	0x400058B9497B8151ull, // 2^(2^-15)
+	0x40002C5C955DD701ull, // 2^(2^-16)
+};
+
+static const uint64_t fixExp2ExactTableLo[16] = {
+	0x2CBEC4D9BAA55F50ull,
+	0xA356918C17217B7Bull,
+	0x7DF23143AC529E48ull,
+	0x62E4ADC610AA60D9ull,
+	0x9F1523ADA3290600ull,
+	0xBDF2B293DE8A6F7Aull,
+	0x1299AB8CDB737E90ull,
+	0x4A6AC4FB04772551ull,
+	0x7FC674A533CBD9E7ull,
+	0x1B486FF22688E804ull,
+	0x4A2F2A71570C7978ull,
+	0x8E38C59C72A4E5CAull,
+	0x5B2B352C60245F10ull,
+	0x7426170D231A39EDull,
+	0xD5115F56654A480Aull,
+	0x01862FD292B7A0FFull,
+};
+
+// 128x128 -> 256 widening multiply in the fixUInt128 vocabulary, so native and emulated arms
+// agree bit-for-bit. a = ah*2^64 + al, b = bh*2^64 + bl; the three partial products are
+// combined with carry detection through fixUInt128Add.
+static fixUInt256 fixUInt128Mul128( fixUInt128 a, fixUInt128 b )
+{
+	uint64_t a0 = fixUInt128Lo( a ), a1 = fixUInt128Hi( a );
+	uint64_t b0 = fixUInt128Lo( b ), b1 = fixUInt128Hi( b );
+
+	fixUInt128 z0 = fixUInt128MulU64( a0, b0 );
+	fixUInt128 z1a = fixUInt128MulU64( a0, b1 );
+	fixUInt128 z1b = fixUInt128MulU64( a1, b0 );
+	fixUInt128 z2 = fixUInt128MulU64( a1, b1 );
+	fixUInt128 z1 = fixUInt128Add( z1a, z1b );
+
+	uint64_t r0 = fixUInt128Lo( z0 );
+	fixUInt128 acc1 = fixUInt128Add( z1, fixUInt128FromU64( fixUInt128Hi( z0 ) ) );
+	uint64_t r1 = fixUInt128Lo( acc1 );
+	uint64_t carry = fixUInt128Lt( acc1, z1 ) ? 1 : 0;
+
+	fixUInt128 acc2 = fixUInt128Add( fixUInt128Add( fixUInt128FromU64( fixUInt128Hi( z1 ) ), fixUInt128FromU64( fixUInt128Lo( z2 ) ) ), fixUInt128FromU64( carry ) );
+	fixUInt128 acc3 = fixUInt128Add( fixUInt128FromU64( fixUInt128Hi( z2 ) ), fixUInt128Shr( acc2, 64 ) );
+
+	fixUInt256 r;
+	r.lo = fixUInt128Make( r1, r0 );
+	r.hi = fixUInt128Make( fixUInt128Lo( acc3 ), fixUInt128Lo( acc2 ) );
+	return r;
+}
+
+// The 128-bit Q126 mantissa of 2^f for a Q16 fraction f, by binary exponentiation over the
+// 16 fraction bits. Each multiply truncates the running product by at most 2^-126 relative,
+// so after at most 16 multiplies the product is within ~2^-122 of exact -- far under the
+// 2^-62 relative error a result near 2^63 raw needs.
+static fixUInt128 fixExp2FractionMantissa( uint64_t f )
+{
+	fixUInt128 r = fixUInt128Shl( fixUInt128FromU64( 1 ), 126 ); // 1.0 in Q126
+	for ( int k = 0; k < 16; ++k )
+	{
+		if ( f & ( 1ull << ( 15 - k ) ) )
+		{
+			fixUInt128 t = fixUInt128Make( fixExp2ExactTableHi[k], fixExp2ExactTableLo[k] );
+			fixUInt256 prod = fixUInt128Mul128( r, t );
+			r = fixUInt256Shr( prod, 126 ).lo;
+		}
+	}
+	return r;
+}
+
+// 2^x within 2 raw units of correctly rounded over the whole Q48.16 domain, integer only.
+// The result is the Q126 mantissa r = 2^f scaled by 2^n: raw = r * 2^n / 2^126 * 2^16 =
+// r * 2^(n-110), with one round to nearest at that final shift. Checked against CORE-MATH
+// at the pin by test/exp2_exact_test.c; the bound is 2 raw over the whole domain.
+FIX_API fixed_t fixExp2Exact( fixed_t a )
+{
+	int64_t n = a >> FIX_FRACTION_BITS;
+
+	if ( n >= 47 )
+	{
+		return INT64_MAX; // saturate: 2^47 is the top of the Q48.16 whole-unit domain
+	}
+
+	if ( n < -17 )
+	{
+		return 0; // underflow below the smallest representable value
+	}
+
+	uint64_t f = (uint64_t)( a - fixShiftLeft( n, FIX_FRACTION_BITS ) ); // Q16 fraction
+
+	fixUInt128 r = fixExp2FractionMantissa( f );
+
+	// r in [2^126, 2^127), so for n in [-17, 46] the shift 110 - n is in [64, 127] and the
+	// round-to-nearest sum r + half stays below 2^128.
+	int shift = 110 - (int)n;
+	fixUInt128 half = fixUInt128Shl( fixUInt128FromU64( 1 ), shift - 1 );
+	fixUInt128 sum = fixUInt128Add( r, half );
+	return (fixed_t) fixUInt128Lo( fixUInt128Shr( sum, shift ) );
+}
+
 fixed_t fixPow( fixed_t base, fixed_t exponent )
 {
 	if ( base <= 0 )

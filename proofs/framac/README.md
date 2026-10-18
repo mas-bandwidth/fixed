@@ -8,22 +8,26 @@ wrapper at a time:
     frama-c -wp -wp-rte -wp-prover alt-ergo,z3 -wp-timeout 60
 
 with `-inline-calls @inline` so that inlined helpers' RTE goals (signed overflow, shift
-ranges, division by zero, float-to-int range) are proved in the calling context. Not every
-helper inlines: fixEmuUInt128DivMod (out-parameters, fixed_int128.h:395) stays a call, which
-WP reports as a missing assigns clause. Logs go to `out/` (not committed); `make summary`
-prints the table, which is copied by hand into `results.md`. A row marked PROVER MISSING
-counts Qed goals only.
+ranges, division by zero, float-to-int range) are proved in the calling context. The library loops carry no loop assigns or loop variant (no header is edited
+here), so WP warns "Missing assigns clause" for each and its assigns and terminates goals
+cannot close. Those frame goals therefore run in their own arm (`make frame`, 10 s per goal);
+the emulated and native arms prove the RTE and ensures goals at 60 s per goal. Every
+frama-c run is bounded by `timeout 1800` (the LIMIT variable). Logs go to `out/` (not
+committed); `make summary` prints the table, which is copied by hand into `results.md`. A
+row marked PROVER MISSING counts Qed goals only.
 
 This runs on Linux benches only. It is not part of CTest and not part of CI.
 
 ## Toolchain
 
-- Frama-C with the WP plugin. Checked on amd-1: Frama-C 33.0 (Arsenic), WP loaded.
-  hetzner2 carries Debian's frama-c-base 25.0-beta (Manganese), which has no WP plugin.
-- SMT provers alt-ergo and z3, registered with Why3. On 2026-10-18 neither is installed on
-  either bench, so the full run has not happened yet; see `results.md`.
-- The native arm needs the front end to accept `__int128`. Frama-C 25 does not (syntax error
-  at include/fixed/fixed_int128.h:577); Frama-C 33 is not yet checked.
+- Frama-C 33.0 (Arsenic) with the WP plugin, from opam in `~/sdk/bin` on the Linux benches
+  (checked on amd-2, 2026-10-18).
+- Alt-Ergo 2.4.3 (`~/sdk/bin`), Z3 4.13.3 (`/usr/bin`), Why3 1.8.2, registered with
+  `why3 config detect` for the bench user. Gappa 1.6.0 is also detected but not used.
+- The native arm: Frama-C 33 parses the headers, but its preprocessing does not appear to
+  define `__SIZEOF_INT128__`, so fixed_int128.h:567 selects the emulated path and the
+  native rows repeat the emulated ones (see `results.md`). Frama-C 25 rejected `__int128`
+  outright (syntax error at include/fixed/fixed_int128.h:577).
 
 ## Assumptions
 

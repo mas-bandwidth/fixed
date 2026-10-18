@@ -31,8 +31,8 @@
 /*@ requires \is_finite( x ) && x >= 0.0;
     assigns \result \from x;
     ensures \is_finite( \result ) && \result >= 0.0;
-    ensures x <= 0x1p104 ==> \result <= 0x1p52;
-    ensures x <= 0x1p64 ==> \result <= 0x1p32;
+    ensures x <= 20282409603651670423947251286016.0 ==> \result <= 4503599627370496.0;
+    ensures x <= 18446744073709551616.0 ==> \result <= 4294967296.0;
 */
 double __builtin_sqrt( double x );
 

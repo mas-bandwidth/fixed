@@ -1,0 +1,44 @@
+// The log kernel of docs/design/transcendentals.md (the log family section).
+// Run: sollya sollya/log_kernel.sollya > sollya/log_kernel.out
+//
+// x = 2^e * m, m in [1, 2); i = the top 7 fraction bits of m, c_i = 1 + i/128;
+// INV_i = ceil( 2^24 / (128 + i) ) = ceil( 2^17 / c_i ), so u = m * INV_i * 2^-17 - 1 is exact and
+// in [0, 2^-7 + 2^-16]; ln x = e*ln2 + L_i + log1p(u) with L_i = ln( 2^17 / INV_i ).
+// The kernel is log1p(u) = u + sum C_k u^k, k = 2..10, each C_k a multiple of 2^-127, minimax in
+// the absolute error, certified with supnorm. Also prints the INV_i and L_i tables and the
+// log10(e) and log2(e) constants.
+prec = 400!;
+display = decimal!;
+verbosity = 0!;
+procedure ni(e) { return nearestint(round(e, 350, RN)); };
+
+t = 7;
+n = 10;
+U = 2^-7 + 2^-16;
+I = [0; U];
+f = log1p(x) - x;
+
+fm = [||]; for i from 2 to n do fm = fm :. 127;
+// fit on [2^-20; U] (every monomial vanishes at 0, so the Remez system is degenerate there);
+// the certificate is on the whole of [0; U]
+p = fpminimax(f, [|2,...,n|], fm, [2^-20; U], fixed, absolute);
+s = supnorm(p, f, I, absolute, 2^-80);
+
+print("log kernel: log1p(u) = u + sum_{k=2}^{10} C_k * 2^-127 * u^k on u in [0, 2^-7 + 2^-16]");
+print("table bits t =", t, " degree =", n, " coefficient format: signed, 127 fraction bits, signs alternate (C_k < 0 for even k)");
+for i from 2 to n do print("C_" @ i @ " =", coeff(p, i) * 2^127);
+print("supnorm |p - log1p| on [0, 2^-7 + 2^-16], absolute:", s);
+print("log2 of the certified bound:", round(log2(sup(s)), 24, RU));
+
+print("LN2_128 = round(ln2 * 2^128) =", ni(log(2) * 2^128));
+print("LOG10E_128 = round(log10(e) * 2^128) =", ni(2^128 / log(10)));
+print("LOG2E_127 = round(log2(e) * 2^127) =", ni(2^127 / log(2)));
+print("table INV_i = ceil(2^24 / (128 + i)), L_i = round(ln(2^17 / INV_i) * 2^128) as hi:lo, i = 0..127");
+for i from 0 to 2^t - 1 do {
+  inv = ceil(2^24 / (128 + i));
+  v = ni(log(2^17 / inv) * 2^128);
+  h = floor(v / 2^64);
+  print("L", i, inv, h, v - h * 2^64);
+};
+
+quit;

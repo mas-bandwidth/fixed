@@ -1,0 +1,30 @@
+// The tanh cut-off and saturation checks of docs/design/transcendentals.md section 1.4.
+// Run from the repository root: sollya sollya/tanh.sollya > sollya/tanh.out
+//
+// tanh has no polynomial of its own (design section 6): the small-|x| kernel and the
+// exp kernel come from exp_kernel.sollya. These checks pin the two edges where the
+// implementation switches path:
+//   * identity,   nearestint(tanh(raw*2^-16)*2^16) = raw for raw <= 1860;
+//   * saturation, nearestint(tanh(raw*2^-16)*2^16) = 65536 for raw >= 408835.
+// It then reads the exp kernel's certified bound from exp_kernel.out (section 1.1) and
+// restates tanh's exp-path budget of section 1.4, 2^16 * (2^-102.67 + 2^-128), as a log2.
+prec = 400!;               // at least 300 bits, as the card asks
+display = decimal!;
+verbosity = 0!;
+
+procedure rounds(raw) { return nearestint(tanh(raw * 2^-16) * 2^16); };
+
+print("tanh identity at raw = 1860: nearestint(tanh(1860*2^-16)*2^16) == 1860:", rounds(1860) == 1860);
+print("tanh identity stops at raw = 1861: nearestint(tanh(1861*2^-16)*2^16) == 1860 (not 1861):", rounds(1861) == 1860);
+print("tanh below saturation at raw = 408834: nearestint(tanh(408834*2^-16)*2^16) < 65536:", rounds(408834) < 65536);
+print("tanh saturation at raw = 408835: nearestint(tanh(408835*2^-16)*2^16) == 65536:", rounds(408835) == 65536);
+
+// exp_kernel.out is the design's committed certificate. It is present once the design
+// branch is merged; until then read the committed copy from this repository's history.
+bstr = bashevaluate("if test -f sollya/exp_kernel.out; then grep '^log2 of the certified bound:' sollya/exp_kernel.out | sed -n '1s/.*: //p'; else c=$(git log --all --format=%H -- sollya/exp_kernel.out | head -n 1); git show \"$c:sollya/exp_kernel.out\" | grep '^log2 of the certified bound:' | sed -n '1s/.*: //p'; fi");
+eb = 2^(parse(bstr));
+budget = 2^16 * (eb + 2^-128);
+print("exp kernel certificate: log2 |P - e^r| =", round(parse(bstr), 24, RU));
+print("tanh exp-path budget: log2( 2^16 * ( 2^-102.67 + 2^-128 ) ) =", round(log2(budget), 24, RU));
+print("tanh exp-path budget below 2^-86.67:", log2(budget) < -86.67);
+quit;

@@ -310,6 +310,28 @@ if (NOT MSVC)
     add_test(NAME exp2_exact_negative_control COMMAND fixed_exp2_exact_negative_control)
     set_tests_properties(exp2_exact_negative_control PROPERTIES WILL_FAIL TRUE)
 endif()
+
+# The double/float to Q48.16 conversions, checked against an integer-only bit-level
+# reference. Its negative control builds the same file with fixFromDouble/fixFromFloat
+# replaced by the old buggy +-0.5 formula; those checks must fail (WILL_FAIL).
+add_executable(fixed_from_double_test test/from_double_test.c)
+target_link_libraries(fixed_from_double_test PRIVATE fixed)
+add_test(NAME from_double COMMAND fixed_from_double_test)
+
+add_executable(fixed_from_double_negative_control test/from_double_test.c)
+target_link_libraries(fixed_from_double_negative_control PRIVATE fixed)
+target_compile_definitions(fixed_from_double_negative_control PRIVATE FROM_DOUBLE_NEGATIVE_CONTROL)
+add_test(NAME from_double_negative_control COMMAND fixed_from_double_negative_control)
+set_tests_properties(from_double_negative_control PROPERTIES WILL_FAIL TRUE)
+
+if (TARGET fixed_emulated)
+    add_executable(fixed_from_double_emulated_test test/from_double_test.c)
+    target_link_libraries(fixed_from_double_emulated_test PRIVATE fixed_emulated)
+    if (NOT WIN32)
+        target_link_libraries(fixed_from_double_emulated_test PRIVATE m)
+    endif()
+    add_test(NAME from_double_emulated COMMAND fixed_from_double_emulated_test)
+endif()
 option(FIX_BUILD_BENCHMARKS "Build the numerical public-API microbenchmarks" OFF)
 if (FIX_BUILD_BENCHMARKS)
     add_executable(fixed_numerical_bench benchmark/numerical_bench.c)

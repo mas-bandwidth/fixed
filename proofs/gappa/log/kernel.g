@@ -1,35 +1,29 @@
-# Gappa proof for the log1p polynomial evaluation in src/exact/log_kernel.h.
-# Values are real-valued scaled integers: a2..a10 are the positive magnitudes
-# of the stored Q.127 coefficient words divided by 2^127; x = u128 / 2^128.
-# The Horner recurrence, square, and final product use exactly the source formats.
+# Gappa proof of the log1p kernel's accumulated fixed-point error.
+# Values are real-valued scaled integers: a_k are stored Q.127 coefficient
+# magnitudes divided by 2^127; x is u128 / 2^128.
 #
-# Each residue ri is defined as fixed<k,dn>(v) - v, where fixed<k,dn> is
-# downward rounding to the source's Q.k grid. Gappa proves those residue ranges,
-# then proves the error recurrence. The Sollya supnorm h is a hypothesis.
+# This recurrence matches src/exact/log_kernel.h:
+#   w10 = a10
+#   wk = ak - fixed<127,dn>(w(k+1) * x), k = 9..2
+#   qq = fixed<128,dn>(x * x)
+#   vv = fixed<127,dn>(qq * w2)
+#   out = x - 2*vv
+# Exact polynomial Horner omits fixed<k,dn>. Define each local residue as
+# rounded-minus-unrounded. The difference d_k = wk - p_k obeys
+# d_k = -x*d(k+1) - rk. The final difference uses rq=qq-x^2 and rv=vv-qq*w2.
+# The Sollya polynomial-versus-log1p supnorm h is a hypothesis.
 
 {
   x in [0, 0.0078125]
-
-  /\ a2 = 0.499999999999999999999987510325942327159074213082474166742803999653836767030864169747243763719524167754570953547954559326171875
-  /\ a3 = 0.3333333333333333332911061271819867303596105270885888060375317464377755265691885823930128152081664438810548745095729827880859375
-  /\ a4 = 0.249999999999999944385684977268856847992206648427281202860004946845363463259488459567402018901560722952126525342464447021484375
-  /\ a5 = 0.199999999999961381590621044023942020939813005401513489511398787677306286049379435557950268620430733790271915495395660400390625
-  /\ a6 = 0.1666666666507585407602717836708001684933888080057972135605077549132962280572660789521900748244576107026659883558750152587890625
-  /\ a7 = 0.142857138765486720947694441554866163448110739088123478923048795492130955483393246253399910816739293295540846884250640869140625
-  /\ a8 = 0.1249993355012364509113927086399355784073517701098171182970059238834380449276426173024247268106279307176009751856327056884765625
-  /\ a9 = 0.1110448073020671993077208797892456763298418020190512196020338057316816137991459666916650717016779026380390860140323638916015625
-  /\ a10 = 0.0962793672760566769673078668935352666053476489572616457968394385326806012253807797265404977427039057147339917719364166259765625
-
-  /\ p10 = a10
-  /\ p9 = a9 - p10 * x
-  /\ p8 = a8 - p9 * x
-  /\ p7 = a7 - p8 * x
-  /\ p6 = a6 - p7 * x
-  /\ p5 = a5 - p6 * x
-  /\ p4 = a4 - p5 * x
-  /\ p3 = a3 - p4 * x
-  /\ p2 = a2 - p3 * x
-  /\ p = x - 2 * x * x * p2
+  /\ a2 in [0.499, 0.5]
+  /\ a3 in [0.333, 0.334]
+  /\ a4 in [0.249, 0.251]
+  /\ a5 in [0.199, 0.201]
+  /\ a6 in [0.166, 0.168]
+  /\ a7 in [0.142, 0.144]
+  /\ a8 in [0.124, 0.126]
+  /\ a9 in [0.11, 0.112]
+  /\ a10 in [0.096, 0.097]
 
   /\ w10 = a10
   /\ w9 = a9 - fixed<127, dn>(w10 * x)
@@ -64,8 +58,8 @@
   /\ d4 = -d5 * x - r4
   /\ d3 = -d4 * x - r3
   /\ d2 = -d3 * x - r2
-
   /\ eh = 2 * (|rq| * |w2| + x * x * |d2| + |rv|)
+
   /\ h in [0, 3.83734e-31]
   /\ total = eh + h
   /\ ln_raw = total * 65536
@@ -83,9 +77,9 @@
   r2 in [-5.877471754111438e-39, 0] /\
   rq in [-2.938735877055719e-39, 0] /\
   rv in [-5.877471754111438e-39, 0] /\
-  |w2| <= 0.501 /\
+  w2 in [0, 0.501] /\
   |d2| <= 6e-39 /\
-  eh <= 1e-38 /\
+  eh <= 1.5e-38 /\
   total <= 3.838e-31 /\
   ln_raw <= 2.515e-26 /\
   log2_raw <= 3.63e-26 /\

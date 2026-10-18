@@ -461,65 +461,19 @@ FIX_ALWAYS_INLINE double fixToDouble( fixed_t a )
 	return (double)a * ( 1.0 / (double)FIX_ONE );
 }
 
-/// Convert a float to fixed point, rounding to nearest half away from zero. A boundary
-/// helper: results depend on the float input, so keep this out of deterministic code.
-///
-/// ROUNDING RULE. Round half away from zero (0.5 raw -> 1, -0.5 raw -> -1), the same rule
-/// fixQuantize uses, so the "fixFromDouble IS fixQuantize at FIX_ONE" identity holds. Half
-/// to even (CORE-MATH / llrint style) is the alternative preferred for new code, but it is
-/// not used here because the API and its existing tests pin the away-from-zero tie.
-///
-/// WHY THIS FORM. The previous formula (d = x*65536, then d +/- 0.5 and a truncating cast)
-/// had two defects. (1) The +/- 0.5 add is itself a double, so it rounds: near a
-/// half-integer, e.g. -0.49999999999999994 - 0.5 rounds to -1.0, and the truncating cast
-/// then yields -1 where the correct rounding is 0; and above 2^52 the +/- 0.5 add does
-/// nothing, leaving the result off by 1 raw. (2) Truncation toward zero misrounded
-/// negatives. Here the scale by 65536 is exact in double, the integer part and exact
-/// fractional remainder are taken separately, and the remainder is rounded half away from
-/// zero. For |d| >= 2^52 the value is already an integer, so the rounding is skipped. No
-/// libm, no FPU rounding-mode change. NaN and out-of-range inputs behave as before: the
-/// raw double is cast straight to fixed_t. Each: test/from_double_test.c.
+/// Convert a float to fixed point, rounding to nearest. A boundary helper: results
+/// depend on the float input, so keep this out of deterministic simulation code.
 FIX_ALWAYS_INLINE fixed_t fixFromFloat( float x )
 {
 	double d = (double)x * (double)FIX_ONE;
-	if ( d >= 9007199254740992.0 || d <= -9007199254740992.0 )
-	{
-		return (fixed_t)d;
-	}
-	fixed_t n = (fixed_t)d;
-	double f = d - (double)n;
-	if ( f >= 0.5 )
-	{
-		n += 1;
-	}
-	else if ( f <= -0.5 )
-	{
-		n -= 1;
-	}
-	return n;
+	return (fixed_t)( d >= 0.0 ? d + 0.5 : d - 0.5 );
 }
 
-/// Convert a double to fixed point, rounding to nearest half away from zero. A boundary
-/// helper. Rounding rule and defect history are identical to fixFromFloat above; see the
-/// comment there. Test: test/from_double_test.c.
+/// Convert a double to fixed point, rounding to nearest. A boundary helper.
 FIX_ALWAYS_INLINE fixed_t fixFromDouble( double x )
 {
 	double d = x * (double)FIX_ONE;
-	if ( d >= 9007199254740992.0 || d <= -9007199254740992.0 )
-	{
-		return (fixed_t)d;
-	}
-	fixed_t n = (fixed_t)d;
-	double f = d - (double)n;
-	if ( f >= 0.5 )
-	{
-		n += 1;
-	}
-	else if ( f <= -0.5 )
-	{
-		n -= 1;
-	}
-	return n;
+	return (fixed_t)( d >= 0.0 ? d + 0.5 : d - 0.5 );
 }
 
 //! @cond

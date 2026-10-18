@@ -54,10 +54,11 @@ leaves out.
 ## Result
 
 `make -C proofs/gappa/log` runs the proof and prints one proved bound per
-function. The ln total exceeds the design's stated budget by 0.023% because
-the design writes its kernel line as `2^-101.04`, a two-decimal exponent
-slightly below Sollya's certified supnorm `2^-101.03967`; `results.md` records the finding. The log2 and
-log10 totals are within their budgets.
+function. All three totals are within their design budgets: ln against
+`2^-85.039` raw, the design's kernel line `2^-101.039` being Sollya's
+certified supnorm `2^-101.03967` rounded up (an earlier `2^-101.04` rounded
+it down; `results.md` records that finding), log2 against `2^-84.5` and
+log10 against `2^-86.2`.
 
 `ln_raw` is the kernel only (`|E| + h`), as the design's ln line is;
 `ln_full_raw` adds the table and shift terms (`2^-118`, before the `2^16`

@@ -271,7 +271,7 @@ mantissa in Q1.62. `i = (m >> 55) & 127`, the top 7 fraction bits.
 
 **Kernel.** `log1p(u) = u + sum_{k=2..10} C_k * 2^-127 * u^k`, degree 10, signed coefficients
 alternating in sign (C_k < 0 for even k), fixed with 127 fraction bits; fpminimax absolute on
-[0, 2^-7 + 2^-16], supnorm certifies `|p - log1p| <= 2^-101.04` (`log_kernel.out`). Because
+[0, 2^-7 + 2^-16], supnorm certifies `|p - log1p| <= 2^-101.039` (`log_kernel.out`). Because
 u >= 0 and the signs alternate, Horner runs unsigned on magnitudes:
 `w = |C_10|; for k = 9..2: w = |C_k| - mulhi( w, u128 )`, every w positive, then
 `log1p(u) = u - mulhi( mulhi( u128, u128 ), w )` (the last product realigned from Q.127 to
@@ -288,11 +288,15 @@ shifted right 8. Then `raw_out = ( S + 2^103 ) >> 104` (floor shift). Here
 |---|---|
 | e * ln 2 with ln 2 to 128 bits (\|e\| <= 46), shift to Q.120 | 2^-123.5 + 2^-120 |
 | L_i to 128 bits, shift | 2^-129 + 2^-120 |
-| kernel, Sollya supnorm | 2^-101.04 |
+| kernel, Sollya supnorm | 2^-101.039 |
 | Horner truncations, shift | 2^-125 + 2^-120 |
-| **sum** | **2^-101.04** (the shifts add 2^-118.4) |
+| **sum** | **2^-101.039** (the shifts add 2^-118.4) |
 
-**ln budget: eps <= 2^-101.04 * 2^16 = 2^-85.04 raw**, against the exhaustive margin
+**ln budget: eps <= 2^-101.039 * 2^16 (plus the shift terms, 2^-118.4) = 2^-85.039 raw**
+(derivation: the certified supnorm endpoint 2^-101.0397 from `sollya/log_kernel.out`, rounded
+up to three decimals, is 2^-101.039; the shift and Horner terms add below 2^-118, inside that
+rounding; times 2^16 gives 2^-85.039 raw; Gappa proves 2^-85.0397 raw,
+`proofs/gappa/log/results.md`), against the exhaustive margin
 2^-21.44 on [1, 2^20], and below 2^-k for every BaCSeL k <= 85, so the hard-case argument of
 section 0 proves correct rounding in every binade the list covers.
 
@@ -320,7 +324,7 @@ reduction and kernel: `log2 x = e + ( L_i + log1p(u) ) * log2(e)`, the integer e
 in raw units after the rounding of the second term, with
 `LOG2E_127 = round( log2(e) * 2^127 )` = 245461841629398282873184673143046618761 (128-bit
 multiply, `log_kernel.out`). **log2 budget: (L_i + log1p) < 0.7, so eps <=
-1.4427 * 2^-101.04 * 2^16 + 2^-104 = 2^-84.5 raw.** The midpoint-adjacent probe becomes a
+1.4427 * 2^-101.039 * 2^16 + 2^-104 = 2^-84.5 raw.** The midpoint-adjacent probe becomes a
 sweep piece for `log2` (and for `log2_exact`), so the witnesses are in the scoreboard.
 
 ### 2.3 log10, `fixLog10Exact`
@@ -331,7 +335,7 @@ sweep piece for `log2` (and for `log2_exact`), so the witnesses are in the score
 ln is. The brief asks for at least 64 fraction bits in the constant; 64 would be
 33 * 2^-65 = 2^-60 absolute, 2^-44 raw: enough for the exhaustive margin (2^-26.00) but not
 for the hard-case argument (2^-k with k near 55 at the top), so the constant carries 128.
-**log10 budget: eps <= ( 0.4343 * 2^-101.04 + 33 * 2^-129 + 2^-120 ) * 2^16 = 2^-86.2 raw.**
+**log10 budget: eps <= ( 0.4343 * 2^-101.039 + 33 * 2^-129 + 2^-120 ) * 2^16 = 2^-86.2 raw.**
 
 ## 3. tan, `fixTanExact`
 
@@ -523,7 +527,7 @@ quotes the four sweep hashes.
 | fixed-exp-exact | `fixExpExact` (fixed_exp.h); `src/exact/exp_kernel.h` | 1.1, 1.2 | LN2_128, INV_LN2_63, T_j (128) from exp_kernel.out; C_2..C_8 | 2^-39.67 vs 2^-21.15 |
 | fixed-sinh-cosh-exact | `fixSinhExact`, `fixCoshExact` (fixed_sinh_cosh.h) | 1.3, includes exp_kernel.h | S_3..S_13 (sinh odd kernel) from exp_kernel.out; cut-offs 2344, 4096, saturation 2180453 | 2^-39.09 (exp path) / 2^-97.91 (odd kernel) vs 2^-32.75 / 2^-20.58 |
 | fixed-tanh-exact | `fixTanhExact` (fixed_tanh.h) | 1.4, includes exp_kernel.h | H_3..H_19 (small-\|x\| kernel) from exp_kernel.out; cut-offs 1860, 4096, 408835 | 2^-86.67 (exp path) / 2^-101.09 (kernel) vs 2^-20.28 |
-| fixed-log-exact | `fixLnExact`, `fixLog10Exact`, `fixLog2Exact` (fixed_log.h) | 2.1-2.3 | INV_i, L_i (128), LN2_128, LOG2E_127, LOG10E_128; C_2..C_10 | ln 2^-85.04, log2 2^-84.5, log10 2^-86.2; margins 2^-21.44 / 2^-20.50 / 2^-26.00 and BaCSeL k <= 84 |
+| fixed-log-exact | `fixLnExact`, `fixLog10Exact`, `fixLog2Exact` (fixed_log.h) | 2.1-2.3 | INV_i, L_i (128), LN2_128, LOG2E_127, LOG10E_128; C_2..C_10 | ln 2^-85.039, log2 2^-84.5, log10 2^-86.2; margins 2^-21.44 / 2^-20.50 / 2^-26.00 and BaCSeL k <= 84 |
 | fixed-tan-exact | `fixTanExact` (fixed_tan.h) | 3.1-3.4 | W0..W3, PIO2_127, TAN_j (102); C_3..C_13 | 2^-61 (pole) / 2^-91.6 vs 2^-22.24 and k <= 60 |
 
 Each card's own `sollya/<fn>.sollya` is its kernel script: for exp, log and tan it can be the

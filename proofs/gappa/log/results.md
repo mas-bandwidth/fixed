@@ -1,8 +1,8 @@
 # Results
 
-Run: `make -C proofs/gappa/log` (Gappa 1.6.0, `gappa kernel.g`, on amd-1).
-Exit 0, all goals proved, including the budget goals `log2_raw <= 2^-84.5`,
-`log10_raw <= 2^-86.2` and `ln_full_raw <= 2^-85`. Gappa's own output (the
+Run: `make -C proofs/gappa/log` (Gappa 1.6.0, `gappa kernel.g`, on amd-2).
+Exit 0, all goals proved, including the budget goals `ln_full_raw <= 2^-85.039`,
+`log2_raw <= 2^-84.5`, `log10_raw <= 2^-86.2` and `ln_full_raw <= 2^-85`. Gappa's own output (the
 `in ?` goals):
 
     Results:
@@ -33,36 +33,24 @@ Budgets are from `docs/design/transcendentals.md` 2.1-2.3.
 
 | function | proved bound (raw) | design budget (raw) | verdict |
 | --- | ---: | ---: | --- |
-| fixLnExact | 2.51484e-26 | 2^-85.04 = 2.51425411001007e-26 | **ABOVE budget** (below 2^-85) |
+| fixLnExact | 2.51486e-26 (with table and shift terms) | 2^-85.039 = 2.51599746228771e-26 | within budget (Gappa goal; also below 2^-85) |
 | fixLog2Exact | 3.62816e-26 | 2^-84.5 = 3.65565637751430e-26 | within budget (Gappa goal) |
 | fixLog10Exact | 1.09221e-26 | 2^-86.2 = 1.12516023157136e-26 | within budget (Gappa goal) |
 
-## Finding: the ln budget is 0.023% below the certified kernel supnorm
+## Finding (resolved): the ln budget was rounded below the certified supnorm
 
-The ln total is `2.51484e-26` raw against the stated budget
-`2.514254e-26` raw, a factor `1.0002315`, i.e. `5.82e-30` raw above it.
-The excess is not arithmetic: the Gappa-proved kernel evaluation error is only
-`7.35e-39` (`4.8e-34` raw). It is the budget itself. The design writes the
-kernel line as `2^-101.04`, but Sollya's certified supnorm interval upper
-endpoint is `2^-101.03966522216796875`, and
+The design first wrote the ln kernel line as `2^-101.04`, but Sollya's
+certified supnorm interval upper endpoint is `2^-101.03966522216796875`, and
 
-    2^-101.04 = 3.8364473114e-31 < 3.8373354791e-31 = h.
+    2^-101.04 = 3.8364473114e-31 < 3.8373354791e-31 = h,
 
-The design's two-decimal rounding of the exponent makes the budget smaller
-than the certified approximation error it is meant to cover, so no proof can
-put the ln total at or below `2^-85.04`.
+so the old ln budget `2^-85.04` raw was 0.023% below the certified
+approximation error it must cover, and no proof could meet it. The kernel
+evaluation error itself is only `7.35e-39` (`4.8e-34` raw).
 
-The proved ln total, with its table and shift terms (`ln_full_raw`), is
-still below `2^-85 = 2.5849394e-26` raw (a Gappa goal), which is the
-condition the design's BaCSeL hard-case argument actually uses (`eps < 2^-k`
-for every integer `k <= 85`). So correct rounding is not at risk; the
-`2^-85.04` line, and the very fine margin it advertises, is.
-
-This is a finding against the design budget, so the card's DONE-WHEN (`no
-larger than its design budget` for every function) is not established for
-fixLnExact. No library code was changed.
-
-What would close it (outside this card, which adds only proof files): the
-design's ln kernel line and budget restated from the certified supnorm,
-`2^-101.039` and `2^-85.039` raw (both rounded up; still below `2^-85`), or a ln budget
-written as `< 2^-85`. The proved ln total then meets it with no proof change.
+The design now rounds the endpoint up: kernel line `2^-101.039`, ln budget
+`2^-85.039` raw (coordinator decision, 2026-10-18). The proved ln total, with
+its table and shift terms (`ln_full_raw`, 2^-85.0397), meets it as a Gappa
+goal, and is also proved below `2^-85 = 2.5849394e-26` raw, the condition
+the design's BaCSeL hard-case argument uses (`eps < 2^-k` for every integer
+`k <= 85`). No library code was changed.

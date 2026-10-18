@@ -58,7 +58,7 @@
 #   log10  : ((|E| + h + 2^-118) * log10(e) + 33*2^-129 + 2^-120) * 2^16
 #            (2^-118 covers the ln sum's table and shift truncations)
 #
-# The design budgets are 2^-85.04, 2^-84.5 and 2^-86.2 raw respectively;
+# The design budgets are 2^-85.039, 2^-84.5 and 2^-86.2 raw respectively;
 # results.md compares each proved bound with its budget.
 
 {
@@ -133,11 +133,12 @@
   /\ log2_raw in ?
   /\ log10_raw in ?
   /\ ln_full_raw in ?
-  # Budget goals: log2 2^-84.5, log10 2^-86.2 (decimals rounded down, so the
-  # goals are no weaker than the budgets). ln cannot meet 2^-85.04 (results.md);
-  # its goal is 2^-85, the bound the hard-case argument uses.
+  # Budget goals: ln 2^-85.039, log2 2^-84.5, log10 2^-86.2 (decimals rounded
+  # down, so the goals are no weaker than the budgets); ln also keeps 2^-85,
+  # the bound the hard-case argument uses.
   /\ |E| <= 7.35e-39
   /\ log2_raw <= 3.6556563775e-26
   /\ log10_raw <= 1.1251602315e-26
+  /\ ln_full_raw <= 2.5159974622e-26
   /\ ln_full_raw <= 1b-85
 }

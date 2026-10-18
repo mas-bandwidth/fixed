@@ -14,10 +14,16 @@ All seven files cover their complete Q48.16 binade range (`-16 .. 46` for `ln`,
 `log2`, `log10`, `rsqrt`; `16 .. 46` for `sin_big`, `cos_big`, `tan_big`) with
 at least `min(8, 2^(e+16))` cases per binade and at most 256 cases per binade.
 
-The data was produced by BaCSeL (GPL-2), run as a separate tool.  None of its
-source or object code is in this repository and nothing links against it; these
-files are plain data.  `tools/bacsel/check_hard.c` is our MPFR checker, not
-BaCSeL code.
+These are **windowed searches, not exhaustive sweeps**.  Every binade is
+searched with 4 windows of `2^16` consecutive raws starting at the binade's
+`0`, `1/4`, `1/2` and `3/4` points, one BaCSeL search per window (the `sin_big`
+list uses the BaCSeL `-DSINBIG -Q` build; `cos_big`/`tan_big` use the ordinary
+`COS`/`TAN` builds over the same windows).
+
+The data was produced by BaCSeL (GPL-2), run as a separate tool; it also uses
+FPLLL 5.5.0 (LGPL-2.1+).  None of their source or object code is in this
+repository and nothing links against them; these files are plain data.
+`tools/bacsel/check_hard.c` is our MPFR checker, not BaCSeL code.
 
 Regenerate with `bash tools/bacsel/run.sh` or verify the committed lists with
 `bash tools/bacsel/run.sh --check-only`; see `tools/bacsel/NOTES.md` for details.

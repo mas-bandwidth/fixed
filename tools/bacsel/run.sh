@@ -7,7 +7,9 @@
 #
 # All seven lists cover their full Q48.16 binade range with at least 8 cases
 # per binade (or all 2^(e+16) inputs when e < -13) and at most 256 cases per
-# binade:
+# binade.  Every binade is searched with W = 4 windows of 2^16 consecutive raws
+# starting at the binade's 0, 1/4, 1/2 and 3/4 points, one BaCSeL search per
+# window; the per-binade wall-clock time is recorded in tools/bacsel/NOTES.md.
 #   - ln, log2, log10, rsqrt : e = -16 .. 46  (BaCSeL sha e372414)
 #   - cos_big, tan_big       : e =  16 .. 46  (BaCSeL sha e372414)
 #   - sin_big                : e =  16 .. 46  (BaCSeL sha e17f67c, -DSINBIG -Q 2470649)
@@ -71,7 +73,7 @@ export FPLLL_INC="$INC"
 export FPLLL_LIB="$LIB"
 
 python3 - "$BAC" "$CH" "$ROOT" "$SHA_MAIN" "$SHA_SINBIG" <<'PY'
-import os, subprocess, sys, datetime
+import os, subprocess, sys, datetime, time
 
 bac, ch, root, sha_main, sha_sinbig = sys.argv[1:6]
 outdir = os.path.join(root, "test/data/hardcases")
@@ -103,10 +105,6 @@ def build(fn, extra=""):
     d, _ = builds[fn]
     build_defs(d + " " + extra + " -DBASIS=2 -DVBSE -DAUTOMATIC -DMONOTONOUS")
 
-def get_window(fn, e, log2w=12):
-    out = subprocess.check_output([ch, "--window", fn, str(e), str(log2w)], text=True).split()
-    return int(out[0]), int(out[1]), int(out[2])
-
 def run_common(fn, e, k, nn, t, t0, t1, d_deg, alpha, extra):
     n = e + 17
     nn_pos = max(2, nn)
@@ -133,39 +131,83 @@ def run_common(fn, e, k, nn, t, t0, t1, d_deg, alpha, extra):
                 rows.append((raw, int(a[1]), float(a[2])))
     return rows
 
-def run_mono(fn, e, k):
-    t0, t1, ex = get_window(fn, e, 12)
-    nn = ex + 16
-    span = t1 - t0
-    if e <= -4 or span < 4096 or k <= 3:
-        # Small binade or coarse k fallback: use BaCSeL naive_search (-d 0 -t 1)
-        if span > 4096:
-            t1 = t0 + 4096
-        return run_common(fn, e, k, nn, 1, t0, t1, 0, 1, [])
-    return run_common(fn, e, k, nn, 12, t0, t1, 2, 2, [])
+def four_windows(e):
+    base = 1 << (e + 16)
+    top = 1 << (e + 17)
+    q = (top - base) // 4
+    wins = []
+    for s in (0, q, 2 * q, 3 * q):
+        t0 = base + s
+        t1 = min(base + s + (1 << 16), top)
+        if t1 > t0:
+            wins.append((t0, t1))
+    return wins
 
-def run_window(fn, e, k):
-    t0 = 1 << (e + 16)
-    t1 = t0 + (1 << 16)
-    nn = 16
-    if k <= 3:
-        return run_common(fn, e, k, nn, 1, t0, t0 + 4096, 0, 1, [])
-    return run_common(fn, e, k, nn, 7, t0, t1, 2, 2, [])
+def windows_starts(e):
+    base = 1 << (e + 16)
+    q = ((1 << (e + 17)) - base) // 4
+    return [base + s for s in (0, q, 2 * q, 3 * q)]
+
+def get_out_exp(fn, raw):
+    out = subprocess.check_output([ch, "--getexp", fn, str(raw)], text=True).split()
+    return int(out[0]) if out else 0
+
+def run_mono(fn, e, k):
+    wins = four_windows(e)
+    nn = get_out_exp(fn, wins[0][0]) + 16
+    rows = []
+    seen = set()
+    for (t0, t1) in wins:
+        span = t1 - t0
+        if e <= -4 or span < 4096 or k <= 3:
+            r = run_common(fn, e, k, nn, 1, t0, min(t1, t0 + 4096), 0, 1, [])
+        else:
+            r = run_common(fn, e, k, nn, 12, t0, t1, 2, 2, [])
+        if r is None:
+            return None
+        for row in r:
+            if row[0] not in seen:
+                seen.add(row[0]); rows.append(row)
+    return rows
+
+def run_trig(fn, e, k):
+    rows = []
+    seen = set()
+    for (t0, t1) in four_windows(e):
+        if k <= 3:
+            r = run_common(fn, e, k, 16, 1, t0, min(t1, t0 + 4096), 0, 1, [])
+        else:
+            r = run_common(fn, e, k, 16, 7, t0, t1, 2, 2, [])
+        if r is None:
+            return None
+        for row in r:
+            if row[0] not in seen:
+                seen.add(row[0]); rows.append(row)
+    return rows
 
 def run_sinbig(fn, e, k):
     Q = 2470649
-    t0 = 1 << (e + 16)
-    t1 = min(1 << (e + 17), t0 + Q * 256)
-    nn = 16
-    return run_common(fn, e, k, nn, 4, t0, t1, 1, 1,
-                      ["-Q", str(Q), "-nbr", "32"])
+    rows = []
+    seen = set()
+    for (t0, t1) in four_windows(e):
+        t1w = min(t1, t0 + Q * 256)
+        r = run_common(fn, e, k, 16, 4, t0, t1w, 1, 1,
+                       ["-Q", str(Q), "-nbr", "32"])
+        if r is None:
+            return None
+        for row in r:
+            if row[0] not in seen:
+                seen.add(row[0]); rows.append(row)
+    return rows
 
 def collect(fn, run, es, kinit):
     rows = []
     meta = []
+    timings = []
     for e in es:
         min_req = (1 << (e + 16)) if (e + 16 < 3) else 8
         k = max(1, kinit(e))
+        t_start = time.monotonic()
         r = None
         while True:
             r = run(fn, e, k)
@@ -174,6 +216,7 @@ def collect(fn, run, es, kinit):
             if k <= 1:
                 break
             k -= 1
+        elapsed = time.monotonic() - t_start
         if not r or len(r) < min_req:
             raise RuntimeError(f"failed to collect >= {min_req} cases for {fn} e={e}")
         if len(r) > 256:
@@ -181,9 +224,10 @@ def collect(fn, run, es, kinit):
         r.sort()
         rows += r
         meta.append((e, k))
-    return rows, meta
+        timings.append((e, elapsed))
+    return rows, meta, timings
 
-def write_list(fn, sha, rows, meta, header_line, kline):
+def write_list(fn, sha, rows, meta, header_line, kline, timings):
     name = fn + ("_big" if fn in ("sin", "cos", "tan") else "")
     with open(os.path.join(outdir, name + ".txt"), "w") as f:
         f.write("# BaCSeL sha: %s\n" % sha)
@@ -193,41 +237,71 @@ def write_list(fn, sha, rows, meta, header_line, kline):
         f.write("# date: %s\n" % datetime.date.today().isoformat())
         for raw, e, d in rows:
             f.write("%d %d %.17g\n" % (raw, e, d))
-    print(f"{name}: {len(rows)} cases across {len(meta)} binades ({meta[0][0]}..{meta[-1][0]})")
+    timing_line = "; ".join("e=%d:%.1fs" % t for t in timings)
+    print(f"{name}: {len(rows)} cases across {len(meta)} binades "
+          f"({meta[0][0]}..{meta[-1][0]}); per-binade s: {timing_line}")
+    return name, timing_line
 
 MONO_ES = range(-16, 47)
 TRIG_ES = range(16, 47)
+
+all_timings = {}
 
 # 1. Monotonic functions (ln, log2, log10, rsqrt) over e = -16 .. 46
 checkout(sha_main)
 for fn in ("ln", "log2", "log10", "rsqrt"):
     build(fn)
-    rows, meta = collect(fn, run_mono, MONO_ES, lambda e: min(16, max(1, e + 11)))
+    rows, meta, timings = collect(fn, run_mono, MONO_ES, lambda e: min(16, max(1, e + 11)))
     h = ("./bacsel -rnd_mode nearest -prec max(160,2*(n+|nn|)+64) -n max(2,e+17) "
          "-nn (eo+16) -m k -t 12 -t0 <win_t0> -t1 <win_t1> -d 2 -alpha 2 "
-         "-e_in e+1 -nthreads 3 -q (e = -16..46; -d 0 -t 1 on e <= -4)")
-    write_list(fn, sha_main, rows, meta, h,
-               "k = min(16, max(1, e + 11)) (lowered per binade to reach >= min(8, 2^(e+16)) cases)")
+         "-e_in e+1 -nthreads 3 -q (e = -16..46; 4 windows of 2^16 raws per binade "
+         "at the binade's 0, 1/4, 1/2 and 3/4 points; -d 0 -t 1 on e <= -4)")
+    name, tl = write_list(fn, sha_main, rows, meta, h,
+                          "k per binade as listed (lowered to reach >= min(8, 2^(e+16)) cases); "
+                          "4 windows of 2^16 consecutive raws per binade starting at the binade's "
+                          "0, 1/4, 1/2 and 3/4 points", timings)
+    all_timings[name] = tl
 
 # 2. cos_big and tan_big over e = 16 .. 46
 for fn in ("cos", "tan"):
     build(fn)
-    rows, meta = collect(fn, run_window, TRIG_ES, lambda e: 10)
+    rows, meta, timings = collect(fn, run_trig, TRIG_ES, lambda e: 10)
     h = ("./bacsel -rnd_mode nearest -prec max(160,2*(n+16)+64) -n e+17 -nn 16 "
-         "-m k -t 7 -t0 2^(e+16) -t1 2^(e+16)+2^16 -d 2 -alpha 2 "
-         "-e_in e+1 -nthreads 3 -q (e = 16..46; first 2^16 raws of each binade)")
-    write_list(fn, sha_main, rows, meta, h,
-               "k = 10 (lowered per binade to reach >= 8 cases); first 2^16 raw inputs of each binade")
+         "-m k -t 7 -t0 <win_t0> -t1 <win_t1> -d 2 -alpha 2 "
+         "-e_in e+1 -nthreads 3 -q (e = 16..46; 4 windows of 2^16 raws per binade "
+         "at the binade's 0, 1/4, 1/2 and 3/4 points)")
+    name, tl = write_list(fn, sha_main, rows, meta, h,
+                          "k = 10 (lowered per binade to reach >= 8 cases); "
+                          "4 windows of 2^16 raws per binade at 0, 1/4, 1/2, 3/4", timings)
+    all_timings[name] = tl
 
 # 3. sin_big over e = 16 .. 46 via SINBIG (pinned sha e17f67c, Q = 2470649)
 checkout(sha_sinbig)
 build_defs("-DSINBIG -DBASIS=2 -DAUTOMATIC -DMONOTONOUS")
-rows, meta = collect("sin", run_sinbig, TRIG_ES, lambda e: 10)
+rows, meta, timings = collect("sin", run_sinbig, TRIG_ES, lambda e: 10)
 h = ("./bacsel -rnd_mode nearest -prec max(160,2*(n+16)+64) -n e+17 -nn 16 "
-     "-m k -t 4 -Q 2470649 -nbr 32 -t0 2^(e+16) -t1 min(2^(e+17),2^(e+16)+2470649*256) "
-     "-d 1 -alpha 1 -e_in e+1 -nthreads 3 -q (SINBIG build; e = 16..46)")
-write_list("sin", sha_sinbig, rows, meta, h,
-           "k = 10 (lowered per binade to reach >= 8 cases); SINBIG -Q 2470649 -nbr 32")
+     "-m k -t 4 -Q 2470649 -nbr 32 -t0 <win_t0> -t1 <win_t1> "
+     "-d 1 -alpha 1 -e_in e+1 -nthreads 3 -q (SINBIG build; e = 16..46; "
+     "4 windows of 2^16 raws per binade at the binade's 0, 1/4, 1/2 and 3/4 points)")
+name, tl = write_list("sin", sha_sinbig, rows, meta, h,
+                      "k = 10 (lowered per binade to reach >= 8 cases); SINBIG -Q 2470649 -nbr 32; "
+                      "4 windows of 2^16 raws per binade at 0, 1/4, 1/2, 3/4", timings)
+all_timings[name] = tl
+
+notes = os.path.join(root, "tools/bacsel/NOTES.md")
+with open(notes, "r") as f:
+    txt = f.read()
+marker = "## Per-binade timings"
+insert = marker + "\n\nRecorded by `tools/bacsel/run.sh`. Wall-clock seconds per binade (nice'd,\nper function):\n\n"
+for name, tl in all_timings.items():
+    insert += f"* `{name}`: {tl}\n"
+if marker in txt:
+    i = txt.index(marker)
+    txt = txt[:i] + insert.rstrip() + "\n"
+else:
+    txt = txt.rstrip() + "\n\n" + insert.rstrip() + "\n"
+with open(notes, "w") as f:
+    f.write(txt)
 PY
 
 check_all

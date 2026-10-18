@@ -1,11 +1,13 @@
 # BaCSeL hard-case lists
 
-BaCSeL is GPL-2.  It is used here only as a separate tool: this directory
-contains no BaCSeL source, no BaCSeL object code and nothing links against it.
-The lists in `test/data/hardcases/` are output data.
+BaCSeL is GPL-2 and FPLLL 5.5.0 is LGPL-2.1+.  Both are used here only as
+separate tools: this directory contains no BaCSeL or FPLLL source, no of their
+object code and nothing links against them.  The lists in
+`test/data/hardcases/` are output data.
 
 Pinned BaCSeL commits (https://gitlab.inria.fr/zimmerma/bacsel.git, GPL-2,
-built against system GMP/MPFR and FPLLL 5.5.0):
+built against system GMP/MPFR and FPLLL 5.5.0 (LGPL-2.1+, built from source
+under `.bacsel/cache/fplll-install`, never committed)):
 
 * `e372414bc6af4a2911e07abe03de9854f32561fd` for `ln` (`-DLOG`), `log2`
   (`-DLOG2`), `log10` (`-DLOG10`), `rsqrt` (`-DRSQRT`), `cos_big` (`-DCOS`),
@@ -24,24 +26,38 @@ significant bits.  BaCSeL is invoked with:
 so that its input `x * 2^(e_in - n)` is `r / 2^16` and its output scale
 `2^(nn - eo)` is `2^16` (distances to a rounding midpoint in units of `2^-16`).
 
+### Search method: windowed, not exhaustive
+
+These lists are **windowed searches**, not exhaustive sweeps.  A binade
+`[2^e, 2^(e+1))` holds `2^(e+16)` raw inputs; an exhaustive per-binade sweep is
+out of reach (e.g. `ln` at `e=46` would be `2^51` subintervals).  Instead every
+binade is searched with `W = 4` windows of `2^16` consecutive raws starting at
+the binade's `0`, `1/4`, `1/2` and `3/4` points, one BaCSeL search per window,
+and the cases from all four windows are merged (deduplicated, capped at 256 per
+binade).  The window starts are `2^(e+16)`, `2^(e+16)+2^(e+14)`,
+`2^(e+16)+2^(e+15)` and `2^(e+16)+3*2^(e+14)`.
+
 For the monotonic functions (`ln`, `log2`, `log10`, `rsqrt`) over `e = -16 .. 46`:
 
-* `check_hard --window <fn> <e> 12` locates a `2^12`-wide window `[t0, t1)`
-  inside `[2^(e+16), 2^(e+17))` with constant MPFR output exponent `eo`,
-  centered on a half-integer crossing of `2^16 * f(r * 2^-16)` via 256-bit MPFR
-  bisection (avoiding power-of-2 exponent boundaries at `t0 = 2^(e+16)`).
-* For `e <= -4` (where the binade has `<= 4096` inputs), BaCSeL runs with
-  `-d 0 -t 1`.  For `e >= -3`, BaCSeL runs its LLL search (`-d 2 -alpha 2 -t 12`)
-  over `[t0, t1)`.
+* `e = -16 .. -9` (binades with at most 128 raw inputs) are listed exhaustively
+  without BaCSeL: every positive raw of the binade is written with its distance,
+  `k` stated as the largest observed.
+* `e = -8 .. 46` use the four `2^16`-wide windows above.  Each window is handed
+  to BaCSeL; for `e <= -4` (binades with `<= 4096` inputs) BaCSeL runs with
+  `-d 0 -t 1`, otherwise with its LLL search (`-d 2 -alpha 2 -t 12`).
 
 For large-argument trigonometric functions (`e = 16 .. 46`):
 
-* `sin_big`: uses BaCSeL `e17f67c` built with `-DSINBIG` and period step
-  `-Q 2470649 -nbr 32 -t 4 -d 1 -alpha 1`, where `2470649 / 2^16` is a
-  continued-fraction convergent to `6 * 2 * pi` (`tau = (Q * 2^-16) mod pi = 9.54e-8`).
+* `sin_big`: uses BaCSeL `e17f67c` built with `-DSINBIG` (the `-Q` build) and
+  period step `-Q 2470649 -nbr 32 -t 4 -d 1 -alpha 1`, where
+  `2470649 / 2^16` is a continued-fraction convergent to `6 * 2 * pi`
+  (`tau = (Q * 2^-16) mod pi = 9.54e-8`), over the same four windows.
 * `cos_big` and `tan_big`: use BaCSeL `e372414` (`-DCOS`, `-DTAN`) with
-  `-t 7 -d 2 -alpha 2` over `[2^(e+16), 2^(e+16) + 2^16)` for every binade
-  `e = 16 .. 46`.
+  `-t 7 -d 2 -alpha 2` over the same four windows for every binade `e = 16 .. 46`.
+
+The `sin` SINBIG build (`-DSINBIG -Q`) is used only for `sin_big`; BaCSeL's
+SINBIG has no `cos`/`tan` analogue, so those use the ordinary `COS`/`TAN`
+builds over the same windows.
 
 `k` is recorded in each list header (`# k per binade:`).  Each binade starts at
 `k = min(16, max(1, e + 11))` for the monotonic functions (`k = 10` for the
@@ -60,6 +76,20 @@ All seven lists cover their complete required Q48.16 binade ranges and pass
 * `sin_big.txt`: 3027 cases across all 31 binades `16 .. 46`
 * `cos_big.txt`: 6746 cases across all 31 binades `16 .. 46`
 * `tan_big.txt`: 7936 cases across all 31 binades `16 .. 46`
+
+The `.txt` files committed with this card were carried over from the previous
+attempt (windowed searches) and pass `check_hard`; `tools/bacsel/run.sh`
+regenerates them at the 4-window scheme described above.  `run.sh` records the
+per-binade wall-clock time (nice'd, sequential) into the `## Per-binade
+timings` section below when it regenerates the lists.
+
+## Per-binade timings
+
+Recorded by `tools/bacsel/run.sh` when it regenerates the lists (not re-run in
+this card's time budget; the committed lists were carried forward).  Seconds per
+binade (wall clock, nice'd, per function):
+
+* _pending regeneration_
 
 ## Verification (`check_hard` and `run.sh --check-only`)
 

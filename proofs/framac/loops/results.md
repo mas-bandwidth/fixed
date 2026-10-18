@@ -7,29 +7,28 @@ No library header is edited: `wrappers_acsl.c` copies the two functions and the 
 chain with only the annotations added, and `loops_acsl.acsl` is imported with
 `-acsl-import`.
 
-## Attempt status: not run, toolchain unavailable in this job
+## Attempt status: not run, toolchain unavailable in this job (attempt 2)
 
 The base state was re-read from the landed card (head 5e35893):
 `make -C proofs/framac sqrt` was 49 / 107 (52 assigns and 6 terminates open) and
 `make -C proofs/framac primitives` left proveInt128Div at 22 / 27 (shift_2 and
 mem_access_5..8 open).
 
-In this job `command -v frama-c` prints `/home/glenn/sdk/bin/frama-c`, but every run of
-it, `alt-ergo` and `why3` ends at the exec with
-
-    /usr/bin/bash: line 1: /home/glenn/sdk/bin/frama-c: Permission denied
-
-Those three names are symlinks into `/home/glenn/.opam/default/bin`, a directory this
-job's sandbox denies reading and executing (the same `Permission denied` on
-`open()`/`execve()`, while `stat()` succeeds; `chmod 755` changed nothing). No Frama-C
-process was started, so no goal was proved or disproved in this attempt and no log
-exists. `make -C proofs/framac/loops sqrt` and `... prims` were not runnable here.
+This attempt runs on the studio machine (`uname -s` = Darwin), not the Linux bench the
+toolchain names. `command -v frama-c`, `alt-ergo` and `why3` all print nothing with and
+without `$HOME/sdk/bin` on PATH, and no Frama-C binary was reachable from this job. No
+Frama-C process could be started, so no goal was proved or disproved in this attempt and
+no log exists. `make -C proofs/framac/loops sqrt` and `... prims` are for the nightly
+Linux bench only and were not runnable here.
 
 What is done: the annotations, the Makefile with `sqrt`, `prims` and `nightly`, and the
-imported ACSL file are committed. The copied bodies were checked against the originals
-with gcc (`-DFIX_FORCE_EMULATED_INT128`, 2,000,000 random pairs per function, plus the
-128-bit endpoint) and returned bit-identical results; that is a differential test, not a
-proof, and none of the counts below come from it.
+imported ACSL file are committed. The loop annotations were re-checked by hand in this
+attempt against the source loops (`include/fixed/fixed.h:301, 302, 326, 330, 342, 347`
+and `include/fixed/fixed_int128.h:417`) and state only what the code documents. The
+copied bodies were checked against the originals with gcc
+(`-DFIX_FORCE_EMULATED_INT128`, 2,000,000 random pairs per function, plus the 128-bit
+endpoint) and returned bit-identical results; that is a differential test, not a proof,
+and none of the counts below come from it.
 
 ## The annotations
 

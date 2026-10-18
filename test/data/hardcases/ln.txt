@@ -1,5 +1,5 @@
 # BaCSeL sha: e372414bc6af4a2911e07abe03de9854f32561fd
-# command: see tools/bacsel/run.sh for the exact per-binade command
+# command: ./bacsel -rnd_mode nearest -prec max(160,2*(n+|nn|)) -n e+17 -nn (eo+16) -m k -t 12 -t0 2^(e+16) -t1 2^(e+17) -d 2 -alpha 2 -e_in e+1 -nthreads 3 -q (e = input binade; k = e+11, lowered per binade to reach >= 8 cases)
 # k = e + 11 (lowered per binade when a binade yielded fewer than 8)
 # k per binade: -10:1 -9:2 -8:3 -7:4 -6:2 -5:6 -4:7 -3:5 -2:9 -1:10 0:11 1:12 2:13 3:14 4:15 5:16 6:17 7:18 8:19 9:20 10:21 11:22 12:23 13:24 14:25 15:26 16:27 17:28 18:29 19:30 20:31
 # date: 2026-10-18

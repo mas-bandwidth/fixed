@@ -143,7 +143,7 @@ do_check (const char *fn, const char *path)
           bad++;
           continue;
         }
-      if (raw == 0 || raw >= (1ULL << 47))
+      if (raw == 0 || raw >= (1ULL << 63))
         {
           fprintf (stderr, "check_hard: %s: raw %llu is not a Q48.16 raw\n",
                    path, raw);
@@ -151,6 +151,25 @@ do_check (const char *fn, const char *path)
           continue;
         }
       k = k_for (kbase, e);
+      {
+        unsigned long long lo = 1ULL << (e + 16);
+        unsigned long long hi = 1ULL << (e + 17);
+        if (e + 16 < 0 || e + 17 > 63)
+          {
+            fprintf (stderr, "check_hard: %s: raw %llu e %ld out of range\n",
+                     path, raw, e);
+            bad++;
+            continue;
+          }
+        if (raw < lo || raw >= hi)
+          {
+            fprintf (stderr,
+                     "check_hard: %s: raw %llu e %ld: raw not in [2^(e+16), 2^(e+17)): [%llu, %llu)\n",
+                     path, raw, e, lo, hi);
+            bad++;
+            continue;
+          }
+      }
       mpfr_inits2 (PREC, d, bound, c, (mpfr_ptr) 0);
       distance_units (d, fn, raw);
       mpfr_set_ui (bound, 1, MPFR_RNDN);
@@ -164,16 +183,21 @@ do_check (const char *fn, const char *path)
         }
       else
         {
+          mpfr_t tol;
+          mpfr_init2 (tol, PREC);
           mpfr_set_d (c, claimed, MPFR_RNDN);
           mpfr_sub (c, c, d, MPFR_RNDN);
           mpfr_abs (c, c, MPFR_RNDN);
-          if (mpfr_cmp_d (c, 1e-9) > 0)
+          mpfr_mul_d (tol, d, 1e-9, MPFR_RNDN);
+          mpfr_add_d (tol, tol, 1e-15, MPFR_RNDN);
+          if (mpfr_cmp (c, tol) > 0)
             {
               mpfr_printf ("check_hard: %s: raw %llu claimed distance differs: "
                            "claimed %.17g recomputed %Re\n", path, raw,
                            claimed, d);
               bad++;
             }
+          mpfr_clear (tol);
         }
       mpfr_clears (d, bound, c, (mpfr_ptr) 0);
       n++;
@@ -216,7 +240,7 @@ do_convert (const char *fn, long e, long k)
       mpfr_mul_2ui (rawf, x, 16, MPFR_RNDN);
       if (!mpfr_integer_p (rawf)) continue;
       mpfr_get_z (z, rawf, MPFR_RNDN);
-      if (mpz_sgn (z) <= 0 || mpz_sizeinbase (z, 2) > 47) continue;
+      if (mpz_sgn (z) <= 0 || mpz_sizeinbase (z, 2) > 63) continue;
       raw = mpz_get_ui (z);
       distance_units (d, fn, raw);
       if (mpfr_cmp (d, bound) <= 0)

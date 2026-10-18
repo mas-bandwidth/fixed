@@ -1,5 +1,5 @@
 # BaCSeL sha: e372414bc6af4a2911e07abe03de9854f32561fd
-# command: see tools/bacsel/run.sh for the exact per-binade command
+# command: ./bacsel -rnd_mode nearest -prec max(160,2*(n+16)) -n e+17 -nn 16 -m k -t 7 -t0 2^(e+16) -t1 2^(e+16)+2^16 -d 2 -alpha 2 -e_in e+1 -nthreads 3 -q (e = input binade, 16..20; k = 10; the first 2^16 raws of each binade)
 # k = 10; searched the first 2^16 raw inputs of each binade
 # date: 2026-10-18
 4294967539 16 0.00034104816254318078

@@ -180,6 +180,50 @@ fixCosSin fixComputeCosSinExact( fixed_t radians )
 	return out;
 }
 
+/* Exact fixed-point reduction and the existing Q32.32 polynomial, evaluated at radians/2
+   without rounding that half angle to Q48.16. The Q2.62 pair is returned before final rounding. */
+fixCosSinWide fixComputeCosSinHalfExactWide( fixed_t radians )
+{
+	uint64_t m = radians < 0 ? -(uint64_t)radians : (uint64_t)radians;
+	fixUInt128 t = fixUInt128Add( fixUInt128MulU64( m, FIX_TWO_OVER_PI_HI ),
+								  fixUInt128Shr( fixUInt128MulU64( m, FIX_TWO_OVER_PI_LO ), 64 ) );
+	/* The exact reducer stores quarter turns with 64 fractional bits; halving t preserves
+	   radians/2 instead of quantizing it to a Q48.16 raw first. */
+	t = fixUInt128Shr( t, 1 );
+	uint64_t whole = fixUInt128Hi( t ), fraction = fixUInt128Lo( t );
+	int quadrant = (int)( ( whole + ( fraction >> 63 ) ) & 3 );
+	int64_t f = fraction >= ( UINT64_C( 1 ) << 63 ) ? -(int64_t)( ~fraction ) - 1 : (int64_t)fraction;
+	int64_t r62 = fixInt128ToI64( fixInt128Shr( fixInt128MulI64( f, FIX_Q62_HALF_PI ), 64 ) );
+	int64_t r = ( r62 + ( (int64_t)1 << 29 ) ) >> 30;
+	int64_t r2 = fixQ32Mul( r, r );
+	int64_t s = 108;
+	s = 11836 - fixQ32Mul( r2, s );
+	s = 852176 - fixQ32Mul( r2, s );
+	s = 35791394 - fixQ32Mul( r2, s );
+	s = 715827883 - fixQ32Mul( r2, s );
+	s = ( (int64_t)1 << 32 ) - fixQ32Mul( r2, s );
+	s = fixQ32Mul( r, s );
+	int64_t c = 9;
+	c = 1184 - fixQ32Mul( r2, c );
+	c = 106522 - fixQ32Mul( r2, c );
+	c = 5965232 - fixQ32Mul( r2, c );
+	c = 178956971 - fixQ32Mul( r2, c );
+	c = 2147483648LL - fixQ32Mul( r2, c );
+	c = ( (int64_t)1 << 32 ) - fixQ32Mul( r2, c );
+	int64_t sQ62 = s * ( INT64_C( 1 ) << 30 );
+	int64_t cQ62 = c * ( INT64_C( 1 ) << 30 );
+	fixCosSinWide out;
+	switch ( quadrant )
+	{
+		case 0: out.cosineQ62 = cQ62; out.sineQ62 = sQ62; break;
+		case 1: out.cosineQ62 = -sQ62; out.sineQ62 = cQ62; break;
+		case 2: out.cosineQ62 = -cQ62; out.sineQ62 = -sQ62; break;
+		default: out.cosineQ62 = sQ62; out.sineQ62 = -cQ62; break;
+	}
+	if ( radians < 0 ) out.sineQ62 = -out.sineQ62;
+	return out;
+}
+
 fixed_t fixAtan2( fixed_t y, fixed_t x )
 {
 	// Added check for (0,0) to match atan2f and avoid a zero divide

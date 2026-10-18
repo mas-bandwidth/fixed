@@ -1,7 +1,6 @@
 # Log-family Gappa proof
 
-Tool: Gappa 1.6.0 (`gappa kernel.g`). The proof source is compatible with
-Gappa 1.4.1; the numbers below were produced with 1.6.0 on Linux.
+Tool: Gappa 1.6.0 (`gappa kernel.g`), on Linux. Not run on other versions.
 
 Gappa models the shared `log1p` Horner evaluation from
 `src/exact/log.c` (and the identical kernel in `src/exact/log_kernel.h`) over
@@ -14,13 +13,16 @@ source's shift does for the positive operands here.
 
 ## What is proved
 
-* Given the truncation residues and the Horner error recurrence below, the
-  kernel evaluation error against the stored-coefficient polynomial,
-  `E = comp - p(u) = rho_q*w_2 + rho_v - u^2*d_2`, is bounded:
-  `|E| <= 7.35e-39` (`2^-126.68`).
-* The per-function totals `|E| + h` converted to raw units are bounded by
-  Gappa as tabulated in `results.md`. Gappa prints each enclosure itself
-  (`in ?` goals); the Makefile then prints the design budgets beside them.
+Gappa proves interval bounds on formulas derived by hand (next section); it
+does not check those formulas against the `fixed<>` intermediates.
+
+* The kernel evaluation error against the stored-coefficient polynomial,
+  `E = rho_q*w_2 + rho_v - u^2*d_2`, is bounded: `|E| <= 7.35e-39`
+  (`2^-126.68`).
+* The per-function totals in raw units meet these goals: log2 at most
+  `2^-84.5` and log10 at most `2^-86.2` (their design budgets), and ln with
+  its table and shift terms at most `2^-85`. Gappa prints each enclosure
+  itself (`in ?` goals); `results.md` tabulates them.
 
 ## What is derived by hand (the same method as `proofs/gappa/tan`)
 
@@ -33,21 +35,21 @@ source's shift does for the positive operands here.
 * The local Horner errors `d_k = w_k - H_k` satisfy
   `d_k = -u*d_{k+1} + rho_k`, and `E` follows from `p(u) = u - u^2 H_2`.
 
-## What is a hypothesis
+## What is taken from Sollya
 
-The polynomial-versus-`log1p` error
-`|p(u) - log1p(u)| <= h` with
-`h = 3.837335479148857891302978686748981565437784801207944958327721352762597264308934632253007019224816838110169786977841947941e-31`
-(the upper endpoint of the certified `supnorm` interval in
-`sollya/log_kernel.out`, log2 `-101.03966522216796875`) is **not** re-proved
-here. It is Sollya's certified fpminimax bound, including coefficient
-quantisation.
+The polynomial-versus-`log1p` error `|p(u) - log1p(u)| <= h` is not
+re-proved: `kernel.g` adds `h` as a constant, the upper endpoint of the
+certified `supnorm` interval in `sollya/log_kernel.out`
+(`3.8373354791488578913...e-31`, log2 `-101.03966522216796875`), Sollya's
+fpminimax bound including coefficient quantisation.
 
 The conversions from the kernel's natural-log value to raw units, and the
 `log2(e)`/`log10(e)` rescaling, follow the design
 (`docs/design/transcendentals.md` 2.1-2.3); the constant-rounding terms in
 the log2 and log10 totals are the design's `2^-104` and
-`33*2^-129 + 2^-120` terms.
+`33*2^-129 + 2^-120` terms; log10 also carries the ln sum's table and shift
+truncations (`2^-118`, scaled by `log10(e)`), which the design's 2.3 line
+leaves out.
 
 ## Result
 
@@ -57,6 +59,6 @@ the design writes its kernel line as `2^-101.04`, a two-decimal exponent
 slightly below Sollya's certified supnorm `2^-101.03967`; `results.md` records the finding. The log2 and
 log10 totals are within their budgets.
 
-The ln total here is the kernel only (`|E| + h`), as the design's ln kernel
-line is; the design's table and shift terms (`2^-118.4` together, before the
-`2^16` scale) are not added, and would only widen the ln excess.
+`ln_raw` is the kernel only (`|E| + h`), as the design's ln line is;
+`ln_full_raw` adds the table and shift terms (`2^-118`, before the `2^16`
+scale) and is proved below `2^-85`.

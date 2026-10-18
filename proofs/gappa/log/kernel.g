@@ -55,7 +55,8 @@
 #
 #   ln     : (|E| + h) * 2^16
 #   log2   : (|E| + h) * log2(e) * 2^16 + 2^-104
-#   log10  : ((|E| + h) * log10(e) + 33*2^-129 + 2^-120) * 2^16
+#   log10  : ((|E| + h + 2^-118) * log10(e) + 33*2^-129 + 2^-120) * 2^16
+#            (2^-118 covers the ln sum's table and shift truncations)
 #
 # The design budgets are 2^-85.04, 2^-84.5 and 2^-86.2 raw respectively;
 # results.md compares each proved bound with its budget.
@@ -92,16 +93,16 @@
   /\ comp = u - vv
 
   # Truncation residues of each fixed rounding.
-  /\ rho9 in [0, 5.8774717541114375e-39]
-  /\ rho8 in [0, 5.8774717541114375e-39]
-  /\ rho7 in [0, 5.8774717541114375e-39]
-  /\ rho6 in [0, 5.8774717541114375e-39]
-  /\ rho5 in [0, 5.8774717541114375e-39]
-  /\ rho4 in [0, 5.8774717541114375e-39]
-  /\ rho3 in [0, 5.8774717541114375e-39]
-  /\ rho2 in [0, 5.8774717541114375e-39]
-  /\ rho_q in [0, 2.9387358770557188e-39]
-  /\ rho_v in [0, 5.8774717541114375e-39]
+  /\ rho9 in [0, 1b-127]
+  /\ rho8 in [0, 1b-127]
+  /\ rho7 in [0, 1b-127]
+  /\ rho6 in [0, 1b-127]
+  /\ rho5 in [0, 1b-127]
+  /\ rho4 in [0, 1b-127]
+  /\ rho3 in [0, 1b-127]
+  /\ rho2 in [0, 1b-127]
+  /\ rho_q in [0, 1b-128]
+  /\ rho_v in [0, 1b-127]
 
   # Local error recurrence d_k = w_k - H_k.
   /\ d10 = 0
@@ -121,16 +122,22 @@
 
   # Per-function totals in raw units.
   /\ ln_raw = (h + |E|) * 65536
-  /\ log2_raw = (h + |E|) * 1.4427 * 65536 + 4.930380657631324e-32
-  /\ log10_raw = ((h + |E|) * 0.4343 + 33 * 1.469367938527860e-39 + 7.523163845262641e-37) * 65536
+  /\ log2_raw = (h + |E|) * 1.4427 * 65536 + 1b-104
+  /\ log10_raw = ((h + |E| + 1b-118) * 0.4343 + 33 * 1b-129 + 1b-120) * 65536
+  # ln with the ln sum's table and shift truncations (design 2.1: 2^-118.4 < 2^-118).
+  /\ ln_full_raw = (h + |E| + 1b-118) * 65536
 
   ->
   |E| in ?
   /\ ln_raw in ?
   /\ log2_raw in ?
   /\ log10_raw in ?
+  /\ ln_full_raw in ?
+  # Budget goals: log2 2^-84.5, log10 2^-86.2 (decimals rounded down, so the
+  # goals are no weaker than the budgets). ln cannot meet 2^-85.04 (results.md);
+  # its goal is 2^-85, the bound the hard-case argument uses.
   /\ |E| <= 7.35e-39
-  /\ ln_raw <= 2.5149e-26
-  /\ log2_raw <= 3.6282e-26
-  /\ log10_raw <= 1.0922e-26
+  /\ log2_raw <= 3.6556563775e-26
+  /\ log10_raw <= 1.1251602315e-26
+  /\ ln_full_raw <= 1b-85
 }

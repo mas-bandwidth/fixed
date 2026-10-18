@@ -3,7 +3,11 @@
 Run 2026-10-18 on amd-2 (16 cores, shared and loaded: load average 8 to 54 during the run),
 from head 871bb61 plus this pass's edits. Frama-C 33.0 (Arsenic) with WP, Alt-Ergo 2.4.3,
 Z3 4.13.3, Why3 1.8.2 (`why3 config detect` run for the bench user). Command: `make -C
-proofs/framac all` (see the Makefile for the exact flags of each arm).
+proofs/framac all` (see the Makefile for the exact flags of each arm), with the frame arm
+run alongside as `make OUT=outF LIMIT="timeout 900" frame`. The run was partial: the fixDiv
+runs (and the last proveInt128Div frame run) were stopped by hand after 15 minutes, before
+the 30-minute LIMIT, to fit the card deadline, and the frame rows of the last three
+primitives were not reached.
 
 Status: NOT COMPLETE. The gate (every RTE goal of fixMul, fixDiv and fixISqrt128High proved
 on the emulated path) is not met: fixDiv produces no result within the bound, and two
@@ -26,7 +30,7 @@ fixISqrt128High RTE goals stay open.
 | wrapper | emulated | emulated + FIX_SATURATE | native arm | frame |
 |---|---|---|---|---|
 | proveFixMul | 14 / 14 | 15 / 15 | 14 / 14 | 112 / 112 |
-| proveFixDiv | no result (stopped after 15 min in VC generation) | not run | no result (stopped after 15 min) | no result (stopped) |
+| proveFixDiv | no result (stopped by hand after 15 min in VC generation) | no such arm | no result (stopped after 15 min) | no result (stopped) |
 | proveFixISqrt128High | 34 / 36 | - | 34 / 36 | 49 / 107 |
 | proveInt128MulI64 | 0 / 0 (no RTE goal) | - | 0 / 0 | 14 / 14 |
 | proveInt128Add | 0 / 0 | - | 0 / 0 | 21 / 21 |
@@ -37,7 +41,7 @@ fixISqrt128High RTE goals stay open.
 | proveUInt128MulU64 | 0 / 0 | - | 0 / 0 | 7 / 7 |
 | proveUInt128Add | 0 / 0 | - | 0 / 0 | 8 / 8 |
 | proveUInt128Sub | 0 / 0 | - | 0 / 0 | 8 / 8 |
-| proveInt128Div | 22 / 27 | - | 22 / 27 | open goals below |
+| proveInt128Div | 22 / 27 | - | 22 / 27 | 86 scheduled; at least 16 open when stopped at 15 min; no total |
 | proveInt128ToI64 | 0 / 0 | - | 0 / 0 | not run |
 | proveInt128Compare | 3 / 3 | - | 3 / 3 | not run |
 | proveUInt128Compare | 7 / 7 | - | 7 / 7 | not run |
@@ -51,9 +55,11 @@ before the card deadline.
 ### fixDiv (gate item, open)
 
 No summary on either arm. frama-c sits in its own VC generation (no prover process
-spawned, one core at 100 %) for over 15 minutes, both with and without `-wp-no-simpl`;
+spawned, one core at 100 %) for over 15 minutes, both with and without `-wp-no-simpl`,
+and was stopped by hand;
 pass 4 hit a 300 s cap the same way. A full `-ulevel 128` unroll of the divide loop did
-not finish in 580 s either. The likely cause is the inlined fixEmuUInt128DivMod loop
+not finish in 580 s either. The likely cause is the inlined fixEmuUInt128DivMod loop (WP's missing-assigns
+warning for it is raised inside the proveFixDiv run, so it is inlined)
 (include/fixed/fixed_int128.h:417), which WP havocs as `assigns everything`; not confirmed.
 This is a tool limit, not a finding about the code: Eva on Frama-C 25 (pass 4) reported
 only two imprecision alarms at include/fixed/fixed.h:235, both ruled out by the guards.
@@ -66,7 +72,7 @@ only two imprecision alarms at include/fixed/fixed.h:235, both ruled out by the 
 
 Prover limit: both hold (the operands are below 2^104, far under DBL_MAX), but the proof
 needs IEEE-754 rounding reasoning that WP's float model hands to Alt-Ergo and Z3 as
-uninterpreted rounding, and both time out at 60 s. Gappa 1.6.0 returns Unknown. The FPA
+uninterpreted rounding, and both time out at 60 s. Gappa 1.6.0, tried by hand on these two goals, returns Unknown. The FPA
 variant of Alt-Ergo is listed by Why3 but could not be selected from `-wp-prover`.
 
 ### fixISqrt128High, frame: 58 goals
@@ -90,8 +96,8 @@ header, which this card does not edit. Not a runtime-error goal.
   `assigns everything` havocs what WP knows about the out-pointers.
 
 Reason: the fixEmuUInt128DivMod loop carries no loop assigns or invariant (this is the
-expected "fixEmuUInt128DivMod assigns clause" item). Frame arm: `terminates` and
-`assigns_part51` to `part58` open for the same reason.
+expected "fixEmuUInt128DivMod assigns clause" item). Frame arm: `terminates` and `assigns_part51` to `part65` had timed out when the run was stopped
+(86 goals scheduled, no total), for the same reason.
 
 ## Finding: the native arm runs the emulated path under Frama-C
 

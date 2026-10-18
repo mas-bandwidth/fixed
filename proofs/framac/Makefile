@@ -4,7 +4,8 @@
 #   make -C proofs/framac all       every wrapper on the emulated 128-bit path, then the
 #                                   native path, then the frame goals, then the summary
 #   make -C proofs/framac emulated  emulated path only (RTE and ensures goals)
-#   make -C proofs/framac native    native __int128 path only (RTE and ensures goals)
+#   make -C proofs/framac native    no define: meant as the native __int128 path, but under
+#                                   Frama-C 33 it reaches the emulated path (results.md)
 #   make -C proofs/framac frame     assigns and terminates goals, emulated path, short timeout
 #   make -C proofs/framac summary   reprint the table from the logs in out/
 #
@@ -21,6 +22,10 @@ RTEPROPS ?= -wp-prop=-@assigns,-@terminates
 FRAMEFLAGS ?= -wp -wp-prover alt-ergo,z3 -wp-timeout 10 -wp-par 4 -wp-prop=@assigns,@terminates
 # Every frama-c run is bounded, so one wrapper cannot hold the bench.
 LIMIT    ?= timeout 1800
+# The row for one log: WP's summary, or why there is none (no goal, or the run was cut off).
+STATUS    = { grep -E 'Proved goals:' $(1) | tail -1 | sed 's/^.*Proved goals: */Proved goals: /' | grep . || \
+              { grep -q 'No goal generated' $(1) && echo '0 / 0 (no goal generated)'; } || \
+              echo 'NO SUMMARY: run cut off by LIMIT or stopped (see log)'; }
 # Inline every FIX_ALWAYS_INLINE helper into the wrapper that calls it, so each RTE
 # goal of the seam and of the lane arithmetic is generated and proved in its calling
 # context. -wp-fct then limits WP to the one wrapper.
@@ -58,35 +63,36 @@ $(OUT):
 $(OUT)/%.emulated.log: kernels_acsl.c | $(OUT)
 	$(LIMIT) $(FRAMAC) -cpp-extra-args="$(CPP_BASE) -DFIX_FORCE_EMULATED_INT128" kernels_acsl.c \
 		$(KERNEL) $(WPFLAGS) $(RTEPROPS) -wp-fct $* > $@ 2>&1 || true
-	@printf '%-24s %-18s %s%s\n' $* emulated "$$(grep -E 'Proved goals:' $@ | tail -1 | sed 's/^ *//')" "$$(grep -qiE 'prover .*(not|un)(found|available|known)|no prover' $@ && echo ' PROVER MISSING: Qed only')"
+	@printf '%-24s %-18s %s%s\n' $* emulated "$$($(call STATUS,$@))" "$$(grep -qiE 'prover .*(not|un)(found|available|known)|no prover' $@ && echo ' PROVER MISSING: Qed only')"
 
 # fixMul under FIX_SATURATE, the saturating tail.
 $(OUT)/proveFixMul.emulated-saturate.log: kernels_acsl.c | $(OUT)
 	$(LIMIT) $(FRAMAC) -cpp-extra-args="$(CPP_BASE) -DFIX_FORCE_EMULATED_INT128 -DFIX_SATURATE" kernels_acsl.c \
 		$(KERNEL) $(WPFLAGS) $(RTEPROPS) -wp-fct proveFixMul > $@ 2>&1 || true
-	@printf '%-24s %-18s %s\n' proveFixMul emulated-saturate "$$(grep -E 'Proved goals:' $@ | tail -1 | sed 's/^ *//')"
+	@printf '%-24s %-18s %s\n' proveFixMul emulated-saturate "$$($(call STATUS,$@))"
 
 # Frame goals (assigns, terminates), emulated path.
 $(OUT)/%.frame.log: kernels_acsl.c | $(OUT)
 	$(LIMIT) $(FRAMAC) -cpp-extra-args="$(CPP_BASE) -DFIX_FORCE_EMULATED_INT128" kernels_acsl.c \
 		$(KERNEL) $(FRAMEFLAGS) -wp-fct $* > $@ 2>&1 || true
-	@printf '%-24s %-18s %s\n' $* frame "$$(grep -E 'Proved goals:' $@ | tail -1 | sed 's/^ *//')"
+	@printf '%-24s %-18s %s\n' $* frame "$$($(call STATUS,$@))"
 
-# Native path: compiler __int128. The front end must accept the type for this to run;
-# when it does not, the log holds the parse error and the summary says so.
+# Native path: compiler __int128, selected by fixed_int128.h only when __SIZEOF_INT128__ is
+# defined. Frama-C 33's preprocessing does not appear to define it, so this arm currently
+# repeats the emulated path (results.md); a parse error, as Frama-C 25 gave, is reported.
 $(OUT)/%.native.log: kernels_acsl.c | $(OUT)
 	$(LIMIT) $(FRAMAC) -cpp-extra-args="$(CPP_BASE)" kernels_acsl.c \
 		$(KERNEL) $(WPFLAGS) $(RTEPROPS) -wp-fct $* > $@ 2>&1 || true
-	@printf '%-24s %-18s %s\n' $* native "$$(grep -E 'Proved goals:' $@ | tail -1 | sed 's/^ *//')$$(grep -q 'syntax error' $@ && echo 'front end rejects __int128 (see log)')"
+	@printf '%-24s %-18s %s\n' $* native "$$($(call STATUS,$@))$$(grep -q 'syntax error' $@ && echo 'front end rejects __int128 (see log)')"
 
 summary:
 	@echo "wrapper                  arm                proved / total"
 	@for f in $(OUT)/*.log; do \
 		b=$$(basename $$f .log); fn=$${b%%.*}; arm=$${b#*.}; \
-		line=$$(grep -E 'Proved goals:' $$f | tail -1 | sed 's/^.*Proved goals: *//'); \
+		line=$$($(call STATUS,$$f)); \
 		grep -q 'syntax error' $$f && line="not run: front end rejects __int128"; \
 		grep -qiE 'prover .*(not|un)(found|available|known)|no prover' $$f && line="$$line PROVER MISSING: Qed only"; \
-		printf '%-24s %-18s %s\n' $$fn $$arm "$${line:-no WP summary (see $$f)}"; \
+		printf '%-24s %-18s %s\n' $$fn $$arm "$$line"; \
 	done
 
 clean:

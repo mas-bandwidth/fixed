@@ -13,8 +13,8 @@
 //
 // with y = sqrt( (1-x)/2 ) in [0, 1/2], so the same kernel covers the whole domain. The
 // square root is an exact integer square root of ( 65536 - raw ) * 2^105, i.e. y in Q61,
-// rounded down by less than 2^-61. pi/2 is carried at 128 bits (hi, lo; 126 fraction bits)
-// and reduced to Q61 once, giving RN(pi/2) with far more than the 62 bits used.
+// rounded down by less than 2^-61. pi/2 is carried at 128 significant bits (hi, lo; 127
+// fraction bits) and reduced to Q61 once, with far more than the 62 bits used.
 // acos is pi/2 - asin on the same Q61 value, so its worst case (acos(-1) = pi) still fits
 // in int64. The final step is one round to nearest, ties to even, from Q61 to Q48.16.
 //
@@ -62,17 +62,16 @@ static const int64_t fixAsinAcosCoefficients[16] = {
 	1611637804536907223LL,
 };
 
-// pi/2 at 126 fraction bits, split into two 64-bit lanes. This is
-// floor( (pi/2) * 2^126 ) to within its last bit, i.e. pi/2 to more than 128 bits.
-static const uint64_t fixAsinAcosPiOver2Hi = UINT64_C( 0x6487ed5110b4611a );
-static const uint64_t fixAsinAcosPiOver2Lo = UINT64_C( 0x62633145c06e0e68 );
+// pi/2 at 127 fraction bits, split into two 64-bit lanes: 128 significant bits.
+static const uint64_t fixAsinAcosPiOver2Hi = UINT64_C( 0xc90fdaa22168c234 );
+static const uint64_t fixAsinAcosPiOver2Lo = UINT64_C( 0xc4c6628b80dc1cd1 );
 
 // The Q61 integer pi/2, rounded to nearest from the 128-bit constant above.
 static int64_t fixAsinAcosPiOver2Q61( void )
 {
 	fixUInt128 p = fixUInt128Make( fixAsinAcosPiOver2Hi, fixAsinAcosPiOver2Lo );
-	fixUInt128 half = fixUInt128Shl( fixUInt128FromU64( 1 ), 64 ); // half of the 65 dropped bits
-	return (int64_t)fixUInt128Lo( fixUInt128Shr( fixUInt128Add( p, half ), 65 ) );
+	fixUInt128 half = fixUInt128Shl( fixUInt128FromU64( 1 ), 65 ); // half of the 66 dropped bits
+	return (int64_t)fixUInt128Lo( fixUInt128Shr( fixUInt128Add( p, half ), 66 ) );
 }
 
 // Exact integer square root, floor( sqrt( n ) ), by the restoring digit-by-digit method.

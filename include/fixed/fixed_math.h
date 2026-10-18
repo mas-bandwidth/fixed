@@ -98,6 +98,22 @@ typedef struct fixCosSin
 /// atan2 accurate to ~0.0023 degrees. Deterministic (unlike the standard library).
 FIX_API fixed_t fixAtan2( fixed_t y, fixed_t x );
 
+/// atan2 within 1 raw Q48.16 unit of the correctly rounded value for every pair, monotone in each
+/// argument wherever the true atan2 is, fixAtan2Exact( 0, 0 ) = 0, INT64_MIN taken as -INT64_MAX.
+/// The ratio in Q2.62 at 128 bits, one degree-20 polynomial on [0, 1] evaluated at 128 bits, the
+/// octant map in Q.64 radians and one final rounding (design and error budget in src/fixed_math.c).
+/// Checked against CORE-MATH cr_atan2 at the pin in test/quat_angles_exact_test.c. Integer only,
+/// bit-identical on the native and the emulated 128-bit arms. A new function: fixAtan2 keeps its
+/// frozen outputs.
+FIX_API fixed_t fixAtan2Exact( fixed_t y, fixed_t x );
+
+/// 2 * atan2( y, x ) for |y| = sqrt( ySquared ) and |x| = sqrt( xSquared ) with the given signs,
+/// rounded once to Q48.16 from fixAtan2Exact's wide value: within 1 raw of the correctly rounded
+/// value. The squared magnitudes are exact 128-bit sums of squares (fixDotRaw), so no floored length
+/// enters. The entry point of the exact quaternion angles in fixed_vec.h (fixGetQuatAngleExact and
+/// its siblings); checked in test/quat_angles_exact_test.c.
+FIX_API fixed_t fixDoubleAtan2ExactOfSquares( fixUInt128 ySquared, bool yNegative, fixUInt128 xSquared, bool xNegative );
+
 /// Cosine and sine of an angle in radians. Deterministic.
 FIX_API fixCosSin fixComputeCosSin( fixed_t radians );
 
@@ -115,12 +131,129 @@ FIX_API fixCosSin fixComputeCosSinPrecise( fixed_t radians );
 FIX_INLINE fixed_t fixSin( fixed_t radians ) { fixCosSin cs = fixComputeCosSin( radians ); return cs.sine; }
 FIX_INLINE fixed_t fixCos( fixed_t radians ) { fixCosSin cs = fixComputeCosSin( radians ); return cs.cosine; }
 
+/// Cosine and sine within 2 raw Q48.16 units of the correctly rounded value at EVERY input angle
+/// (measured within 1 against CORE-MATH). The reduction is exact to 2^-61 rad for every int64
+/// input: the quarter-turn count is the angle times 112 bits of 2/pi, in integers, so its error
+/// does not grow with the angle. The polynomials are those of fixComputeCosSinPrecise. Integer
+/// only, bit-identical on the native and the emulated 128-bit arms. These are new functions:
+/// fixSin, fixCos, fixComputeCosSin and fixComputeCosSinPrecise keep their frozen outputs.
+FIX_API fixCosSin fixComputeCosSinExact( fixed_t radians );
+
+FIX_INLINE fixed_t fixSinExact( fixed_t radians ) { fixCosSin cs = fixComputeCosSinExact( radians ); return cs.sine; }
+FIX_INLINE fixed_t fixCosExact( fixed_t radians ) { fixCosSin cs = fixComputeCosSinExact( radians ); return cs.cosine; }
+
 /// Convert any angle into the range [-pi, pi].
 FIX_INLINE fixed_t fixUnwindAngle( fixed_t radians )
 {
 	const fixed_t twoPi = FIX( 6.28318530718 );
 	int64_t n = ( fixDiv( radians, twoPi ) + FIX_HALF ) >> FIX_FRACTION_BITS;
 	return (fixed_t)fixInt128ToI64( fixInt128Sub( fixInt128FromI64( radians ), fixInt128MulI64( n, twoPi ) ) );
+}
+
+// Saturating replacements for the Q48.16 -> int32 conversions and for the top-edge
+// wrap of fixCeil. The originals live in include/fixed/fixed.h and are frozen:
+// determinism_test's hash mixes the results of fixTruncToInt, fixFloorToInt and
+// fixRoundToInt, and exhaustive_test's hash mixes fixFloor and fixCeil. Replacing
+// them in place would move those hashes, so they are left bit for bit as they are
+// and the Sat names below are added beside them. Current behavior of the originals:
+//
+//   fixTruncToInt   (int)( a / FIX_ONE )            truncates toward zero, then the
+//                                                   int64 -> int32 cast drops the high
+//                                                   bits, so it wraps above +-2^31.
+//   fixFloorToInt   (int)( a >> 16 )                arithmetic floor, then the same
+//                                                   wrapping cast.
+//   fixRoundToInt   (int)( (a + FIX_HALF) >> 16 )   half-up toward +infinity, also with
+//                                                   the wrapping cast (and an unsigned
+//                                                   add so the raw edge wraps).
+//   fixFloor        a & ~(FIX_ONE - 1)              already defined for every input,
+//                                                   including INT64_MIN and INT64_MAX.
+//   fixCeil         (a + FIX_ONE - 1) & ~mask       in unsigned arithmetic: defined,
+//                                                   but at the top edge it rounds past
+//                                                   INT64_MAX and wraps to INT64_MIN.
+//
+// The three ToInt replacements clamp to INT32_MIN/INT32_MAX. fixFloor needs no
+// replacement. fixCeilSat saturates to FIX_MAX instead of wrapping. All of them keep
+// the old truncation/floor/rounding rule and use only defined signed arithmetic, so
+// every in-range result is bit-identical to the original. Tested by test/toint_test.c.
+
+/// fixTruncToInt with saturation: truncate toward zero and clamp to INT32_MIN/INT32_MAX.
+/// In-range results are identical to fixTruncToInt. Tested by test/toint_test.c.
+FIX_INLINE int fixTruncToIntSat( fixed_t a )
+{
+	int64_t q = a / FIX_ONE;
+	if ( q > INT32_MAX )
+	{
+		return INT32_MAX;
+	}
+	if ( q < INT32_MIN )
+	{
+		return INT32_MIN;
+	}
+	return (int)q;
+}
+
+/// fixFloorToInt with saturation: round toward negative infinity and clamp to
+/// INT32_MIN/INT32_MAX. In-range results are identical to fixFloorToInt.
+/// Tested by test/toint_test.c.
+FIX_INLINE int fixFloorToIntSat( fixed_t a )
+{
+	int64_t q = a / FIX_ONE;
+	int64_t r = a % FIX_ONE;
+	if ( r != 0 && a < 0 )
+	{
+		q--;
+	}
+	if ( q > INT32_MAX )
+	{
+		return INT32_MAX;
+	}
+	if ( q < INT32_MIN )
+	{
+		return INT32_MIN;
+	}
+	return (int)q;
+}
+
+/// fixRoundToInt with saturation: round half-up toward +infinity (floor(a/FIX_ONE +
+/// 0.5)) and clamp to INT32_MIN/INT32_MAX. The q/r decomposition reproduces the old
+/// (a + FIX_HALF) >> 16 result on every in-range input without the unsigned wrap.
+/// Tested by test/toint_test.c.
+FIX_INLINE int fixRoundToIntSat( fixed_t a )
+{
+	int64_t q = a / FIX_ONE;
+	int64_t r = a % FIX_ONE;
+	int64_t adj = a >= 0 ? ( r >= FIX_HALF ? 1 : 0 ) : ( r < -FIX_HALF ? -1 : 0 );
+	q += adj;
+	if ( q > INT32_MAX )
+	{
+		return INT32_MAX;
+	}
+	if ( q < INT32_MIN )
+	{
+		return INT32_MIN;
+	}
+	return (int)q;
+}
+
+/// fixCeil with saturation: smallest integral fixed-point value not less than a (like
+/// ceilf), saturating at the top edge. If rounding up would pass INT64_MAX the result
+/// is FIX_MAX instead of wrapping to INT64_MIN (the behavior of fixCeil, which is kept
+/// unchanged for the frozen exhaustive hash). Below that the low fraction bits are
+/// dropped the same way fixCeil does, so every in-range result is identical. At
+/// INT64_MIN the result is INT64_MIN itself. Tested by test/toint_test.c.
+FIX_INLINE fixed_t fixCeilSat( fixed_t a )
+{
+	if ( a >= 0 )
+	{
+		if ( a > FIX_MAX - ( FIX_ONE - 1 ) )
+		{
+			return FIX_MAX;
+		}
+		return (fixed_t)( (uint64_t)a + (uint64_t)( FIX_ONE - 1 ) ) & ~(uint64_t)( FIX_ONE - 1 );
+	}
+	// a < 0: ceil = trunc(a/FIX_ONE)*FIX_ONE = a - (a % FIX_ONE); the remainder is in
+	// (-FIX_ONE, 0], so the subtraction stays in [INT64_MIN, 0] and never overflows.
+	return a - ( a % FIX_ONE );
 }
 
 /// Interpolate a scalar.

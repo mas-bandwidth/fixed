@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: MIT
+//
+// The kernel of fixAsinExact / fixAcosExact, generated and certified by Sollya.
+//
+// asin is approximated by a degree-15 polynomial on [0, 1/2] with every coefficient a
+// fixed-point integer at 61 fraction bits, i.e. the source stores round(c_k * 2^61).
+// fpminimax minimises the ABSOLUTE error, which is what the final raw-unit rounding
+// cares about. supnorm then certifies the supremum norm of that polynomial against asin
+// over the whole interval, coefficient quantisation included.
+//
+// Regenerate with:  sollya sollya/asin_acos.sollya
+prec = 200!;
+f = asin(x);
+p = fpminimax(f, 15, [|61,61,61,61,61,61,61,61,61,61,61,61,61,61,61,61|], [0,0.5], fixed, absolute);
+print("c0 ", nearestint(coeff(p,0) * 2^61));
+print("c1 ", nearestint(coeff(p,1) * 2^61));
+print("c2 ", nearestint(coeff(p,2) * 2^61));
+print("c3 ", nearestint(coeff(p,3) * 2^61));
+print("c4 ", nearestint(coeff(p,4) * 2^61));
+print("c5 ", nearestint(coeff(p,5) * 2^61));
+print("c6 ", nearestint(coeff(p,6) * 2^61));
+print("c7 ", nearestint(coeff(p,7) * 2^61));
+print("c8 ", nearestint(coeff(p,8) * 2^61));
+print("c9 ", nearestint(coeff(p,9) * 2^61));
+print("c10", nearestint(coeff(p,10) * 2^61));
+print("c11", nearestint(coeff(p,11) * 2^61));
+print("c12", nearestint(coeff(p,12) * 2^61));
+print("c13", nearestint(coeff(p,13) * 2^61));
+print("c14", nearestint(coeff(p,14) * 2^61));
+print("c15", nearestint(coeff(p,15) * 2^61));
+print("certified supnorm bound (absolute, [0,0.5]):");
+print(supnorm(p, f, [0,0.5], absolute, 2^-80));
+quit;

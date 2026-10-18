@@ -60,7 +60,8 @@ undefined. The x86-64 fast path does not catch it: with `a = INT128_MIN`, `b = -
 `|a| = 2^127` has high half `2^63`, which is not below `v = 1`, so control falls through
 to `return a / b;` at include/fixed/fixed.h:166.
 
-Program run here (`-fsanitize=undefined`, gcc 15.2.0):
+Program run here (`-fsanitize=undefined`, gcc 15.2.0), and re-confirmed on this bench's
+gcc 13.3.0 at attempt 2 with the same message (line 166):
 
 ```c
 #include <stdint.h>
@@ -81,6 +82,13 @@ int main( void )
 $ gcc -std=c11 -O0 -fsanitize=undefined -fno-sanitize-recover=all -I include int128_min_div.c
 $ ./a.out
 include/fixed/fixed.h:166:11: runtime error: division of 0x80000000000000000000000000000000 by -1 cannot be represented in type '__int128'
+```
+
+Attempt 2 re-run (gcc 13.3.0, the bench's compiler) with `-I repo/include` from the job
+directory produced the identical report at the same line:
+
+```
+repo/include/fixed/fixed.h:166:11: runtime error: division of 0x80000000000000000000000000000000 by -1 cannot be represented in type '__int128'
 ```
 
 This is a real undefined behaviour in the library's native path, not a prover limit. It is

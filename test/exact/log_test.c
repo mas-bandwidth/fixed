@@ -93,6 +93,8 @@ static void test_log2( void )
 	CHECK( fixLog2Exact( INT64_C( 4611710406440186476 ) ) == INT64_C( 3014657 ) );
 	CHECK( fixLog2( INT64_C( 208707216768631 ) ) == INT64_C( 2068871 ) );
 	CHECK( fixLog2( INT64_C( 4611710406440186476 ) ) == INT64_C( 3014656 ) );
+	printf( "fixLog2Exact(208707216768631) == %lld (fixLog2 %lld)\n", (long long)fixLog2Exact( INT64_C( 208707216768631 ) ), (long long)fixLog2( INT64_C( 208707216768631 ) ) );
+	printf( "fixLog2Exact(4611710406440186476) == %lld (fixLog2 %lld)\n", (long long)fixLog2Exact( INT64_C( 4611710406440186476 ) ), (long long)fixLog2( INT64_C( 4611710406440186476 ) ) );
 
 	CHECK( fixLog2Exact( INT64_MAX ) == INT64_C( 3080192 ) );
 

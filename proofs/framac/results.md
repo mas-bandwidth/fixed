@@ -1,6 +1,6 @@
 # Results
 
-Run 2026-10-18 on amd-2 (16 cores, shared: load average 6.7 to 15.7 during the run), with
+Run 2026-10-18 on amd-2 (16 cores, shared: load average 6.7 to 15.7, sampled between runs), with
 Frama-C 33.0 (Arsenic) and WP, Alt-Ergo 2.4.3, Z3 4.13.3 and Why3 1.8.2. Command:
 `make -C proofs/framac nightly`, with `-wp-cache none`, so every goal went to the provers
 and no result came from the cache. `make -C proofs/framac fixmul` and `make -C proofs/framac
@@ -61,7 +61,7 @@ Totals for the nightly set: runtime-error and ensures goals 130 / 137 proved; fr
 Reason: a prover limit, not undefined behaviour. Both goals hold, because the operands are
 below 2^104, far under DBL_MAX. The proof needs IEEE-754 rounding reasoning. WP's float
 model gives Alt-Ergo and Z3 the rounding as an uninterpreted function, and both time out at
-60 s. Gappa 1.6.0, tried by hand on these two goals, also returned Unknown. The FPA variant
+60 s. Gappa 1.6.0, tried by hand on these two goals in pass 5, also returned Unknown. The FPA variant
 of Alt-Ergo is listed by Why3, but it could not be selected from `-wp-prover`.
 
 ### fixISqrt128High, frame: 58 goals (owed to loop annotations)

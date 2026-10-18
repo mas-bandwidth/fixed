@@ -1,20 +1,24 @@
 # Results: the native __int128 arm
 
-Run 2026-10-18 on the card's bench. Frama-C could not be executed: the tools installed
-under `/home/nova/.opam/default/bin` are not readable by the sandbox this card ran in.
-`command -v frama-c` prints `/home/nova/sdk/bin/frama-c`, which is a symlink to
-`/home/nova/.opam/default/bin/frama-c`, but every invocation (and `alt-ergo`, `why3`) ends
-with `Permission denied (os error 13)` before the front end starts. The `make native`
-logs contain exactly:
+Run 2026-10-18 on the card's bench. Frama-C's front end does start (given a source file it
+runs, `-version`/`-help` report `Permission denied` from `exec`), but the WP plugin and
+the `alt-ergo`/`why3` provers are unusable: `-wp-help` is answered `option `-wp-help' is
+unknown`, because the WP plugin and the prover binaries live under `/home/nova/.opam`,
+which this sandbox cannot read or execute (`Permission denied (os error 13)`).
+`z3` at `/usr/bin/z3` runs, but WP cannot generate or prove a goal without its plugin. The
+`make native` logs therefore end at the kernel's unknown-option error, and every summary
+line is `NO SUMMARY`:
 
 ```
-timeout: failed to execute process: Permission denied (os error 13)
+[kernel] User Error: option `-wp-fct' is unknown.
+[kernel] Frama-C aborted: invalid user input.
 ```
 
 So this file records what was checked here (the preprocessor branch, the UBSan
 INT128_MIN / -1 case, the stub contract) and what was not: every `Proved goals:` row.
-The next nightly on a bench where Frama-C is readable runs `make -C proofs/framac/native
-nightly` and fills those rows. No row below is a claimed proof.
+The next nightly on a bench where Frama-C and its WP plugin are readable runs
+`make -C proofs/framac/native nightly` and fills those rows. No row below is a claimed
+proof.
 
 ## The native arm is the one selected
 

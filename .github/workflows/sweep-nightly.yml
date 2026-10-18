@@ -1,0 +1,21 @@
+name: sweep-nightly
+
+# Linux bench work only: the MPFR sweep and its scoreboard. Never gates a PR or a push.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MPFR and GMP
+        run: sudo apt-get update && sudo apt-get install -y libmpfr-dev libgmp-dev
+      - name: Configure with sweeps
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DFIX_BUILD_SWEEPS=ON
+      - name: Build
+        run: cmake --build build --parallel 3
+      - name: Slow sweep tier
+        run: ctest --test-dir build -L slow --output-on-failure

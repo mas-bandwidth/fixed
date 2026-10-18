@@ -58,9 +58,9 @@ goal, and is also proved below `2^-85 = 2.5849394e-26` raw, the condition
 the design's BaCSeL hard-case argument uses (`eps < 2^-k` for every integer
 `k <= 85`). No library code was changed.
 
-## Earlier model (attempt 5), replaced
+## Earlier model (pass 5), replaced
 
-The attempt-5 `kernel.g` stated the error as a hand-derived formula in free
+The pass-5 `kernel.g` stated the error as a hand-derived formula in free
 residue variables (`E = rho_q*w_2 + rho_v - u^2*d_2`, each `rho` an
 independent interval), so Gappa bounded that formula but never proved it
 equal to `comp - p`. This model defines `E` as `comp - p` directly; the

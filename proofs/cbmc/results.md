@@ -1,126 +1,108 @@
 # CBMC results: native __int128 arm == emulated int128 arm
 
-Run: `make -k -j2 --output-sync=target -C proofs/cbmc all` on amd-1 (Linux x86_64,
-16 cores, shared and loaded, so times are indicative), CBMC 6.6.0, 2026-10-18 22:21 to
-22:40 UTC. Every run is
-`cbmc --unwinding-assertions --bounds-check --signed-overflow-check
---undefined-shift-check --slice-formula --sat-solver cadical`, plus the per-property
-`-D CBMC_WIDTH=<w> -D CBMC_WIDTH_B=<wb> -D CBMC_SIGNS=<s>`, `--function` and `--unwind`
-in the table, under `timeout 1200`. CaDiCaL was tried first, as the card asks, but it is not
-compiled into the bench CBMC 6.6.0 build ("The specified solver, 'cadical', is not
-available. The default solver will be used instead."), and installing a CaDiCaL build is
-outside this card. So every result below is MiniSat 2, CBMC's default; Z3 was tried as
-well (table below). Each run also checks every bounds, overflow and shift property
-instrumented in both arms (`0 of 390+ failed`), not only the equivalence assertions.
+Environment: CBMC 6.6.0 on amd-1 (Linux x86_64, AMD, 16 cores), `make -C proofs/cbmc all`
+with the flags the Makefile names (`--unwinding-assertions --bounds-check
+--signed-overflow-check --undefined-shift-check --slice-formula --sat-solver cadical`),
+each run under GNU `timeout 1200`. The bench CBMC 6.6.0 has no CaDiCaL compiled in: every
+log says "The specified solver, 'cadical', is not available. The default solver will be
+used instead." and the runs use MiniSat 2. No CaDiCaL-enabled CBMC exists on amd-1 or
+amd-2 (no `cadical` binary on PATH either).
 
-**No property is proved at full width except addsub, compares and shifts.** Everything
-else is proved on the narrowed domain its row states, and is not a full proof.
+Last full gate: `make -C proofs/cbmc all` at c351eab (int128_equiv.c sha256 559aa300…,
+Makefile sha256 ac6cd8d9…, the same two files this commit carries), 2026-10-18
+22:42–23:12 UTC: 55 of 55 runs printed VERIFICATION SUCCESSFUL, `make` exit 0, no
+counterexample and no timeout. Every run reports `** 0 of 417 failed` (419 to 423 for the
+isqrt harnesses, which carry extra assumption-guarded properties).
 
-## How to read a domain
+## What "width" means
 
-`ext(w)` is a value whose low w bits are free and whose higher bits are all 0 or all 1;
-the target runs both cases (the `CBMC_SIGNS` bits). Read as two's complement that is
-every value in [-2^w, 2^w); read unsigned it is [0, 2^w) together with the top 2^w values
-of the type. `zext(w)` is [0, 2^w) only. "full" is every value of the type.
+A 64-bit input under `CBMC_WIDTH=w` is w free low bits extended with constant zeros (sign
+bit 0) or constant ones (sign bit 1). The Makefile runs every sign combination a property
+lists in `SIGNS_<target>`, so the union is every sign extension of a w-bit value: as
+signed, the range [-2^w, 2^w - 1]; read unsigned, the values
+nearest 0 and nearest 2^64. A 128-bit input is the same over 128 bits. `CBMC_WIDTH_B`
+narrows the second input alone. 64 (for a 64-bit input) or 128 (for a 128-bit input) is
+the full domain. A narrowed row is never a full proof.
 
-## Results
+## Per property
 
-| Target | Function(s) checked | Domain | Unwind | Result | Time (worst sign case) |
-|---|---|---|---:|---|---:|
-| `addsub` | fixUInt128Add/Sub, fixInt128Add/Sub, fixInt128FromI64, fixInt128ToI64 | full: every 128-bit a, b | 12 | VERIFICATION SUCCESSFUL (1 of 1 sign cases) | 3 s |
-| `compares` | fixUInt128Eq/Lt/Gt/Le/Ge, fixInt128Eq/Lt/Gt/Le/Ge | full: every 128-bit a, b | 12 | VERIFICATION SUCCESSFUL (1 of 1 sign cases) | 1 s |
-| `shifts` | fixUInt128Shl/Shr, fixInt128Shr, fixInt128ShiftLeft | full: every 128-bit a, every n in [0, 127] | 12 | VERIFICATION SUCCESSFUL (1 of 1 sign cases) | 14 s |
-| `mul_u64` | fixUInt128MulU64 | a, b in ext(8) | 12 | VERIFICATION SUCCESSFUL (4 of 4 sign cases) | 152 s |
-| `mul_u64_wide` | fixUInt128MulU64 | a full, b in zext(4) | 12 | VERIFICATION SUCCESSFUL (1 of 1 sign cases) | 4 s |
-| `mul_i64` | fixInt128MulI64 | a, b in ext(8) | 12 | VERIFICATION SUCCESSFUL (4 of 4 sign cases) | 34 s |
-| `mul_i64_wide` | fixInt128MulI64 | a full, b in zext(4) | 12 | VERIFICATION SUCCESSFUL (1 of 1 sign cases) | 22 s |
-| `mul_128` | fixUInt128Mul, fixInt128Mul | 128-bit a, b in ext(6) | 12 | VERIFICATION SUCCESSFUL (4 of 4 sign cases) | 28 s |
-| `mul_128_wide` | fixUInt128Mul, fixInt128Mul | a full (128-bit), b in zext(2) | 12 | VERIFICATION SUCCESSFUL (1 of 1 sign cases) | 3 s |
-| `udivmod` | native / and % vs fixEmuUInt128Div/Mod | 128-bit a, b in ext(6), b != 0 | 130 | VERIFICATION SUCCESSFUL (4 of 4 sign cases) | 54 s |
-| `sdiv` | fixInt128Div | 128-bit a, b in ext(8), b != 0 | 130 | VERIFICATION SUCCESSFUL (4 of 4 sign cases) | 8 s |
-| `divrem64` | fixUInt128DivRemBy64 | hi, lo, d each in ext(4), hi < d | 130 | VERIFICATION SUCCESSFUL (8 of 8 sign cases) | 12 s |
-| `fixmul` | fixMul | a, b in ext(8) | 12 | VERIFICATION SUCCESSFUL (4 of 4 sign cases) | 47 s |
-| `fixmul_wide` | fixMul | a full, b in zext(4) | 12 | VERIFICATION SUCCESSFUL (1 of 1 sign cases) | 19 s |
-| `fixdiv` | fixDiv (fast path only) | a, b in ext(8), b == 0 included | 130 | VERIFICATION SUCCESSFUL (4 of 4 sign cases) | 149 s |
-| `fixdiv_wide` | fixDiv | a full, b in [0, 4), b == 0 included | 130 | VERIFICATION SUCCESSFUL (1 of 1 sign cases) | 17 s |
-| `fixdiv_big` | fixDiv (128-bit path) | a = 2^47 | x or ~(2^47 | x), x in zext(4); b in ext(4), b == 0 included | 130 | VERIFICATION SUCCESSFUL (4 of 4 sign cases) | 5 s |
-| `isqrt_low` | fixISqrt128High, hi == 0 | roots s < 2^8 (lo < 2^16); seed within 3 | 6 | VERIFICATION SUCCESSFUL (1 of 1 sign cases) | 253 s |
-| `isqrt_mid` | fixISqrt128High, 0 < hi < 2^40 | roots in [2^32, 2^32 + 2^8); seed within 3 | 6 | VERIFICATION SUCCESSFUL (1 of 1 sign cases) | 176 s |
-| `isqrt_mid_top` | fixISqrt128High, 0 < hi < 2^40 | roots in [2^52 - 2^8, 2^52); seed within 3 | 6 | VERIFICATION SUCCESSFUL (1 of 1 sign cases) | 434 s |
-| `isqrt_high` | fixISqrt128High, hi >= 2^40 | hi in 2^40 + zext(8) or the top 2^8 values; lo in ext(8) | 66 | VERIFICATION SUCCESSFUL (4 of 4 sign cases) | 8 s |
+Times are the sum over the target's sign runs in the last gate. Command for each run:
+`timeout 1200 cbmc -I include -D CBMC_WIDTH=<w> -D CBMC_WIDTH_B=<wb> -D CBMC_SIGNS=<s>
+[-D CBMC_SQRT_BASE=…] --function harness_<h> --unwind <u> <flags> native.c emulated.c harness.c`.
 
-Every row printed `VERIFICATION SUCCESSFUL` for every sign case (55 of 55 runs); `MAKE_EXIT=0`. The run used int128_equiv.c sha256 559aa300...df532d6 and Makefile sha256 ac6cd8d9...5416af8, the committed files.
-No counterexample was found, so there was no finding to confirm with a C program.
+| Target | Harness | Domain proved | Unwind | Runs | Result | Time |
+|---|---|---|---:|---:|---|---:|
+| addsub | addsub | **full**: both 128-bit inputs free (u128/i128 add, sub, FromI64, ToI64) | 12 | 1 | VERIFICATION SUCCESSFUL | 2 s |
+| compares | compares | **full**: both 128-bit inputs free (Eq/Lt/Gt/Le/Ge, signed and unsigned) | 12 | 1 | VERIFICATION SUCCESSFUL | 1 s |
+| shifts | shifts | **full**: 128-bit input free, every count 0..127 | 12 | 1 | VERIFICATION SUCCESSFUL | 9 s |
+| mul_u64 | mul_u64 | narrowed: a, b each a sign extension of 8 bits (4 sign runs) | 12 | 4 | VERIFICATION SUCCESSFUL | 57 s |
+| mul_u64_wide | mul_u64 | narrowed: a full 64 bits, b in [0, 15] | 12 | 1 | VERIFICATION SUCCESSFUL | 2 s |
+| mul_i64 | mul_i64 | narrowed: a, b in [-256, 255] | 12 | 4 | VERIFICATION SUCCESSFUL | 36 s |
+| mul_i64_wide | mul_i64 | narrowed: a full 64 bits, b in [0, 15] | 12 | 1 | VERIFICATION SUCCESSFUL | 9 s |
+| mul_128 | mul_128 | narrowed: a, b each a 128-bit sign extension of 6 bits, i.e. [-64, 63] (u128 and i128 wrapping products) | 12 | 4 | VERIFICATION SUCCESSFUL | 7 s |
+| mul_128_wide | mul_128 | narrowed: a full 128 bits, b in [0, 3] | 12 | 1 | VERIFICATION SUCCESSFUL | 1 s |
+| udivmod | udivmod | narrowed: a, b each a 128-bit sign extension of 6 bits, b != 0 (u128 `/` and `%` vs fixEmuUInt128Div/Mod) | 130 | 4 | VERIFICATION SUCCESSFUL | 27 s |
+| sdiv | sdiv | narrowed: a, b in [-256, 255] as i128, b != 0, INT128_MIN / -1 excluded (fixInt128Div) | 130 | 4 | VERIFICATION SUCCESSFUL | 15 s |
+| divrem64 | divrem64 | narrowed: hi, lo, d each a 64-bit sign extension of 4 bits (8 sign runs), hi < d (fixUInt128DivRemBy64's precondition) | 130 | 8 | VERIFICATION SUCCESSFUL | 24 s |
+| fixmul | fixmul | narrowed: raw a, b in [-256, 255] | 12 | 4 | VERIFICATION SUCCESSFUL | 31 s |
+| fixmul_wide | fixmul | narrowed: raw a full 64 bits, raw b in [0, 15] | 12 | 1 | VERIFICATION SUCCESSFUL | 16 s |
+| fixdiv | fixdiv | narrowed: raw a, b in [-256, 255], b == 0 included (fixDiv's 64-bit fast path) | 130 | 4 | VERIFICATION SUCCESSFUL | 338 s |
+| fixdiv_wide | fixdiv | narrowed: raw a full 64 bits, raw b in [0, 3] (b == 0 included) | 130 | 1 | VERIFICATION SUCCESSFUL | 15 s |
+| fixdiv_big | fixdiv_big | narrowed: fixDiv's 128-bit path, a in [2^47, 2^47 + 15] or [-2^47 - 16, -2^47 - 1], b in [-16, 15] (b == 0 included) | 130 | 4 | VERIFICATION SUCCESSFUL | 17 s |
+| isqrt_low | isqrt_low | narrowed: hi == 0, every n whose integer root s is in [0, 255] | 6 | 1 | VERIFICATION SUCCESSFUL | 183 s |
+| isqrt_mid | isqrt_mid | narrowed: 0 < hi < 2^40, every n whose root s is in [2^32, 2^32 + 255] | 6 | 1 | VERIFICATION SUCCESSFUL | 376 s |
+| isqrt_mid_top | isqrt_mid | narrowed: same path, root s in [2^52 - 256, 2^52 - 1] (`CBMC_SQRT_BASE=0xFFFFFFFFFFF00`) | 6 | 1 | VERIFICATION SUCCESSFUL | 549 s |
+| isqrt_high | isqrt_high | narrowed: hi >= 2^40 path, hi in [2^40, 2^40 + 255] or [2^64 - 256, 2^64 - 1], lo a sign extension of 8 bits | 66 | 4 | VERIFICATION SUCCESSFUL | 103 s |
 
-## What the narrowings cover, and what they do not
+The isqrt rows rest on one stated ASSUMPTION (int128_equiv.c, SQRT SEED): both arms get
+one shared seed within 3 of the exact root, standing in for `__builtin_sqrt`, which CBMC
+cannot model. The claim is agreement for every seed in that window.
 
-- **fixDiv's 128-bit path** is taken only when |a| >= 2^47; below that fixDiv runs a
-  64-bit divide that is the same code in both arms. The symmetric `fixdiv` domain
-  (-256 <= a < 256) never leaves the fast path. `fixdiv_big` is the row aimed at the
-  128-bit path: a = 2^47 | x or ~(2^47 | x) with x in zext(4), and b in ext(4), negative
-  divisors and b == 0 included. `fixdiv_wide` adds every a with b in [0, 4).
-- **Ones-extended inputs are the expensive case.** Constant high zero bits collapse the
-  multiplier and divider circuits; constant high one bits do not. The `_wide` rows (one
-  input full width) only zero-extend the narrow input.
-- **fixISqrt128High** is split by its own three branches, which are disjoint and
-  together cover every input, but each branch is checked only on a narrow slice:
-  `isqrt_low` (hi == 0) only for roots below 2^8, that is lo < 2^16; `isqrt_mid` and
-  `isqrt_mid_top` (0 < hi < 2^40) only for roots in [2^32, 2^32 + 2^8) and
-  [2^52 - 2^8, 2^52); `isqrt_high` (hi >= 2^40) only for hi in 2^40 + [0, 2^8) or the top
-  2^8 values, with lo in ext(8). Everything between is unchecked.
-- **The sqrt seed is modelled, not computed, and its bound is an assumption.** CBMC
-  has no body for `__builtin_sqrt` and would hand each arm a different free value. The
-  harness gives both arms one shared seed, free within +-3 of the exact root. Sharing is
-  sound because the seed's argument is the same double expression of (hi, lo) in both
-  arms, with no 128-bit operation in it. That the real seed falls in the window is
-  argued, not checked by CBMC: the double argument is within one rounding of n, and a
-  correctly rounded sqrt of it truncates to within 2 of the root for n < 2^104. The claim
-  for the two seeded branches is: the arms agree for every seed in that window.
-- **The native arm is the C spelling.** It is built with `__x86_64__` undefined, so its
-  128/64 divides are `/`, not the inline `divq` the x86-64 build runs.
-- These are proofs about C semantics as CBMC models them, not about any compiler's code.
+## Timed out (no proof inferred)
 
-## Full-width and wider attempts that did not finish
+Each of these exited 124 under `timeout`; a timeout is not a result.
 
-None of these is a result; each is a timeout and nothing is inferred from it.
+| Property, domain | Solver | Cap |
+|---|---|---:|
+| fixmul, a and b full 64 bits | MiniSat 2 (CBMC), Z3 (CBMC) | 1200 s each (attempt 2) |
+| fixmul, a and b full 64 bits | Boolector 3.2.4 (ESBMC 8.5.0) | 600 s |
+| mul_u64, mul_i64, full 64 bits | MiniSat 2 (CBMC) | 150 s |
+| udivmod, sdiv, full 128 bits | MiniSat 2 (CBMC) | 150 s |
+| mul_u64, 12- and 16-bit sign extensions | MiniSat 2 (CBMC) | 90 s |
+| mul_u64, mul_i64, mul_128, udivmod, sdiv, fixmul, a full / b 4 bits with sign bit set | MiniSat 2 (CBMC) | 90 s |
+| mul_u64, 12-bit sign extension (sign runs 3) | Boolector (ESBMC) | 300 s |
+| isqrt_low, root 32 bits (the whole hi == 0 path) | MiniSat 2 (CBMC) | 600 s |
+| isqrt_low, root 8 bits, under Z3 | Z3 (CBMC) | 120 s |
 
-| Property | Domain tried | Solver | Timeout |
-|---|---|---|---:|
-| fixmul | full | MiniSat, Z3 | 1200 s (attempt 2), 600 s (Z3) |
-| mul_u64, mul_i64, mul_128, udivmod, sdiv, divrem64, fixdiv | full | MiniSat | 150 s |
-| mul_u64, mul_i64, mul_128, udivmod, sdiv, divrem64, fixdiv | full | Z3 (`SOLVER=--z3`) | 600 s |
-| isqrt_high | full | MiniSat | 1200 s |
-| isqrt_low | hi == 0, every root (zext 32) | Z3 | 600 s |
-| isqrt_mid | every root in [2^32, 2^52) | Z3 | 600 s |
-| mul_u64 | ext(12) zero case; full x zext(8) | MiniSat | 90 s, 60 s |
-| mul_u64 | ext(16) ones case | Z3 | 120 s |
-| mul_128 | ext(8) both ones; full x zext(4) | MiniSat | 300 s |
-| udivmod | ext(8) dividend ones; full / zext(2) | MiniSat | 300 s |
-| divrem64 | full / zext(2), d ones case | MiniSat | 300 s |
-| fixmul | ext(12) one negative; full x zext(8) | MiniSat | 90 s, 60 s |
-| fixmul, fixdiv, mul_i64, mul_u64 (wide) | full x zext(16) | Z3 | 120 s |
-| fixdiv, udivmod | ext(16) | MiniSat | 60 s |
-| divrem64 | hi, lo, d each ext(8), all zero-extended | MiniSat | 300 s |
+## ESBMC as a second engine
 
-The narrowings in the results table are the widest that finished in those probes. With
-short probe timeouts they are **not** shown to be the widest that would finish in 20
-minutes, and several rows finish in seconds; widening them toward the 20-minute bound is
-owed (see "Not done").
-Z3 is far faster than MiniSat on zero-extended inputs (mul_u64 on zext(32) x zext(32) in
-under a second) but no faster on ones-extended ones, so it does not widen the symmetric
-rows.
+ESBMC 8.5.0 (`/home/nova/sdk/bin/esbmc`, Boolector, Z3, Bitwuzla) was tried as the
+coordinator asked. Fed the three translation units directly it is UNSOUND for this
+harness: it merges same-named `static inline` functions across TUs, so both arms ran one
+body (a full-width fixmul "passed" in 1 s, and mul_u64 aborted with "argument type
+mismatch: got unsignedbv, expected struct" on `fixUInt128Hi`). That result is void.
+With each arm preprocessed (`gcc -std=gnu11 -E -P`) and its `fix*`/`out_*` names
+prefixed per arm, ESBMC + Boolector proved fixmul with sign runs 3 at 8 bits in 15 s
+(CBMC: 47 s) and at 12 bits in 85 s, but full-width fixmul still timed out at 600 s.
+That pipeline is not in the Makefile; the gate is CBMC only.
 
-## Not done
+CBMC links the arms correctly: `--show-goto-functions` lists `fixMul` and
+`fixMul$link1`, `fixUInt128Hi` and `fixUInt128Hi$link1`, `out_u` and `out_u$link1`, the
+first on the emulated struct type and the second on `signedbv[128]`.
 
-- The card's step 3 asks for the widest narrowing that finishes within 20 minutes. The
-  widths here come from probes with 60 to 300 s timeouts. Pushing each row toward 20
-  minutes is not done.
-- No CaDiCaL-enabled CBMC was available to try.
-- No full-width proof of any multiply, divide or square-root property.
+## Owed widenings
 
-## Harness history
+Everything except addsub, compares and shifts is narrowed. Owed, per function, from the
+widths above to full width: fixMul (8 bits; 64 x 4 bits), fixDiv (8 bits fast path;
+64 x 2 bits; 128-bit path 4 bits), fixISqrt128High (8-bit slices of each branch), the
+64x64 products (8 bits; 64 x 4 bits), the 128x128 products (6 bits; 128 x 2 bits),
+udivmod (6 bits), sdiv (8 bits), divrem64 (4 bits). The likely route: the per-arm renamed
+ESBMC pipeline above (about 3x faster than CBMC + MiniSat here), or a CBMC build with
+CaDiCaL, at 20 minutes per harness.
 
-Attempt 2's harness declared reserved `__CPROVER_nondet_*` names, which CBMC reported as
-`no-body` properties; it was corrected to the `nondet_` convention. This attempt reworked
-the harness into one property per primitive, added the narrowing knobs and the shared
-seed, and ran every property.
+## Scope
+
+Agreement of the two arms' C code, for the domains above. The native arm is built with
+`__x86_64__` undefined, so the C `/` spelling is checked, not the inline `divq`. This is
+not a proof of correctness of either arm against exact arithmetic, and says nothing about
+compiler code generation. Bench only; not part of CTest or CI.

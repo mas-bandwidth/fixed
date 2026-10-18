@@ -93,12 +93,37 @@ first on the emulated struct type and the second on `signedbv[128]`.
 ## Owed widenings
 
 Everything except addsub, compares and shifts is narrowed. Owed, per function, from the
-widths above to full width: fixMul (8 bits; 64 x 4 bits), fixDiv (8 bits fast path;
-64 x 2 bits; 128-bit path 4 bits), fixISqrt128High (8-bit slices of each branch), the
-64x64 products (8 bits; 64 x 4 bits), the 128x128 products (6 bits; 128 x 2 bits),
-udivmod (6 bits), sdiv (8 bits), divrem64 (4 bits). The likely route: the per-arm renamed
+widths above to full width:
+
+- fixMul: 8-bit sign extensions of a and b; and a full 64 bits with b in [0, 15] only.
+  Full a with NEGATIVE b is not proved (it timed out at 90 s with b's sign bit set).
+- fixDiv: fast path 8 bits; a full 64 bits with b in [0, 3] only (negative b owed);
+  128-bit path |a| >= 2^47 with a 4-bit free part and b in [-16, 15].
+- fixISqrt128High: an 8-bit slice of each of the three branches.
+- 64x64 products: 8 bits; a full with b in [0, 15] only (negative b owed).
+- 128x128 products: 6 bits; a full with b in [0, 3] only (negative b owed).
+- udivmod 6 bits, sdiv 8 bits, divrem64 4 bits.
+
+Also owed, because CBMC does not check them: the SQRT SEED assumption (both arms pass the
+same double to the seed, and the real seed is within 3 of the exact root), and that the
+inline `divq` the native x86-64 arm uses gives the same quotient as the C `/` checked here.
+
+No CaDiCaL-enabled CBMC was available to try; the Makefile's `--sat-solver cadical` falls
+back to MiniSat 2 on these benches. The likely route to the widenings: the per-arm renamed
 ESBMC pipeline above (about 3x faster than CBMC + MiniSat here), or a CBMC build with
 CaDiCaL, at 20 minutes per harness.
+
+## Coverage of the primitives
+
+fixMul uses fixInt128MulI64, Add, FromI64, Shr, Gt, Lt and ToI64; fixDiv uses
+fixInt128Div, ShiftLeft, FromI64, Gt, Lt and ToI64; fixISqrt128High uses fixUInt128MulU64,
+Add, Sub, Shl, Shr, Eq, Ge, Gt, Le, Make, Lo and FromU64 (read from fixed.h). Each has its
+own harness above (mul_i64, mul_u64, addsub, shifts, compares, sdiv), except FromU64,
+Make and Lo, which are checked only inside the isqrt harnesses and the output wrappers.
+
+Vacuity: no harness checks that its assumptions leave a path through every assertion.
+Some divrem64 sign runs make `hi < d` impossible (hi ones-extended, d zero-extended) and
+pass vacuously. The union over the 8 runs still covers every hi < d in the domain.
 
 ## Scope
 

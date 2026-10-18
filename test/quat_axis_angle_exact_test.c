@@ -29,7 +29,6 @@ static void hash_result( int64_t value )
 		axisangle_output_hash ^= ( bits >> ( 8 * i ) ) & 0xFF;
 		axisangle_output_hash *= UINT64_C( 0x00000100000001B3 );
 	}
-	(void)value;
 }
 static uint64_t axisangle_next( void )
 {
@@ -152,7 +151,12 @@ static int run( void )
 	// Uniform angles use 2^18 independently generated, normalized axes.
 	{
 		sample_row r = { 0 };
-		for ( uint32_t i = 0; i < SAMPLE_COUNT; i++ ) check_one( &r, random_unit_axis(), random_uniform_angle() );
+		for ( uint32_t i = 0; i < SAMPLE_COUNT; i++ )
+		{
+			fixVec3 axis = random_unit_axis();
+			fixed_t radians = random_uniform_angle();
+			check_one( &r, axis, radians );
+		}
 		print_axisangle_row( "uniform", &r ); failed |= r.maxulp > QUAT_BOUND;
 	}
 	// Raw neighborhoods of every k*pi, |k| <= 16, with reproducible axes.

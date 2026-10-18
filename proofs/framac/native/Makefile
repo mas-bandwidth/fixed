@@ -12,17 +12,18 @@
 # One frama-c run per wrapper, so a goal is always reported against one function.
 
 FRAMAC   ?= frama-c
+MACHDEP  ?= -machdep gcc_x86_64
 CC       ?= gcc
 OUT      ?= out
 # -wp-cache none: every run calls the provers, so a cached timeout or proof from an
 # earlier run never stands in for tonight's.
-WPFLAGS  ?= -wp -wp-rte -wp-prover alt-ergo,z3 -wp-timeout 60 -wp-par 4 -wp-cache none
+WPFLAGS  ?= -wp -wp-rte -wp-prover alt-ergo,z3 -wp-timeout 60 -wp-par 1 -wp-cache none
 # The RTE arms prove the runtime-error and ensures goals. The frame goals are not part
 # of this card (the library loops carry no loop assigns or variant; see the main card's
 # results.md), so they are left out here.
 RTEPROPS ?= -wp-prop=-@assigns,-@terminates
 # Every frama-c run is bounded, so one wrapper cannot hold the bench.
-LIMIT    ?= timeout 1800
+LIMIT    ?= timeout 600s prlimit --as=8589934592 --
 # The row for one log: WP's summary, or why there is none (no goal, or the run was cut
 # off), or the front end's refusal of __int128.
 STATUS    = { grep -E 'Proved goals:' $(1) | tail -1 | sed 's/^.*Proved goals: */Proved goals: /' | grep . || \
@@ -77,14 +78,21 @@ $(OUT):
 
 # Native path: compiler __int128, selected by fixed_int128.h only when __SIZEOF_INT128__
 # is defined. A parse error from the front end is reported, not hidden.
+# The sqrt seed carries 11 floating-point RTE goals; bound each prover call so this
+# wrapper still produces a complete summary within the 600-second process cap.
+$(OUT)/proveFixISqrt128High.native.log: native_acsl.c int128_native_stub.h | $(OUT)
+	$(LIMIT) $(FRAMAC) $(MACHDEP) -cpp-extra-args="$(NATIVE_CPP)" native_acsl.c \
+		$(KERNEL) $(subst -wp-timeout 60,-wp-timeout 10,$(WPFLAGS)) $(RTEPROPS) -wp-fct proveFixISqrt128High > $@ 2>&1 || true
+	@printf "%-28s %-8s %s\\n" proveFixISqrt128High native "$$($(call STATUS,$@))"
+
 $(OUT)/%.native.log: native_acsl.c int128_native_stub.h | $(OUT)
-	$(LIMIT) $(FRAMAC) -cpp-extra-args="$(NATIVE_CPP)" native_acsl.c \
+	$(LIMIT) $(FRAMAC) $(MACHDEP) -cpp-extra-args="$(NATIVE_CPP)" native_acsl.c \
 		$(KERNEL) $(WPFLAGS) $(RTEPROPS) -wp-fct $* > $@ 2>&1 || true
 	@printf '%-28s %-8s %s%s\n' $* native "$$($(call STATUS,$@))" "$$(grep -qiE 'syntax error|unknown type name .__int128|unsupported.*__int128' $@ && echo ' FRONT END REJECTS __int128 (see log)')"
 
 # fixMul under FIX_SATURATE, the saturating tail, on the native arm.
 $(OUT)/proveFixMul.native-saturate.log: native_acsl.c int128_native_stub.h | $(OUT)
-	$(LIMIT) $(FRAMAC) -cpp-extra-args="$(NATIVE_CPP) -DFIX_SATURATE" native_acsl.c \
+	$(LIMIT) $(FRAMAC) $(MACHDEP) -cpp-extra-args="$(NATIVE_CPP) -DFIX_SATURATE" native_acsl.c \
 		$(KERNEL) $(WPFLAGS) $(RTEPROPS) -wp-fct proveFixMul > $@ 2>&1 || true
 	@printf '%-28s %-8s %s%s\n' proveFixMul native-saturate "$$($(call STATUS,$@))" "$$(grep -qiE 'syntax error|unsupported.*__int128' $@ && echo ' FRONT END REJECTS __int128 (see log)')"
 
@@ -93,12 +101,12 @@ $(OUT)/proveFixMul.native-saturate.log: native_acsl.c int128_native_stub.h | $(O
 # remainder. It does not and cannot prove the asm body; that is a trusted assumption,
 # recorded in results.md.
 $(OUT)/proveUInt128DivRemBy64.native.log: native_acsl.c int128_native_stub.h | $(OUT)
-	$(LIMIT) $(FRAMAC) -cpp-extra-args="$(CPP_BASE) -DFIX_NATIVE_STUB_ONLY" native_acsl.c \
+	$(LIMIT) $(FRAMAC) $(MACHDEP) -cpp-extra-args="$(CPP_BASE) -DFIX_NATIVE_STUB_ONLY" native_acsl.c \
 		$(WPFLAGS) $(RTEPROPS) -wp-fct proveUInt128DivRemBy64 > $@ 2>&1 || true
 	@printf '%-28s %-8s %s%s\n' proveUInt128DivRemBy64 native "$$($(call STATUS,$@))" "$$(grep -qiE 'syntax error|unsupported.*__int128' $@ && echo ' FRONT END REJECTS __int128 (see log)')"
 
 $(OUT)/proveInt128Divq.native.log: native_acsl.c int128_native_stub.h | $(OUT)
-	$(LIMIT) $(FRAMAC) -cpp-extra-args="$(CPP_BASE) -DFIX_NATIVE_STUB_ONLY" native_acsl.c \
+	$(LIMIT) $(FRAMAC) $(MACHDEP) -cpp-extra-args="$(CPP_BASE) -DFIX_NATIVE_STUB_ONLY" native_acsl.c \
 		$(WPFLAGS) $(RTEPROPS) -wp-fct proveInt128Divq > $@ 2>&1 || true
 	@printf '%-28s %-8s %s%s\n' proveInt128Divq native "$$($(call STATUS,$@))" "$$(grep -qiE 'syntax error|unsupported.*__int128' $@ && echo ' FRONT END REJECTS __int128 (see log)')"
 

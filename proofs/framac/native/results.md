@@ -1,141 +1,98 @@
-# Results: the native __int128 arm
+# Native __int128 Frama-C results
 
-Run 2026-10-18 on the card's bench. Frama-C's front end does start (given a source file it
-runs, `-version`/`-help` report `Permission denied` from `exec`), but the WP plugin and
-the `alt-ergo`/`why3` provers are unusable: `-wp-help` is answered `option `-wp-help' is
-unknown`, because the WP plugin and the prover binaries live under `/home/nova/.opam`,
-which this sandbox cannot read or execute (`Permission denied (os error 13)`).
-`z3` at `/usr/bin/z3` runs, but WP cannot generate or prove a goal without its plugin. The
-`make native` logs therefore end at the kernel's unknown-option error, and every summary
-line is `NO SUMMARY`:
+Frama-C 33.0 parses the native arm when given -machdep gcc_x86_64 and
+-cpp-extra-args="-I../../../include -D__SIZEOF_INT128__=16". The default x86_64
+machdep rejects the first native typedef at include/fixed/fixed_int128.h:577:
 
-```
-[kernel] User Error: option `-wp-fct' is unknown.
-[kernel] Frama-C aborted: invalid user input.
-```
+    __int128 is a GCC extension, use a GCC-based machdep to enable it.
 
-So this file records what was checked here (the preprocessor branch, the UBSan
-INT128_MIN / -1 case, the stub contract) and what was not: every `Proved goals:` row.
-The next nightly on a bench where Frama-C and its WP plugin are readable runs
-`make -C proofs/framac/native nightly` and fills those rows. No row below is a claimed
-proof.
+With gcc_x86_64, Frama-C -print starts with typedef __int128 fixInt128 and typedef
+unsigned __int128 fixUInt128. The preprocessing branch check prints
+FIX_HAS_INT128=1, __SIZEOF_INT128__=16, FIX_INT128_EMULATED=0. The source also
+has a preprocessor error if the emulated branch is reached. No native-path
+result below relies on the default machdep.
 
-## The native arm is the one selected
+The native target uses one WP worker, Alt-Ergo 2.4.3 and Z3 4.13.3, per-goal
+timeout 60 seconds except the square-root wrapper's 10 seconds, a 600-second
+process cap, and an 8 GiB address-space cap. The complete make native target
+returned 0 and printed these exact rows; 0 / 0 means Frama-C generated no
+runtime-error or ensures goal, not that it proved the arithmetic behavior.
 
-`make -C proofs/framac/native branch`, run here with gcc:
+| wrapper | arm | proved / total |
+| --- | --- | --- |
+| proveFixMul | native | 3 / 3 |
+| proveFixISqrt128High | native | 8 / 11 |
+| proveInt128MulI64 | native | 3 / 3 |
+| proveInt128Add | native | 0 / 0, no goal generated |
+| proveInt128Shr | native | 2 / 2 |
+| proveInt128ShiftLeft | native | 2 / 2 |
+| proveUInt128Shl | native | 2 / 2 |
+| proveUInt128Shr | native | 2 / 2 |
+| proveUInt128MulU64 | native | 0 / 0, no goal generated |
+| proveUInt128Add | native | 0 / 0, no goal generated |
+| proveUInt128Sub | native | 0 / 0, no goal generated |
+| proveInt128Div | native | 4 / 5 |
+| proveInt128ToI64 | native | 0 / 0, no goal generated |
+| proveInt128Compare | native | 3 / 3 |
+| proveUInt128Compare | native | 7 / 7 |
+| proveUInt128DivRemBy64 | native | 6 / 6 |
+| proveInt128Divq | native | 5 / 5 |
+| proveFixMul | native-saturate | 3 / 4 |
 
-```
-native branch selection (-D__SIZEOF_INT128__=16, FIX_FORCE_EMULATED_INT128 unset):
-#define FIX_HAS_INT128 1
-#define __SIZEOF_INT128__ 16
-#define FIX_INT128_EMULATED 0
-```
+Every unproved generated goal:
 
-`FIX_INT128_EMULATED 0` can only come from the `__SIZEOF_INT128__` branch at
-include/fixed/fixed_int128.h:567. `FIX_FORCE_EMULATED_INT128` is not defined. In
-addition, `native_acsl.c` carries `#if FIX_INT128_EMULATED #error ... #endif`, so a
-Frama-C run that reaches the emulated branch fails instead of silently repeating the
-main card's emulated rows. The Makefile also prints this `-dM` grep as the first line of
-`make native`.
+- typed_proveFixISqrt128High_assert_rte_is_nan_or_infinite and its _2 variant:
+  the floating seed conversions at include/fixed/fixed.h:300 and :316.
+  Alt-Ergo timed out at 10 seconds on each. A focused Z3-only retry failed
+  both; no proof or counterexample was established.
+- typed_proveFixISqrt128High_call___builtin_sqrt_builtin_sqrt_requires:
+  the assumed finite, nonnegative argument contract in native_acsl.c:69 at
+  the call in include/fixed/fixed.h:300. Alt-Ergo timed out at 10 seconds.
+  Z3-only also failed this call goal and the analogous second call at :316.
+  These are prover limits; neither makes the square-root result proved.
+- typed_proveFixMul_ensures: the saturation range postcondition in
+  native_acsl.c:92. Alt-Ergo and a separate Z3-only run each timed out at
+  60 seconds. The contract is retained; the result is not proved.
+- typed_proveInt128Div_assert_rte_signed_overflow_2: the generic native
+  division at include/fixed/fixed.h:166. The code does not guard
+  INT128_MIN / -1. This is a real undefined behavior, confirmed below,
+  rather than a prover limit.
 
-## The wrappers on the native arm
+The INT128_MIN / -1 confirmation uses the following C program, compiled
+with gcc -std=c11 -O0 -fsanitize=undefined -fno-sanitize-recover=all and the
+repository include directory:
 
-`native_acsl.c` proves, on the native types, the same set the main card proved on the
-emulated pair:
+    #include <stdint.h>
+    #include <stdio.h>
+    #include "fixed/fixed.h"
+    int main(void) {
+        volatile fixInt128 a = (fixInt128)(((fixUInt128)1) << 127);
+        volatile fixInt128 b = -1;
+        volatile fixInt128 q = fixInt128Div(a, b);
+        printf("%016llx:%016llx\n",
+               (unsigned long long)fixInt128Hi(q),
+               (unsigned long long)fixInt128Lo(q));
+        return 0;
+    }
 
-- `proveFixMul` and `proveFixMul` with `-DFIX_SATURATE`
-- `proveFixISqrt128High` (it contains no divide)
-- the 13 int128 primitives: `proveInt128MulI64`, `proveInt128Add`,
-  `proveInt128Shr`, `proveInt128ShiftLeft`, `proveUInt128Shl`, `proveUInt128Shr`,
-  `proveUInt128MulU64`, `proveUInt128Add`, `proveUInt128Sub`, `proveInt128Div`,
-  `proveInt128ToI64`, `proveInt128Compare`, `proveUInt128Compare`
+The process exits 1 and prints:
 
-`make -C proofs/framac/native native` builds each log and then prints one summary line
-per wrapper. The target exists; its rows are empty here only because the prover could not
-start. `make -C proofs/framac/native nightly` is the target the main card's `nightly`
-calls (clean `out/`, then `native`, then the summary).
+    repo/include/fixed/fixed.h:166:11: runtime error: division of 0x80000000000000000000000000000000 by -1 cannot be represented in type '__int128'
 
-## INT128_MIN / -1: real undefined behaviour, not guarded
+The two divq rows prove wrapper composition against declarations; they do not
+verify the inline assembly. The hardware divq instruction has no memory
+side effect. The enclosing fixUInt128DivRemBy64 helper does write its
+remainder through a pointer, so its sound stub contract requires a valid
+pointer and assigns *remainder (int128_native_stub.h:36-43). Its quotient
+and remainder postconditions are the documented division semantics.
+The signed fixInt128Divq declaration has assigns nothing and the
+quotient-fit preconditions that exclude the INT128_MIN / -1 case.
+The real instruction bodies at include/fixed/fixed_int128.h:640 and
+include/fixed/fixed.h:130 remain trusted assumptions, not proved goals.
 
-The native `fixInt128Div` has no guard for this case. include/fixed/fixed.h documents
-the emulated arm's wrap ("Signed INT128_MIN / -1 wraps to INT128_MIN with a zero
-remainder", fixed_int128.h:41) but the native arm is the compiler's `a / b`, which is
-undefined. The x86-64 fast path does not catch it: with `a = INT128_MIN`, `b = -1`,
-`|a| = 2^127` has high half `2^63`, which is not below `v = 1`, so control falls through
-to `return a / b;` at include/fixed/fixed.h:166.
-
-Program run here (`-fsanitize=undefined`, gcc 15.2.0), and re-confirmed on this bench's
-gcc 13.3.0 at attempt 2 with the same message (line 166):
-
-```c
-#include <stdint.h>
-#include <stdio.h>
-#include "fixed/fixed.h"
-
-int main( void )
-{
-	volatile fixInt128 a = (fixInt128)( ( (fixUInt128)1 ) << 127 ); // INT128_MIN
-	volatile fixInt128 b = -1;
-	volatile fixInt128 q = fixInt128Div( a, b );
-	printf( "%016llx:%016llx\n", (unsigned long long)fixInt128Hi( q ), (unsigned long long)fixInt128Lo( q ) );
-	return 0;
-}
-```
-
-```
-$ gcc -std=c11 -O0 -fsanitize=undefined -fno-sanitize-recover=all -I include int128_min_div.c
-$ ./a.out
-include/fixed/fixed.h:166:11: runtime error: division of 0x80000000000000000000000000000000 by -1 cannot be represented in type '__int128'
-```
-
-Attempt 2 re-run (gcc 13.3.0, the bench's compiler) with `-I repo/include` from the job
-directory produced the identical report at the same line:
-
-```
-repo/include/fixed/fixed.h:166:11: runtime error: division of 0x80000000000000000000000000000000 by -1 cannot be represented in type '__int128'
-```
-
-This is a real undefined behaviour in the library's native path, not a prover limit. It is
-left as an open goal on purpose: `proveInt128Div` requires only `b != 0`, so WP will
-report the signed-overflow goal at include/fixed/fixed.h:166 rather than have the
-contract exclude the case. The emulated arm does not have this goal (it wraps).
-
-## The divq inline asm
-
-`int128_native_stub.h` gives the asm the contract the code documents:
-
-- `fixUInt128DivRemBy64` (include/fixed/fixed_int128.h:629): requires `d != 0` and
-  `(a >> 64) < d` (the quotient fits in 64 bits, which is what keeps `divq` from
-  faulting); assigns nothing to memory; ensures `\result == a / d` and
-  `*remainder == a % d`.
-- `fixInt128Divq` (the asm inside include/fixed/fixed.h:130): requires `b != 0`, a
-  divisor whose magnitude fits in 64 bits, and `uhi < v` (the quotient fit); assigns
-  nothing; ensures `\result == a / b`.
-
-The `divq` target proves that these contracts compose as declarations. The asm body
-itself is a trusted assumption: WP cannot read inline asm, so the contract is what is
-proved against, and this is recorded here rather than claimed as a proof of the
-instruction.
-
-## Every unproved goal, with its line and reason
-
-No Frama-C run completed on this bench, so there is no WP goal list from it. The open
-items that are known before a run:
-
-- `proveInt128Div`: the native signed divide at include/fixed/fixed.h:166 for
-  `a == INT128_MIN && b == -1`. Reason: real undefined behaviour, shown under UBSan
-  above. Deliberately not excluded from the contract.
-- The two `divq` wrappers: not a goal WP can discharge; the asm body is behind the
-  contracts in `int128_native_stub.h` (trusted assumption). Lines:
-  include/fixed/fixed_int128.h:640 and include/fixed/fixed.h:130.
-- If Frama-C 33 rejects `__int128` in its front end, every native log will end with that
-  parse error at the first `__int128` typedef (include/fixed/fixed_int128.h:577) and the
-  Makefile's summary prints `not run: front end rejects __int128`. The smallest
-  equivalent then is a front-end model of the native operators, not a contract change;
-  that is not attempted here because no Frama-C was available to read the error.
-
-## Not done
-
-- The Frama-C runs themselves (`Proved goals: N / M` per wrapper).
-- Any decision about Frama-C 33's `__int128` support.
-- The emulated/frame arms are the main card's and are not repeated here.
+The WP runs exclude assigns and terminates goals. Frama-C also warns that
+unaligned-pointer and invalid-function-pointer RTE guards are unsupported.
+The five unsigned arithmetic rows with 0 / 0 establish no property.
+No fixDiv wrapper was run; that belongs to the separate fixDiv card.
+The nightly target cleans generated logs and invokes this native target;
+the coordinator must connect it to the main nightly target after landing.

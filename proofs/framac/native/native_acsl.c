@@ -33,6 +33,7 @@
 
 /*@ requires d != 0;
     requires ( a >> 64 ) < d;
+    requires \valid( remainder );
     assigns *remainder;
     ensures \result == a / d;
     ensures *remainder == a % d;

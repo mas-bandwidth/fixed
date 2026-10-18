@@ -14,8 +14,8 @@
 //   - the high half of the dividend is below the divisor, which is exactly the condition
 //     that makes the quotient fit in 64 bits and is what keeps divq from faulting
 //     (fixed_int128.h, fixUInt128DivRemBy64);
-//   - assigns \nothing: divq writes only its register operands, and the remainder is the
-//     out-parameter value its caller stores;
+//   - divq itself assigns no memory, but the enclosing helper stores its
+//     remainder through the out-parameter; its contract assigns *remainder;
 //   - the quotient is a / d truncated toward zero and the remainder is a % d with the
 //     sign of the dividend, as fixInt128DivMod documents.
 
@@ -35,7 +35,8 @@ __extension__ typedef __int128 fixInt128;
 // the quotient fits in 64 bits (divq's fault condition is precisely the negation of it).
 /*@ requires d != 0;
     requires ( a >> 64 ) < d;
-    assigns \nothing;
+    requires \valid( remainder );
+    assigns *remainder;
     ensures \result == a / d;
     ensures *remainder == a % d;
 */

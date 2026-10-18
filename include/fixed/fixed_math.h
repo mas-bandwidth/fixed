@@ -65,6 +65,12 @@ FIX_API fixed_t fixLog2( fixed_t a );
 /// below the smallest representable value.
 FIX_API fixed_t fixExp2( fixed_t a );
 
+/// Base-2 exponential within 2 raw units of correctly rounded over the whole Q48.16 domain,
+/// integer only. Saturates to INT64_MAX at and above 47 rad and returns 0 where the
+/// correctly rounded result is 0. The bound of 2 raw over the whole domain is checked
+/// against CORE-MATH at the pin by test/exp2_exact_test.c.
+FIX_API fixed_t fixExp2Exact( fixed_t a );
+
 /// base raised to exponent, as fixExp2( exponent * fixLog2( base ) ). Returns 0 for
 /// base <= 0 and one for a zero exponent.
 FIX_API fixed_t fixPow( fixed_t base, fixed_t exponent );

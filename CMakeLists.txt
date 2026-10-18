@@ -284,6 +284,31 @@ if (NOT MSVC)
     target_compile_definitions(fixed_sincos_negative_control PRIVATE SINCOS_NEGATIVE_CONTROL)
     add_test(NAME sincos_negative_control COMMAND fixed_sincos_negative_control)
     set_tests_properties(sincos_negative_control PROPERTIES WILL_FAIL TRUE)
+
+    # The correctly-rounded exp2 oracle for fixExp2Exact. Same pattern as the sincos oracle:
+    # a test-only object library with its own flags and warnings off, linked only into the
+    # exp2 tests below.
+    add_library(fixed_core_math_exp2_object OBJECT extern/core-math/exp2/exp2.c)
+    target_compile_options(fixed_core_math_exp2_object PRIVATE -O2 -ffp-contract=off -w)
+
+    add_executable(fixed_exp2_exact_test test/exp2_exact_test.c)
+    target_link_libraries(fixed_exp2_exact_test PRIVATE fixed fixed_core_math_exp2_object)
+    add_test(NAME exp2_exact COMMAND fixed_exp2_exact_test)
+
+    # Same oracle against the emulated 128-bit arm: fixExp2Exact must be bit-identical.
+    if (TARGET fixed_emulated)
+        add_executable(fixed_exp2_exact_emulated_test test/exp2_exact_test.c)
+        target_link_libraries(fixed_exp2_exact_emulated_test PRIVATE fixed_emulated fixed_core_math_exp2_object)
+        add_test(NAME exp2_exact_emulated COMMAND fixed_exp2_exact_emulated_test)
+    endif()
+
+    # Negative control: the same test evaluating fixExp2 instead of fixExp2Exact. It must
+    # exceed the bound and fail, so CTest expects failure.
+    add_executable(fixed_exp2_exact_negative_control test/exp2_exact_test.c)
+    target_link_libraries(fixed_exp2_exact_negative_control PRIVATE fixed fixed_core_math_exp2_object)
+    target_compile_definitions(fixed_exp2_exact_negative_control PRIVATE EXP2_NEGATIVE_CONTROL)
+    add_test(NAME exp2_exact_negative_control COMMAND fixed_exp2_exact_negative_control)
+    set_tests_properties(exp2_exact_negative_control PROPERTIES WILL_FAIL TRUE)
 endif()
 option(FIX_BUILD_BENCHMARKS "Build the numerical public-API microbenchmarks" OFF)
 if (FIX_BUILD_BENCHMARKS)

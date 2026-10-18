@@ -33,6 +33,8 @@ NAT_LOGS   = $(patsubst %,$(OUT)/%.native.log,$(WRAPPERS))
 
 all: emulated native summary
 
+# Logs depend on the wrapper file only: run `make clean` after changing a header or a flag.
+
 emulated: $(EMU_LOGS)
 
 native: $(NAT_LOGS)
@@ -44,7 +46,7 @@ $(OUT):
 $(OUT)/%.emulated.log: kernels_acsl.c | $(OUT)
 	$(FRAMAC) -cpp-extra-args="$(CPP_BASE) -DFIX_FORCE_EMULATED_INT128" kernels_acsl.c \
 		$(KERNEL) $(WPFLAGS) -wp-fct $* > $@ 2>&1 || true
-	@printf '%-24s %-18s %s\n' $* emulated "$$(grep -E 'Proved goals:' $@ | tail -1 | sed 's/^ *//')"
+	@printf '%-24s %-18s %s%s\n' $* emulated "$$(grep -E 'Proved goals:' $@ | tail -1 | sed 's/^ *//')" "$$(grep -qiE 'prover .*(not|un)(found|available|known)|no prover' $@ && echo ' PROVER MISSING: Qed only')"
 
 # fixMul under FIX_SATURATE, the saturating tail.
 $(OUT)/proveFixMul.emulated-saturate.log: kernels_acsl.c | $(OUT)
@@ -65,6 +67,7 @@ summary:
 		b=$$(basename $$f .log); fn=$${b%%.*}; arm=$${b#*.}; \
 		line=$$(grep -E 'Proved goals:' $$f | tail -1 | sed 's/^.*Proved goals: *//'); \
 		grep -q 'syntax error' $$f && line="not run: front end rejects __int128"; \
+		grep -qiE 'prover .*(not|un)(found|available|known)|no prover' $$f && line="$$line PROVER MISSING: Qed only"; \
 		printf '%-24s %-18s %s\n' $$fn $$arm "$${line:-no WP summary (see $$f)}"; \
 	done
 

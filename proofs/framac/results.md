@@ -11,11 +11,13 @@ kernels_acsl.c -inline-calls @inline -remove-inlined @inline -wp -wp-rte -wp-pro
 
 | wrapper | proved / total | note |
 |---|---|---|
-| proveFixMul | 126 / 126 | all by Qed; no SMT prover needed |
+| proveFixMul | 126 / 126 | all by Qed; emulated, without FIX_SATURATE only |
 | proveFixDiv | no summary | run stopped at the 300 s cap; a Missing assigns warning at fixed_int128.h:417 (fixEmuUInt128DivMod's out-parameters) |
 | proveFixISqrt128High | 81 / 143 | 62 Unknown under Qed alone, including the two __builtin_sqrt preconditions and assigns parts; these need an SMT prover |
 
-None of the Unknown goals above is classified yet: a Qed Unknown is not a finding until
+Not run at all: proveFixMul under FIX_SATURATE and the 13 primitive wrappers. The 62
+Unknown goals of proveFixISqrt128High are a count, not yet a named list. None of the
+Unknown goals above is classified yet: a Qed Unknown is not a finding until
 alt-ergo and z3 have run on it.
 
 ## Cross-check: Eva, emulated path, hetzner2, Frama-C 25.0
@@ -26,6 +28,9 @@ by zero and signed overflow on the fast-path divide), both imprecision of a non-
 domain: the b == 0 return above it and the |a| < 2^47 guard rule both out.
 
 ## Native __int128 path
+
+Expected when it runs: proveInt128Div native leaves the INT128_MIN / -1 overflow goal
+unproved (its contract only excludes b == 0, as the library documents).
 
 Not run: Frama-C 25 rejects `__int128` (include/fixed/fixed_int128.h:577, syntax error).
 

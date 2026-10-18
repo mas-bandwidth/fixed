@@ -81,8 +81,8 @@ uint64_t proveFixISqrt128High( uint64_t hi, uint64_t lo )
 //
 // Proved on their own as well, so a goal inside a primitive is reported against the
 // primitive and not only against the kernel that inlines it. fixed_int256.h is not
-// used by fixMul, fixDiv or fixISqrt128High (its one consumer is fixUInt128Mul128 in
-// src/fixed_math.c), so no int256 primitive is in scope.
+// used by fixMul, fixDiv or fixISqrt128High (its consumers are src/fixed_math.c and the
+// fixDivShifted256 family in fixed_vec.h), so no int256 primitive is in scope.
 
 // The widening multiply cannot overflow: the largest product of two int64 is 2^126.
 /*@ assigns \nothing; */
@@ -152,7 +152,9 @@ fixUInt128 proveUInt128Sub( fixUInt128 a, fixUInt128 b )
 
 // Division by zero is undefined on both arms (fixed_int128.h: "Every divide in this
 // library guards its divisor first"). The quotient fixDiv asks for is a 64-bit value
-// shifted up by 16 over a non-zero 64-bit divisor.
+// shifted up by 16 over a non-zero 64-bit divisor. On the native arm, INT128_MIN / -1 is
+// also undefined and this contract does not exclude it, so that RTE goal is expected to
+// stay unproved for proveInt128Div native; fixDiv never forms that dividend.
 #if FIX_INT128_EMULATED
 /*@ requires b.hi != 0 || b.lo != 0;
   @ assigns \nothing;

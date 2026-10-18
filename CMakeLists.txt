@@ -317,6 +317,23 @@ if (NOT MSVC)
     add_test(NAME sincos_exact_negative_control COMMAND fixed_sincos_exact_negative_control)
     set_tests_properties(sincos_exact_negative_control PROPERTIES WILL_FAIL TRUE)
 
+    # Exact axis-angle quaternion against the same pinned CORE-MATH sine/cosine oracle.
+    add_executable(fixed_quat_axis_angle_exact_test test/quat_axis_angle_exact_test.c)
+    target_link_libraries(fixed_quat_axis_angle_exact_test PRIVATE fixed fixed_core_math_object)
+    add_test(NAME quat_axis_angle_exact COMMAND fixed_quat_axis_angle_exact_test)
+
+    if (TARGET fixed_emulated)
+        add_executable(fixed_quat_axis_angle_exact_emulated_test test/quat_axis_angle_exact_test.c)
+        target_link_libraries(fixed_quat_axis_angle_exact_emulated_test PRIVATE fixed_emulated fixed_core_math_object)
+        add_test(NAME quat_axis_angle_exact_emulated COMMAND fixed_quat_axis_angle_exact_emulated_test)
+    endif()
+
+    add_executable(fixed_quat_axis_angle_exact_negative_control test/quat_axis_angle_exact_test.c)
+    target_link_libraries(fixed_quat_axis_angle_exact_negative_control PRIVATE fixed fixed_core_math_object)
+    target_compile_definitions(fixed_quat_axis_angle_exact_negative_control PRIVATE QUAT_AXIS_ANGLE_EXACT_NEGATIVE_CONTROL)
+    add_test(NAME quat_axis_angle_exact_negative_control COMMAND fixed_quat_axis_angle_exact_negative_control)
+    set_tests_properties(quat_axis_angle_exact_negative_control PROPERTIES WILL_FAIL TRUE)
+
     # CORE-MATH cr_atan2, the test-only oracle for fixAtan2Exact and the exact quaternion angles.
     # Its own object library with the same flags, linked only into the tests below.
     add_library(fixed_core_math_atan2_object OBJECT extern/core-math/atan2/atan2.c)
@@ -364,6 +381,31 @@ if (NOT MSVC)
     target_compile_definitions(fixed_exp2_exact_negative_control PRIVATE EXP2_NEGATIVE_CONTROL)
     add_test(NAME exp2_exact_negative_control COMMAND fixed_exp2_exact_negative_control)
     set_tests_properties(exp2_exact_negative_control PROPERTIES WILL_FAIL TRUE)
+
+    # The correctly-rounded pow oracle for fixPowExact. Same pattern as the exp2 oracle: a
+    # test-only object library with its own flags and warnings off, linked only into the pow
+    # tests below.
+    add_library(fixed_core_math_pow_object OBJECT extern/core-math/pow/pow.c)
+    target_compile_options(fixed_core_math_pow_object PRIVATE -O2 -ffp-contract=off -w)
+
+    add_executable(fixed_pow_exact_test test/pow_exact_test.c)
+    target_link_libraries(fixed_pow_exact_test PRIVATE fixed fixed_core_math_pow_object)
+    add_test(NAME pow_exact COMMAND fixed_pow_exact_test)
+
+    # Same oracle against the emulated 128-bit arm: fixPowExact must be bit-identical.
+    if (TARGET fixed_emulated)
+        add_executable(fixed_pow_exact_emulated_test test/pow_exact_test.c)
+        target_link_libraries(fixed_pow_exact_emulated_test PRIVATE fixed_emulated fixed_core_math_pow_object)
+        add_test(NAME pow_exact_emulated COMMAND fixed_pow_exact_emulated_test)
+    endif()
+
+    # Negative control: the same test evaluating fixPow instead of fixPowExact. It must
+    # exceed the bound and fail, so CTest expects failure.
+    add_executable(fixed_pow_exact_negative_control test/pow_exact_test.c)
+    target_link_libraries(fixed_pow_exact_negative_control PRIVATE fixed fixed_core_math_pow_object)
+    target_compile_definitions(fixed_pow_exact_negative_control PRIVATE POW_NEGATIVE_CONTROL)
+    add_test(NAME pow_exact_negative_control COMMAND fixed_pow_exact_negative_control)
+    set_tests_properties(pow_exact_negative_control PROPERTIES WILL_FAIL TRUE)
 endif()
 
 # The double/float to Q48.16 conversions, checked against an integer-only bit-level
@@ -387,6 +429,44 @@ if (TARGET fixed_emulated)
     endif()
     add_test(NAME from_double_emulated COMMAND fixed_from_double_emulated_test)
 endif()
+# Exact critically damped smoothing: the new pair against the formula with the true pi,
+# long double reference, seeded sweeps of the core and the task's wide range. The negative
+# control swaps in the shipped pair and must fail (WILL_FAIL); its core velocity row shows
+# the rounding error the exact path removes.
+add_executable(fixed_smooth_damped_exact_test test/smooth_damped_exact_test.c)
+target_link_libraries(fixed_smooth_damped_exact_test PRIVATE fixed)
+add_test(NAME smooth_damped_exact COMMAND fixed_smooth_damped_exact_test)
+
+if (TARGET fixed_emulated)
+    add_executable(fixed_smooth_damped_exact_emulated_test test/smooth_damped_exact_test.c)
+    target_link_libraries(fixed_smooth_damped_exact_emulated_test PRIVATE fixed_emulated)
+    add_test(NAME smooth_damped_exact_emulated COMMAND fixed_smooth_damped_exact_emulated_test)
+endif()
+
+add_executable(fixed_smooth_damped_exact_negative_control test/smooth_damped_exact_test.c)
+target_link_libraries(fixed_smooth_damped_exact_negative_control PRIVATE fixed)
+target_compile_definitions(fixed_smooth_damped_exact_negative_control PRIVATE SMOOTH_DAMPED_NEGATIVE_CONTROL)
+add_test(NAME smooth_damped_exact_negative_control COMMAND fixed_smooth_damped_exact_negative_control)
+set_tests_properties(smooth_damped_exact_negative_control PROPERTIES WILL_FAIL TRUE)
+
+# Exact angle unwinding, with an independent Q80 two-pi reference and the historical reducer
+# retained as a negative control.
+add_executable(fixed_unwind_angle_test test/unwind_angle_test.c)
+target_link_libraries(fixed_unwind_angle_test PRIVATE fixed)
+add_test(NAME unwind_angle COMMAND fixed_unwind_angle_test)
+
+add_executable(fixed_unwind_angle_negative_control test/unwind_angle_test.c)
+target_link_libraries(fixed_unwind_angle_negative_control PRIVATE fixed)
+target_compile_definitions(fixed_unwind_angle_negative_control PRIVATE UNWIND_ANGLE_NEGATIVE_CONTROL)
+add_test(NAME unwind_angle_negative_control COMMAND fixed_unwind_angle_negative_control)
+set_tests_properties(unwind_angle_negative_control PROPERTIES WILL_FAIL TRUE)
+
+if (TARGET fixed_emulated)
+    add_executable(fixed_unwind_angle_emulated_test test/unwind_angle_test.c)
+    target_link_libraries(fixed_unwind_angle_emulated_test PRIVATE fixed_emulated)
+    add_test(NAME unwind_angle_emulated COMMAND fixed_unwind_angle_emulated_test)
+endif()
+
 option(FIX_BUILD_BENCHMARKS "Build the numerical public-API microbenchmarks" OFF)
 if (FIX_BUILD_BENCHMARKS)
     add_executable(fixed_numerical_bench benchmark/numerical_bench.c)

@@ -95,6 +95,13 @@ typedef struct fixCosSin
 	fixed_t sine;
 } fixCosSin;
 
+/* Wide Q2.62 sine/cosine pair used by exact fixed-point quaternion construction. */
+typedef struct fixCosSinWide
+{
+	int64_t cosineQ62;
+	int64_t sineQ62;
+} fixCosSinWide;
+
 /// atan2 accurate to ~0.0023 degrees. Deterministic (unlike the standard library).
 FIX_API fixed_t fixAtan2( fixed_t y, fixed_t x );
 
@@ -139,16 +146,24 @@ FIX_INLINE fixed_t fixCos( fixed_t radians ) { fixCosSin cs = fixComputeCosSin( 
 /// fixSin, fixCos, fixComputeCosSin and fixComputeCosSinPrecise keep their frozen outputs.
 FIX_API fixCosSin fixComputeCosSinExact( fixed_t radians );
 
+/* Exact wide sine/cosine of radians / 2, before Q48.16 rounding. */
+FIX_API fixCosSinWide fixComputeCosSinHalfExactWide( fixed_t radians );
+
 FIX_INLINE fixed_t fixSinExact( fixed_t radians ) { fixCosSin cs = fixComputeCosSinExact( radians ); return cs.sine; }
 FIX_INLINE fixed_t fixCosExact( fixed_t radians ) { fixCosSin cs = fixComputeCosSinExact( radians ); return cs.cosine; }
 
-/// Convert any angle into the range [-pi, pi].
+/// Convert any angle into the range [-pi, pi]. The original function remains frozen because
+/// fixComputeCosSinPrecise and existing hash-pinned consumers use its outputs.
 FIX_INLINE fixed_t fixUnwindAngle( fixed_t radians )
 {
 	const fixed_t twoPi = FIX( 6.28318530718 );
 	int64_t n = ( fixDiv( radians, twoPi ) + FIX_HALF ) >> FIX_FRACTION_BITS;
 	return (fixed_t)fixInt128ToI64( fixInt128Sub( fixInt128FromI64( radians ), fixInt128MulI64( n, twoPi ) ) );
 }
+
+/// Exact reduction into [-pi, pi], within 1 raw of x - 2*pi*round(x/(2*pi)) for every input.
+/// Integer-only and bit-identical on native/emulated 128-bit arms. See test/unwind_angle_test.c.
+FIX_API fixed_t fixUnwindAngleExact( fixed_t radians );
 
 // Saturating replacements for the Q48.16 -> int32 conversions and for the top-edge
 // wrap of fixCeil. The originals live in include/fixed/fixed.h and are frozen:
@@ -289,6 +304,14 @@ FIX_API fixed_t fixExp2Exact( fixed_t a );
 /// base <= 0 and one for a zero exponent.
 FIX_API fixed_t fixPow( fixed_t base, fixed_t exponent );
 
+/// base raised to exponent within 2 raw units of correctly rounded, for every base > 0 and
+/// every exponent, integer only: 2^( exponent * log2( base ) ) with log2 carried to up to 120
+/// fraction bits and the product held wide, so it never wraps. Saturates to INT64_MAX when the
+/// result is at or above 2^47, returns 0 where the correctly rounded result is 0, FIX_ONE for
+/// a zero exponent, and 0 for base <= 0. The bound of 2 raw for every base > 0 is checked
+/// against CORE-MATH at the pin by test/pow_exact_test.c.
+FIX_API fixed_t fixPowExact( fixed_t base, fixed_t exponent );
+
 // ---------------------------------------------------------------------------------------------
 // Q2.30 normalization
 // ---------------------------------------------------------------------------------------------
@@ -313,3 +336,18 @@ FIX_API fixed_t fixSmoothCriticallyDamped( fixed_t current, fixed_t target, fixe
 /// magnitude) and down. The time is selected by comparing |target| to |current|.
 FIX_API fixed_t fixSmoothCriticallyDampedUpDown( fixed_t current, fixed_t target, fixed_t* velocity,
 												 fixed_t smoothTimeUp, fixed_t smoothTimeDown, fixed_t deltaTime );
+
+/// The same formula with the true pi and one rounding per output: omega = 2 pi / smoothTime;
+/// velocity' = ( velocity - omega^2 dt ( current - target ) ) / ( 1 + omega dt )^2;
+/// result = current + velocity' dt. Both outputs are within 2 raw units of the correctly
+/// rounded exact value for current, target and velocity in +-2^20 rad, smoothTime in
+/// [1/16, 1024] rad and deltaTime in (0, 1]; outputs past the fixed_t range saturate.
+/// The early returns are unchanged: smoothTime <= 0 returns target, deltaTime <= 0 returns
+/// current, and velocity is not touched. See test/smooth_damped_exact_test.c.
+FIX_API fixed_t fixSmoothCriticallyDampedExact( fixed_t current, fixed_t target, fixed_t* velocity,
+												fixed_t smoothTime, fixed_t deltaTime );
+
+/// fixSmoothCriticallyDampedExact with separate smoothing times for moving up (toward a
+/// larger magnitude) and down, selected by comparing |target| to |current|.
+FIX_API fixed_t fixSmoothCriticallyDampedUpDownExact( fixed_t current, fixed_t target, fixed_t* velocity,
+													  fixed_t smoothTimeUp, fixed_t smoothTimeDown, fixed_t deltaTime );

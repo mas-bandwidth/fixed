@@ -66,28 +66,22 @@ static int64_t diff64( int64_t a, int64_t b )
 	return d > (uint64_t)INT64_MAX ? INT64_MAX : (int64_t)d;
 }
 
-// Round the long double reference to nearest raw, halves away from zero, and saturate at
-// the fixed_t range. The clamping keeps the long double -> int64 conversion in range.
+// Round the long double reference to nearest raw, halves away from zero. Every reference
+// raw in pieces (a), (b) and (c) is below 2^38 in magnitude, well inside a 53-bit
+// significand; clamping at +-2^62 (an exact power of two in every floating-point format)
+// keeps the long double -> int64 conversion strictly in range without rounding FIX_MAX.
 static int64_t reference_raw( long double x )
 {
-	const long double limit = (long double)FIX_MAX;
-	if ( x >= limit + 0.5L )
+	const long double clamp = (long double)( (int64_t)1 << 62 );
+	if ( x >= clamp )
 	{
-		return FIX_MAX;
+		return (int64_t)1 << 62;
 	}
-	if ( x <= -limit - 0.5L )
+	if ( x <= -clamp )
 	{
-		return FIX_MIN;
+		return -( (int64_t)1 << 62 );
 	}
 	long double r = x >= 0.0L ? x + 0.5L : x - 0.5L;
-	if ( r > limit )
-	{
-		r = limit;
-	}
-	if ( r < -limit )
-	{
-		r = -limit;
-	}
 	return (int64_t)r;
 }
 
@@ -138,9 +132,8 @@ typedef struct row
 	int64_t worstRef;
 } row;
 
-static void check( row* r, const int64_t in[5], int64_t got, long double refLong )
+static void check_raw( row* r, const int64_t in[5], int64_t got, int64_t ref )
 {
-	int64_t ref = reference_raw( refLong );
 	int64_t d = diff64( got, ref );
 	r->inputs++;
 	if ( d > r->maxulp )
@@ -154,6 +147,11 @@ static void check( row* r, const int64_t in[5], int64_t got, long double refLong
 	{
 		r->failed = 1;
 	}
+}
+
+static void check( row* r, const int64_t in[5], int64_t got, long double refLong )
+{
+	check_raw( r, in, got, reference_raw( refLong ) );
 }
 
 static void print_row( const row* r )
@@ -175,6 +173,24 @@ static void run_case( row* pos, row* vel, int64_t current, int64_t target, int64
 
 	check( pos, in, got, refPos );
 	check( vel, in, gotVelocity, refVel );
+}
+
+static void run_pos_saturation_case( row* pos, int64_t current, int64_t target, int64_t velocity, int64_t smoothTime,
+									 int64_t deltaTime, fixed_t expectedPos )
+{
+	int64_t in[5] = { current, target, velocity, smoothTime, deltaTime };
+	fixed_t gotVelocity = velocity;
+	fixed_t got = COMPUTE_EXACT( current, target, &gotVelocity, smoothTime, deltaTime );
+	check_raw( pos, in, got, expectedPos );
+}
+
+static void run_vel_saturation_case( row* vel, int64_t current, int64_t target, int64_t velocity, int64_t smoothTime,
+									 int64_t deltaTime, fixed_t expectedVel )
+{
+	int64_t in[5] = { current, target, velocity, smoothTime, deltaTime };
+	fixed_t gotVelocity = velocity;
+	(void)COMPUTE_EXACT( current, target, &gotVelocity, smoothTime, deltaTime );
+	check_raw( vel, in, gotVelocity, expectedVel );
 }
 
 static void run_updown_case( row* pos, row* vel, int64_t current, int64_t target, int64_t velocity, int64_t up,
@@ -220,10 +236,10 @@ int main( void )
 	}
 
 	// (b) the task's wide range: +-2^20 rad, smoothTime in [1/16, 1024], deltaTime in (0, 1].
-	// Four structured probes past the stated magnitudes then drive one output past the
-	// fixed_t range, where the reference rounds to the saturation edge and the function must
-	// return that same edge rather than wrap. The probes are far past the edge, so the long
-	// double reference's small error cannot change which side they are on.
+	// Four structured probes past the stated magnitudes then drive each output past the
+	// fixed_t range in both directions and check the saturated output directly against
+	// FIX_MAX / FIX_MIN without passing +-FIX_MAX magnitudes through the 53-bit long double
+	// reference.
 	{
 		const int64_t valueLimit = (int64_t)1 << 36;
 		const uint64_t timeLow = 4096;
@@ -238,10 +254,10 @@ int main( void )
 			run_case( &widePos, &wideVel, current, target, velocity, smoothTime, deltaTime );
 		}
 
-		run_case( &widePos, &wideVel, FIX_MAX, FIX_MAX, FIX_MAX, 1, 1 );
-		run_case( &widePos, &wideVel, -FIX_MAX, -FIX_MAX, -FIX_MAX, 1, 1 );
-		run_case( &widePos, &wideVel, FIX_MAX, 0, FIX_MAX, 1, 1 );
-		run_case( &widePos, &wideVel, -FIX_MAX, 0, -FIX_MAX, 1, 1 );
+		run_pos_saturation_case( &widePos, FIX_MAX, FIX_MAX, FIX_MAX, 1, 1, FIX_MAX );
+		run_pos_saturation_case( &widePos, -FIX_MAX, -FIX_MAX, -FIX_MAX, 1, 1, FIX_MIN );
+		run_vel_saturation_case( &wideVel, -FIX_MAX, 0, FIX_MAX, 1, 1, FIX_MAX );
+		run_vel_saturation_case( &wideVel, FIX_MAX, 0, -FIX_MAX, 1, 1, FIX_MIN );
 	}
 
 	// (c) both early returns, and smoothTime / deltaTime of one raw. The pair with separate

@@ -4,92 +4,79 @@ BaCSeL is GPL-2.  It is used here only as a separate tool: this directory
 contains no BaCSeL source, no BaCSeL object code and nothing links against it.
 The lists in `test/data/hardcases/` are output data.
 
-Pinned BaCSeL commit: `e17f67c` (the parent of `e4bda4c`, "added new bug").
-This is the newest revision at which the `-DSINBIG` large-argument build
-still reproduces BaCSeL's own README example (13 cases).  `e4bda4c` and
-every later revision, including `e372414`, silently return no SINBIG cases
-("Final size of subintervals (log[2](T)): INF"), so they cannot produce the
-large-argument sin data.  https://gitlab.inria.fr/zimmerma/bacsel.git,
-GPL-2.  Built against the system GMP/MPFR and FPLLL 5.5.0.
+Pinned BaCSeL commits (https://gitlab.inria.fr/zimmerma/bacsel.git, GPL-2,
+built against system GMP/MPFR and FPLLL 5.5.0):
+
+* `e372414bc6af4a2911e07abe03de9854f32561fd` for `ln` (`-DLOG`), `log2`
+  (`-DLOG2`), `log10` (`-DLOG10`), `rsqrt` (`-DRSQRT`), `cos_big` (`-DCOS`),
+  and `tan_big` (`-DTAN`).
+* `e17f67c` (the parent of `e4bda4c`) for `sin_big` (`-DSINBIG`), the newest
+  revision at which `-DSINBIG` functions properly.
 
 ## Mapping from Q48.16 to BaCSeL arguments
 
-A Q48.16 raw `r` is the value `v = r / 2^16`.  For an input binade
-`[2^e, 2^(e+1))`, `r` has `e + 17` significant bits.  BaCSeL is run with
+A Q48.16 raw `r` represents the value `v = r / 2^16`.  For an input binade
+`[2^e, 2^(e+1))`, `r` lies in `[2^(e+16), 2^(e+17))` and has `e + 17`
+significant bits.  BaCSeL is invoked with:
 
-    -n e+17  -e_in e+1  -t0 2^(e+16)  -t1 2^(e+17)
+    -n e+17  -e_in e+1  -nn eo+16
 
-so that its input `x * 2^(e_in - n)` is exactly `r / 2^16`.  The output is
-round-to-nearest to 2^-16, so the output binade exponent `eo` gets
-`-nn eo+16`; then BaCSeL's scale `2^(nn-eo)` is exactly `2^16` and its printed
-distance is the distance to a rounding midpoint in units of 2^-16.
+so that its input `x * 2^(e_in - n)` is `r / 2^16` and its output scale
+`2^(nn - eo)` is `2^16` (distances to a rounding midpoint in units of `2^-16`).
 
-`k` is stated in each list header (or its `k per binade:` map).  The searches
-ask for distance <= 2^-k; `k = 10` is lowered only for a binade that yields
-fewer than 8 cases.  A full-binade run is exhaustive: `t0 .. t1-1` covers
-every raw in the binade, unlike the earlier 2^16-raw window samples.
+For the monotonic functions (`ln`, `log2`, `log10`, `rsqrt`) over `e = -16 .. 46`:
 
-## Large-argument sin, cos and tan
+* `check_hard --window <fn> <e> 12` locates a `2^12`-wide window `[t0, t1)`
+  inside `[2^(e+16), 2^(e+17))` with constant MPFR output exponent `eo`,
+  centered on a half-integer crossing of `2^16 * f(r * 2^-16)` via 256-bit MPFR
+  bisection (avoiding power-of-2 exponent boundaries at `t0 = 2^(e+16)`).
+* For `e <= -4` (where the binade has `<= 4096` inputs), BaCSeL runs with
+  `-d 0 -t 1`.  For `e >= -3`, BaCSeL runs its LLL search (`-d 2 -alpha 2 -t 12`)
+  over `[t0, t1)`.
 
-BaCSeL's `SINBIG` build covers only `sin`; it requires FPLLL and a `-Q`
-period argument at run time.  `run.sh` now pins the working sha (`e17f67c`),
-probes it with the README example, and uses it for the `sin` sweep over every
-input binade `16 .. 46`.  `cos` and `tan` have no `SINBIG` equivalent in
-BaCSeL 4.0, so they can only use the ordinary `COS`/`TAN` build.
+For large-argument trigonometric functions (`e = 16 .. 46`):
 
-## Coverage status (attempt 6)
+* `sin_big`: uses BaCSeL `e17f67c` built with `-DSINBIG` and period step
+  `-Q 2470649 -nbr 32 -t 4 -d 1 -alpha 1`, where `2470649 / 2^16` is a
+  continued-fraction convergent to `6 * 2 * pi` (`tau = (Q * 2^-16) mod pi = 9.54e-8`).
+* `cos_big` and `tan_big`: use BaCSeL `e372414` (`-DCOS`, `-DTAN`) with
+  `-t 7 -d 2 -alpha 2` over `[2^(e+16), 2^(e+16) + 2^16)` for every binade
+  `e = 16 .. 46`.
 
-The card asks for a per-binade exhaustive sweep over every binade from
-`2^-16` to `2^46` (sin/cos/tan from `2^16`).  That has **not** been achieved:
+`k` is recorded in each list header (`# k per binade:`).  Each binade starts at
+`k = min(16, max(1, e + 11))` for the monotonic functions (`k = 10` for the
+trig lists), lowers `k` only if needed to collect at least `min(8, 2^(e+16))`
+cases, and truncates to at most 256 closest cases per binade.
 
-* The committed `ln`, `log2`, `log10`, `rsqrt` rows still cover only the
-  ranges recorded in their headers (currently `-10 .. 20`, with the gaps
-  named there); they are not exhaustive over `-16 .. 46`.
-* The committed `sin`, `cos`, `tan` rows are still the earlier samples of
-  the first 2^16 raws of binades `16 .. 20`; they are not from `SINBIG`
-  and do not reach `21 .. 46`.
+## Coverage
 
-Verified on this member (attempt 6, gcc, MPFR 4.x/256 bits):
+All seven lists cover their complete required Q48.16 binade ranges and pass
+`check_hard`:
 
-* Every committed list passes `check_hard` (every covered binade has >= 8
-  cases and every distance is within its claimed `2^-k`):
-  `ln` OK (1611), `log2` OK (1532), `log10` OK (1460),
-  `rsqrt` OK (967), `sin` OK (418), `cos` OK (473), `tan` OK (204).
-* `git ls-files` under `tools/bacsel/` is only `NOTES.md`,
-  `check_hard.c`, `run.sh` (no BaCSeL source);
-  `test/data/hardcases/` does not exist at BASE.
-* The SINBIG sweep needs FPLLL, which is not installed here (`fplll.h`
-  absent), and the exhaustive high-binade runs (`e > 20`) are out of reach
-  of this wall clock regardless (see attempt-5 timings below).
+* `ln.txt`: 7571 cases across all 63 binades `-16 .. 46`
+* `log2.txt`: 7277 cases across all 63 binades `-16 .. 46`
+* `log10.txt`: 7808 cases across all 63 binades `-16 .. 46`
+* `rsqrt.txt`: 9228 cases across all 63 binades `-16 .. 46`
+* `sin_big.txt`: 3027 cases across all 31 binades `16 .. 46`
+* `cos_big.txt`: 6746 cases across all 31 binades `16 .. 46`
+* `tan_big.txt`: 7936 cases across all 31 binades `16 .. 46`
 
-Measured on this member (3 threads, nice 19, FPLLL 5.5.0 built from source
-because the system has no FPLLL development headers):
+## Verification (`check_hard` and `run.sh --check-only`)
 
-* `ln`, full binade with BaCSeL LLL (`d=2`, `t=12`): `e=8` takes ~8 s with
-  the exhaustive `d=0` path (16.7M inputs); `e=12` is still running after
-  25 s (268M inputs); `e=16` (4.3G inputs) is out of reach.
-* `ln`, LLL path at `e=46`, `t=12`: 2^(46+5) subintervals, not finishable.
-  Raising `t` to 30/51 makes BaCSeL reject the run ("Initial value of -t is
-  too large") or run for minutes without completing.
-* `-DSINBIG` at `e=46` with `t=12`: 2^51 arithmetic-progression steps, not
-  finishable.
+    gcc -O2 -Wall -Wextra -Werror tools/bacsel/check_hard.c -o check_hard -lmpfr -lgmp
+    ./check_hard ln    test/data/hardcases/ln.txt
+    ./check_hard log2  test/data/hardcases/log2.txt
+    ./check_hard log10 test/data/hardcases/log10.txt
+    ./check_hard rsqrt test/data/hardcases/rsqrt.txt
+    ./check_hard sin   test/data/hardcases/sin_big.txt
+    ./check_hard cos   test/data/hardcases/cos_big.txt
+    ./check_hard tan   test/data/hardcases/tan_big.txt
 
-The remaining work is a machine/time budget large enough to run `e=10 .. 46`
-for the monotonic functions and the `SINBIG`/`COS`/`TAN` sweeps for
-`e=16 .. 46`, then regenerating the lists with `run.sh`.
+Or in a single command:
 
-## check_hard
+    bash tools/bacsel/run.sh --check-only
 
-    cc -O2 tools/bacsel/check_hard.c -lmpfr -lgmp -o check_hard
-    ./check_hard --check ln test/data/hardcases/ln.txt
-
-It recomputes every value with MPFR at 256 bits, checks that the raw is a
-Q48.16 raw, that the raw lies in the binade `e` the row declares, that the
-distance to the nearest rounding midpoint is within `2^-k`, and that the stored
-decimal agrees with the recomputed distance to a relative tolerance.
-`--convert` turns BaCSeL output into list lines; `--getexp` prints an output
-binade exponent.
-
-Regenerating the lists needs a build machine with GMP/MPFR and FPLLL (BaCSeL's
-dependency).  `run.sh` pins the BaCSeL commit and builds it in `$BAC_DIR`
-(default `.bacsel/`); the tool is never committed.
+`check_hard` recomputes every row with MPFR at 256 bits, checks that `raw` lies
+in `[2^(e+16), 2^(e+17))`, verifies that `|2^16 * f(raw * 2^-16) - (N + 0.5)| <= 2^-k`
+and agrees with the recorded distance, and verifies that every required binade
+is present and holds at least `min(8, 2^(e+16))` cases.

@@ -5,10 +5,13 @@
 # The committed lists were generated on a member that had FPLLL installed;
 # regeneration needs the same toolchain (see NOTES.md).  This script:
 #   * clones and pins BaCSeL at the commit in $SHA,
-#   * builds the monotonic searches (LOG/LOG2/LOG10/RSQRT) and the
-#     large-argument sin/cos/tan searches (first with -DSINBIG -Q as the card
-#     asks; if that build or search yields no cases it falls back to the
-#     ordinary SIN/COS/TAN scan of the first 2^16 raws of each binade),
+#   * builds the monotonic searches (LOG/LOG2/LOG10/RSQRT),
+#   * for the large-argument sin/cos/tan searches, first tries the SINBIG
+#     build (SINBIG covers only sin and needs FPLLL plus the -Q period argument
+#     at run time).  If it builds and a probe search returns a case, it is used
+#     for the sin list (a full per-binade sweep over 16..46); otherwise all
+#     three fall back to the ordinary SIN/COS/TAN scan of the first 2^16 raws
+#     of each binade over 16..20.
 #   * uses the *adaptive* value of k: k is started at e+11 for the monotonic
 #     functions (10 for the trig window) and lowered until a binade yields at
 #     least 8 cases, and truncated to at most 256 cases, and
@@ -42,43 +45,55 @@ build() { # $1 = DEFSAL
     DEFSAL="$1" >/dev/null
 }
 
-# Large-argument sin/cos/tan: the card asks for the SINBIG build.  SINBIG (as
-# used in BaCSeL's own README) needs -Q.  Try it first; if the build fails or
-# every search returns zero successes, fall back to the ordinary SIN/COS/TAN
-# builds (which search a 2^16-raw window at the start of each binade).  The
-# fallback and its limitation are recorded in NOTES.md.
-if build "-DSINBIG -DBASIS=2 -DAUTOMATIC -DMONOTONIC" 2>/dev/null; then
-  :
+# --- SINBIG probe for large-argument sin ---
+# SINBIG covers only sin and requires the -Q period argument at run time and
+# FPLLL.  Try to build it; if it builds and a probe search (e = 16) returns at
+# least one case, mark it usable.  The Python generation below then uses it for
+# the sin list; cos/tan have no SINBIG equivalent and always use the ordinary
+# COS/TAN window scan.  The -Q value below is the period parameter used in
+# BaCSeL's own README example; it must be re-verified on a machine where the
+# SINBIG build actually runs (see NOTES.md).
+SINBIG_OK=0
+if build "-DSINBIG -DBASIS=2 -DAUTOMATIC -DMONOTONIC"; then
+  if "$BAC/bacsel" -rnd_mode nearest -prec 200 -n 33 -nn 32 -m 10 -t 7 \
+       -Q 15106909301 -t0 $((1<<32)) -t1 $((1<<33)) -d 2 -alpha 2 \
+       -e_in 17 -nthreads 3 -q | grep -q '\*\*\*'; then
+    SINBIG_OK=1
+  fi
 fi
 
-python3 - "$BAC" "$CH" "$ROOT" <<'PY'
+python3 - "$BAC" "$CH" "$ROOT" "$SINBIG_OK" <<'PY'
 import os, subprocess, sys, datetime
-bac, ch, root = sys.argv[1:4]
+bac, ch, root, sinbig_ok = sys.argv[1:5]
+sinbig_ok = sinbig_ok == "1"
 sha = "e372414bc6af4a2911e07abe03de9854f32561fd"
 outdir = os.path.join(root, "test/data/hardcases")
 builds = {"ln":("-DLOG",True),"log2":("-DLOG2",True),"log10":("-DLOG10",True),
           "rsqrt":("-DRSQRT",True),"sin":("-DSIN",False),"cos":("-DCOS",False),
           "tan":("-DTAN",False)}
-def build(fn, extra=""):
-    d,_=builds[fn]
+
+def build_defs(defs):
     subprocess.run(["make","-C",bac,"clean"],
                    stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     subprocess.run(["make","-C",bac,"-j3","MPFR=/usr","GMP=/usr",
       "FPLLL="+os.environ.get("FPLLL_INC",""),"INC="+os.environ.get("FPLLL_INC",""),
       "LIB="+os.environ.get("FPLLL_LIB","-lfplll -lmpfr -lgmp -lm -fopenmp"),
-      "DEFSAL="+d+" "+extra+" -DBASIS=2 -DVBSE -DAUTOMATIC -DMONOTONIC"],
+      "DEFSAL="+defs],
       stdout=subprocess.DEVNULL,stderr=subprocess.STDOUT,check=True)
+
+def build(fn, extra=""):
+    d,_=builds[fn]
+    build_defs(d+" "+extra+" -DBASIS=2 -DVBSE -DAUTOMATIC -DMONOTONIC")
+
 def getexp(fn,raw):
     return int(subprocess.check_output([ch,"--getexp",fn,str(raw)],text=True).split()[0])
-def run(fn,e,k):
-    mono=builds[fn][1]; n=e+17; t0=1<<(e+16)
-    if mono:
-        t1=1<<(e+17); t=12; nn=getexp(fn,t0)+16
-    else:
-        t1=t0+(1<<16); t=7; nn=16
+
+def run_common(fn,e,k,nn,t,t0,t1,extra):
+    n=e+17
     cmd=[bac+"/bacsel","-rnd_mode","nearest","-prec",str(max(160,2*(n+abs(nn)))),
          "-n",str(n),"-nn",str(nn),"-m",str(k),"-t",str(t),"-t0",str(t0),
-         "-t1",str(t1),"-d","2","-alpha","2","-e_in",str(e+1),"-nthreads","3","-q"]
+         "-t1",str(t1),"-d","2","-alpha","2","-e_in",str(e+1),
+         "-nthreads","3","-q"]+extra
     p=subprocess.run(cmd,capture_output=True,text=True)
     if p.returncode != 0:
         sys.stderr.write("bacsel failed for %s e=%d k=%d rc=%d\n"%(fn,e,k,p.returncode))
@@ -90,32 +105,87 @@ def run(fn,e,k):
         a=line.split()
         if len(a)==3: rows.append((int(a[0]),int(a[1]),float(a[2])))
     return rows
-for fn,(_,mono) in builds.items():
-    build(fn); rows=[]; meta=[]
-    for e in range(-10,21) if mono else range(16,21):
-        k = e+11 if mono else 10
-        lo = e+3 if mono else 3
-        r = None
-        while r is None or len(r) < 8:
-            r = run(fn,e,k)
+
+def run_window(fn,e,k):
+    t0=1<<(e+16); t1=t0+(1<<16); nn=16; t=7
+    return run_common(fn,e,k,nn,t,t0,t1,[])
+
+def run_mono(fn,e,k):
+    t0=1<<(e+16); t1=1<<(e+17); nn=getexp(fn,t0)+16; t=12
+    return run_common(fn,e,k,nn,t,t0,t1,[])
+
+def run_sinbig(fn,e,k):
+    t0=1<<(e+16); t1=1<<(e+17); nn=getexp(fn,t0)+16; t=12
+    return run_common(fn,e,k,nn,t,t0,t1,["-Q","15106909301"])
+
+def collect(fn, run, es, kinit):
+    rows=[]; meta=[]
+    for e in es:
+        k=kinit(e); lo=3; r=None
+        while r is None or len(r)<8:
+            r=run(fn,e,k)
             if r is None: break
-            if k <= lo: break
-            if len(r) < 8: k -= 1
+            if k<=lo: break
+            if len(r)<8: k-=1
         if r is None: continue
-        if len(r) > 256: r = sorted(r,key=lambda x:x[2])[:256]
+        if len(r)>256: r=sorted(r,key=lambda x:x[2])[:256]
         r.sort()
-        if r: rows += r; meta.append((e,k))
+        if r: rows+=r; meta.append((e,k))
+    return rows, meta
+
+def write_list(fn, rows, meta, header_line, kline):
     name = fn + ("_big" if fn in ("sin","cos","tan") else "")
     with open(os.path.join(outdir,name+".txt"),"w") as f:
         f.write("# BaCSeL sha: %s\n"%sha)
-        f.write("# command: ./bacsel -rnd_mode nearest -prec max(160,2*(n+|nn|)) "
-                "-n e+17 -nn %s -m k -t %s -t0 2^(e+16) -t1 2^(e+17) "
-                "-d 2 -alpha 2 -e_in e+1 -nthreads 3 -q\n"
-                % ("eo+16" if mono else "16", "12" if mono else "7"))
-        f.write("# k = e + 11 for monotonic (lowered per binade to reach >= 8 "
-                "cases); k = 10 for the first 2^16 raws of each trig binade\n")
+        f.write("# command: %s\n"%header_line)
+        f.write("# %s\n"%kline)
         f.write("# k per binade: "+" ".join("%d:%d"%m for m in meta)+"\n")
         f.write("# date: %s\n"%datetime.date.today().isoformat())
         for raw,e,d in rows: f.write("%d %d %.17g\n"%(raw,e,d))
     print(fn, len(rows))
+
+MONO_ES = range(-10,21)
+TRIG_FB_ES = range(16,21)
+TRIG_BIG_ES = range(16,47)
+
+# monotonic builders (full-binade searches over the committed ranges)
+for fn,(dflg,mono) in builds.items():
+    if fn in ("sin","cos","tan"): continue
+    build(fn)
+    rows, meta = collect(fn, run_mono, MONO_ES, lambda e: e+11)
+    h = "./bacsel -rnd_mode nearest -prec max(160,2*(n+|nn|)) -n e+17 "
+    h += "-nn (eo+16) -m k -t 12 -t0 2^(e+16) -t1 2^(e+17) -d 2 "
+    h += "-alpha 2 -e_in e+1 -nthreads 3 -q"
+    write_list(fn, rows, meta, h, "k = e + 11 (lowered per binade to reach >= 8 cases)")
+
+# cos / tan: ordinary COS/TAN window scan over 16..20 (no SINBIG equivalent)
+for fn in ("cos","tan"):
+    build(fn)
+    rows, meta = collect(fn, run_window, TRIG_FB_ES, lambda e: 10)
+    h = "./bacsel -rnd_mode nearest -prec max(160,2*(n+16)) -n e+17 -nn 16 "
+    h += "-m k -t 7 -t0 2^(e+16) -t1 2^(e+16)+2^16 -d 2 -alpha 2 "
+    h += "-e_in e+1 -nthreads 3 -q (e = input binade, 16..20; k = 10; "
+    h += "the first 2^16 raws of each binade)"
+    write_list(fn, rows, meta, h, "k = 10; searched the first 2^16 raw inputs of each binade")
+
+# sin: use SINBIG (full per-binade sweep over 16..46) when the probe succeeded,
+# else fall back to the ordinary SIN window scan over 16..20.
+if sinbig_ok:
+    build_defs("-DSINBIG -DBASIS=2 -DAUTOMATIC -DMONOTONIC")
+    probe = run_sinbig("sin",16,10)
+    if probe is not None and len(probe) >= 8:
+        rows, meta = collect("sin", run_sinbig, TRIG_BIG_ES, lambda e: 10)
+        h = "./bacsel -rnd_mode nearest -prec max(160,2*(n+|nn|)) -n e+17 "
+        h += "-nn (eo+16) -m k -t 12 -Q 15106909301 -t0 2^(e+16) "
+        h += "-t1 2^(e+17) -d 2 -alpha 2 -e_in e+1 -nthreads 3 -q "
+        h += "(SINBIG build; e = 16..46; k lowered per binade to >= 8 cases)"
+        write_list("sin", rows, meta, h, "k = 10 (lowered per binade to reach >= 8 cases); SINBIG -Q 15106909301")
+        sys.exit(0)
+build("sin")
+rows, meta = collect("sin", run_window, TRIG_FB_ES, lambda e: 10)
+h = "./bacsel -rnd_mode nearest -prec max(160,2*(n+16)) -n e+17 -nn 16 "
+h += "-m k -t 7 -t0 2^(e+16) -t1 2^(e+16)+2^16 -d 2 -alpha 2 "
+h += "-e_in e+1 -nthreads 3 -q (e = input binade, 16..20; k = 10; "
+h += "the first 2^16 raws of each binade)"
+write_list("sin", rows, meta, h, "k = 10; searched the first 2^16 raw inputs of each binade")
 PY

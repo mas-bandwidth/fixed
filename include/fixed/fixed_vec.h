@@ -667,6 +667,40 @@ FIX_INLINE fixQuat fixMakeQuatFromAxisAngle( fixVec3 axis, fixed_t radians )
 	return q;
 }
 
+/* One signed 128-bit product, rounded once to nearest-even from Q2.62 * Q48.16. */
+FIX_INLINE fixed_t fixMulQ62NearestEven( int64_t aQ62, fixed_t b )
+{
+	fixInt128 p = fixInt128MulI64( aQ62, b );
+	bool negative = fixInt128IsNegative( p );
+	fixUInt128 magnitude = fixInt128ToUnsigned( negative ? fixInt128Neg( p ) : p );
+	fixUInt128 q = fixUInt128Shr( magnitude, 62 );
+	uint64_t rem = fixUInt128Lo( magnitude ) & ( ( UINT64_C( 1 ) << 62 ) - 1 );
+	const uint64_t half = UINT64_C( 1 ) << 61;
+	if ( rem > half || ( rem == half && ( fixUInt128Lo( q ) & 1 ) != 0 ) )
+		q = fixUInt128Add( q, fixUInt128FromU64( 1 ) );
+	fixInt128 result = fixInt128FromUnsigned( q );
+	if ( negative ) result = fixInt128Neg( result );
+#if defined( FIX_SATURATE )
+	if ( fixInt128Gt( result, fixInt128FromI64( INT64_MAX ) ) ) return FIX_MAX;
+	if ( fixInt128Lt( result, fixInt128FromI64( -INT64_MAX ) ) ) return FIX_MIN;
+#endif
+	return fixInt128ToI64( result );
+}
+
+/* Error budget for |axis| <= 1: reduction is < 2^-61 rad; the degree 11/12 Q32.32
+   polynomial truncation is < 1e-11 and its rounded stages contribute < 20 Q32 ulps, under
+   0.00031 raw after scaling. The one final nearest-even product adds <= 0.5 raw. Bound
+   2 raw at every angle, checked against CORE-MATH at the pin: test/quat_axis_angle_exact_test.c. */
+FIX_INLINE fixQuat fixMakeQuatFromAxisAngleExact( fixVec3 axis, fixed_t radians )
+{
+	fixCosSinWide cs = fixComputeCosSinHalfExactWide( radians );
+	fixQuat q = { { fixMulQ62NearestEven( cs.sineQ62, axis.x ),
+					fixMulQ62NearestEven( cs.sineQ62, axis.y ),
+					fixMulQ62NearestEven( cs.sineQ62, axis.z ) },
+				  fixMulQ62NearestEven( cs.cosineQ62, FIX_ONE ) };
+	return q;
+}
+
 /// Get the axis and angle from a quaternion. Assumes the quaternion is normalized.
 FIX_INLINE fixVec3 fixGetAxisAngle( fixed_t* radians, fixQuat q )
 {

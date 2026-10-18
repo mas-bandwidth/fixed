@@ -317,6 +317,23 @@ if (NOT MSVC)
     add_test(NAME sincos_exact_negative_control COMMAND fixed_sincos_exact_negative_control)
     set_tests_properties(sincos_exact_negative_control PROPERTIES WILL_FAIL TRUE)
 
+    # Exact axis-angle quaternion against the same pinned CORE-MATH sine/cosine oracle.
+    add_executable(fixed_quat_axis_angle_exact_test test/quat_axis_angle_exact_test.c)
+    target_link_libraries(fixed_quat_axis_angle_exact_test PRIVATE fixed fixed_core_math_object)
+    add_test(NAME quat_axis_angle_exact COMMAND fixed_quat_axis_angle_exact_test)
+
+    if (TARGET fixed_emulated)
+        add_executable(fixed_quat_axis_angle_exact_emulated_test test/quat_axis_angle_exact_test.c)
+        target_link_libraries(fixed_quat_axis_angle_exact_emulated_test PRIVATE fixed_emulated fixed_core_math_object)
+        add_test(NAME quat_axis_angle_exact_emulated COMMAND fixed_quat_axis_angle_exact_emulated_test)
+    endif()
+
+    add_executable(fixed_quat_axis_angle_exact_negative_control test/quat_axis_angle_exact_test.c)
+    target_link_libraries(fixed_quat_axis_angle_exact_negative_control PRIVATE fixed fixed_core_math_object)
+    target_compile_definitions(fixed_quat_axis_angle_exact_negative_control PRIVATE QUAT_AXIS_ANGLE_EXACT_NEGATIVE_CONTROL)
+    add_test(NAME quat_axis_angle_exact_negative_control COMMAND fixed_quat_axis_angle_exact_negative_control)
+    set_tests_properties(quat_axis_angle_exact_negative_control PROPERTIES WILL_FAIL TRUE)
+
     # CORE-MATH cr_atan2, the test-only oracle for fixAtan2Exact and the exact quaternion angles.
     # Its own object library with the same flags, linked only into the tests below.
     add_library(fixed_core_math_atan2_object OBJECT extern/core-math/atan2/atan2.c)

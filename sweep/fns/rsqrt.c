@@ -9,6 +9,24 @@ static int64_t eval( int64_t a, int64_t b )
 	return fixRsqrtExact( a );
 }
 
+/* A second 256-bit scratch value, for the tie test below. */
+static mpfr_t* ref_tmp( void )
+{
+	static __thread mpfr_t v;
+	static __thread int ready = 0;
+	if ( !ready )
+	{
+		mpfr_init2( v, 256 );
+		ready = 1;
+	}
+	return &v;
+}
+
+/* fixRsqrtExact documents ties rounding up toward +infinity. Reciprocal square root is
+ * rational at perfect squares, so unlike the transcendental families the tie rule can
+ * fire: raw = 2^50 gives exactly 2^24 / 2^25 = 0.5, and the function returns 1 while
+ * nearest-even would return 0. The reference therefore uses sweep_mpfr_round for the
+ * nearest integer, then moves a value that is exactly half a raw unit above it up. */
 static int64_t ref( int64_t a, int64_t b )
 {
 	( void )b;
@@ -20,7 +38,16 @@ static int64_t ref( int64_t a, int64_t b )
 	mpfr_set_si( *v, (long)a, MPFR_RNDN );
 	mpfr_div_2ui( *v, *v, 16, MPFR_RNDN );
 	mpfr_rec_sqrt( *v, *v, MPFR_RNDN );
-	return sweep_mpfr_round( *v );
+	mpfr_t* t = ref_tmp();
+	mpfr_set( *t, *v, MPFR_RNDN );
+	int64_t r = sweep_mpfr_round( *v );
+	mpfr_mul_2si( *t, *t, 16, MPFR_RNDN );
+	mpfr_sub_si( *t, *t, (long)r, MPFR_RNDN );
+	if ( mpfr_cmp_d( *t, 0.5 ) == 0 )
+	{
+		++r;
+	}
+	return r;
 }
 
 static const sweep_piece pieces[] = {

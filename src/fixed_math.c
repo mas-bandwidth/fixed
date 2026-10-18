@@ -131,6 +131,15 @@ fixCosSin fixComputeCosSinPrecise( fixed_t radians )
 #define FIX_TWO_OVER_PI_HI UINT64_C( 0x0000A2F9836E4E44 )
 #define FIX_TWO_OVER_PI_LO UINT64_C( 0x1529FC2757D1F534 )
 
+// Shared by exact trigonometry and exact angle unwinding. Returns |radians| * 2/pi in Q64
+// quarter-turn units, with an error below two units for every int64 raw input.
+static fixUInt128 fixAngleQuarterTurns( uint64_t magnitude )
+{
+	return fixUInt128Add( fixUInt128MulU64( magnitude, FIX_TWO_OVER_PI_HI ),
+					  fixUInt128Shr( fixUInt128MulU64( magnitude, FIX_TWO_OVER_PI_LO ), 64 ) );
+}
+
+
 fixCosSin fixComputeCosSinExact( fixed_t radians )
 {
 	// THE REDUCTION, integer only, for every int64 input including INT64_MIN.
@@ -161,8 +170,7 @@ fixCosSin fixComputeCosSinExact( fixed_t radians )
 	// (measured maxulp 1), checked against CORE-MATH at the pin in test/sincos_exact_test.c, on
 	// the native and the emulated 128-bit arms.
 	uint64_t m = radians < 0 ? -(uint64_t)radians : (uint64_t)radians;
-	fixUInt128 t = fixUInt128Add( fixUInt128MulU64( m, FIX_TWO_OVER_PI_HI ),
-								  fixUInt128Shr( fixUInt128MulU64( m, FIX_TWO_OVER_PI_LO ), 64 ) );
+	fixUInt128 t = fixAngleQuarterTurns( m );
 	uint64_t whole = fixUInt128Hi( t );
 	uint64_t fraction = fixUInt128Lo( t );
 	int quadrant = (int)( ( whole + ( fraction >> 63 ) ) & 3 );
@@ -762,6 +770,47 @@ static fixUInt256 fixUInt128Mul128( fixUInt128 a, fixUInt128 b )
 	r.hi = fixUInt128Make( fixUInt128Lo( acc3 ), fixUInt128Lo( acc2 ) );
 	return r;
 }
+
+fixed_t fixUnwindAngleExact( fixed_t radians )
+{
+	uint64_t magnitude = radians < 0 ? -(uint64_t)radians : (uint64_t)radians;
+	fixUInt128 turns = fixAngleQuarterTurns( magnitude );
+
+	// Reduce the quarter-turn phase modulo four before converting back to radians. This is
+	// nearest-multiple-of-2*pi reduction without accumulating a per-turn constant error.
+	fixUInt128 phase = fixUInt128Make( fixUInt128Hi( turns ) & 3, fixUInt128Lo( turns ) );
+	fixUInt128 two = fixUInt128Make( 2, 0 );
+	fixUInt128 four = fixUInt128Make( 4, 0 );
+	if ( fixUInt128Ge( phase, two ) )
+	{
+		phase = fixUInt128Sub( phase, four );
+	}
+	if ( radians < 0 )
+	{
+		phase = fixUInt128Neg( phase );
+	}
+	bool negative = ( fixUInt128Hi( phase ) >> 63 ) != 0;
+	fixUInt128 phaseMagnitude = negative ? fixUInt128Neg( phase ) : phase;
+
+	// floor(2^113/pi) is shared above. Its reciprocal gives pi/2 in Q126:
+	// round(2^238 / floor(2^113/pi)) = 0x6487ED5110B4611A_62633145C06E9732.
+	// Multiplying only the reduced phase by this precision avoids a rounded 2*pi per turn.
+	const fixUInt128 halfPiQ126 = fixUInt128Make( UINT64_C(0x6487ED5110B4611A), UINT64_C(0x62633145C06E9732) );
+	fixUInt256 product = fixUInt128Mul128( phaseMagnitude, halfPiQ126 );
+	fixUInt256 halfRaw = fixUInt256Shl( fixUInt256FromU128( fixUInt128FromU64( 1 ) ), 173 );
+	fixUInt128 rounded = fixUInt256Shr( fixUInt256Add( product, halfRaw ), 174 ).lo;
+	int64_t raw = (int64_t)fixUInt128Lo( rounded );
+	if ( negative )
+	{
+		raw = -raw;
+	}
+	// The exact remainder lies in [-pi, pi]. Clamping the rounded result only absorbs final
+	// half-raw rounding at the endpoint. Bound: within 1 raw of the exact remainder at every
+	// input, always inside [-pi, pi]. See test/unwind_angle_test.c.
+	const int64_t pi = 205887;
+	return (fixed_t)( raw < -pi ? -pi : ( raw > pi ? pi : raw ) );
+}
+
 
 // The 128-bit Q126 mantissa of 2^f for a Q16 fraction f, by binary exponentiation over the
 // 16 fraction bits. Each multiply truncates the running product by at most 2^-126 relative,

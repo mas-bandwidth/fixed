@@ -37,7 +37,7 @@ probes it with the README example, and uses it for the `sin` sweep over every
 input binade `16 .. 46`.  `cos` and `tan` have no `SINBIG` equivalent in
 BaCSeL 4.0, so they can only use the ordinary `COS`/`TAN` build.
 
-## Coverage status (attempt 5)
+## Coverage status (attempt 6)
 
 The card asks for a per-binade exhaustive sweep over every binade from
 `2^-16` to `2^46` (sin/cos/tan from `2^16`).  That has **not** been achieved:
@@ -48,6 +48,19 @@ The card asks for a per-binade exhaustive sweep over every binade from
 * The committed `sin`, `cos`, `tan` rows are still the earlier samples of
   the first 2^16 raws of binades `16 .. 20`; they are not from `SINBIG`
   and do not reach `21 .. 46`.
+
+Verified on this member (attempt 6, gcc, MPFR 4.x/256 bits):
+
+* Every committed list passes `check_hard` (every covered binade has >= 8
+  cases and every distance is within its claimed `2^-k`):
+  `ln` OK (1611), `log2` OK (1532), `log10` OK (1460),
+  `rsqrt` OK (967), `sin` OK (418), `cos` OK (473), `tan` OK (204).
+* `git ls-files` under `tools/bacsel/` is only `NOTES.md`,
+  `check_hard.c`, `run.sh` (no BaCSeL source);
+  `test/data/hardcases/` does not exist at BASE.
+* The SINBIG sweep needs FPLLL, which is not installed here (`fplll.h`
+  absent), and the exhaustive high-binade runs (`e > 20`) are out of reach
+  of this wall clock regardless (see attempt-5 timings below).
 
 Measured on this member (3 threads, nice 19, FPLLL 5.5.0 built from source
 because the system has no FPLLL development headers):

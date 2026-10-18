@@ -5,7 +5,7 @@ all: kernel
 kernel:
 	gappa kernel.g
 	@printf '%s\n' \
-		'log kernel arithmetic error: <= 1.5e-38 (proved by kernel.g)' \
-		'fixLnExact conservative raw bound: <= 2.515e-26; design budget: 2^-85.04' \
-		'fixLog2Exact conservative raw bound: <= 3.63e-26; design budget: 2^-84.5' \
-		'fixLog10Exact conservative raw bound: <= 1.10e-26; design budget: 2^-86.2'
+		'kernel arithmetic error |comp - p|: <= 7.35e-39 (proved by kernel.g)' \
+		'fixLnExact    total kernel error: <= 2.5149e-26 raw; design budget 2^-85.04 = 2.51425411001007e-26 -> ABOVE budget (finding)' \
+		'fixLog2Exact  total kernel error: <= 3.6282e-26 raw; design budget 2^-84.5 = 3.65565637751430e-26 -> within budget' \
+		'fixLog10Exact total kernel error: <= 1.0922e-26 raw; design budget 2^-86.2 = 1.12516023157136e-26 -> within budget'

@@ -14,15 +14,24 @@ source's shift does for the positive operands here.
 
 ## What is proved
 
-* Each truncation residue lies in `[0, 2^-k)`; Gappa checks the fixed
-  operators directly.
-* The local Horner errors `d_k = w_k - H_k` satisfy
-  `d_k = -u*d_{k+1} + rho_k` and are bounded by Gappa.
-* The kernel evaluation error against the stored-coefficient polynomial,
+* Given the truncation residues and the Horner error recurrence below, the
+  kernel evaluation error against the stored-coefficient polynomial,
   `E = comp - p(u) = rho_q*w_2 + rho_v - u^2*d_2`, is bounded:
   `|E| <= 7.35e-39` (`2^-126.68`).
 * The per-function totals `|E| + h` converted to raw units are bounded by
-  Gappa as tabulated in `results.md`.
+  Gappa as tabulated in `results.md`. Gappa prints each enclosure itself
+  (`in ?` goals); the Makefile then prints the design budgets beside them.
+
+## What is derived by hand (the same method as `proofs/gappa/tan`)
+
+* Each truncation residue `rho = x - fixed<-k,dn>(x)` lies in `[0, 2^-k)`:
+  this is the definition of the operator for positive operands, entered as
+  an interval hypothesis on each `rho`. The `fixed<>` intermediates `w_k`,
+  `qq`, `vv` and `comp` are written out in `kernel.g` as the source computes
+  them, but the error formula `E` is stated in the residues; Gappa does not
+  check it against `comp`.
+* The local Horner errors `d_k = w_k - H_k` satisfy
+  `d_k = -u*d_{k+1} + rho_k`, and `E` follows from `p(u) = u - u^2 H_2`.
 
 ## What is a hypothesis
 
@@ -44,6 +53,10 @@ the log2 and log10 totals are the design's `2^-104` and
 
 `make -C proofs/gappa/log` runs the proof and prints one proved bound per
 function. The ln total exceeds the design's stated budget by 0.023% because
-the design rounds its `2^-101.04` kernel line up while Sollya's certified
-supnorm is `2^-101.03967`; `results.md` records the finding. The log2 and
+the design writes its kernel line as `2^-101.04`, a two-decimal exponent
+slightly below Sollya's certified supnorm `2^-101.03967`; `results.md` records the finding. The log2 and
 log10 totals are within their budgets.
+
+The ln total here is the kernel only (`|E| + h`), as the design's ln kernel
+line is; the design's table and shift terms (`2^-118.4` together, before the
+`2^16` scale) are not added, and would only widen the ln excess.

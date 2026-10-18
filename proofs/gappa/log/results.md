@@ -1,7 +1,13 @@
 # Results
 
-Run: `make -C proofs/gappa/log` (Gappa 1.6.0, `gappa kernel.g`). Exit 0, all
-goals proved.
+Run: `make -C proofs/gappa/log` (Gappa 1.6.0, `gappa kernel.g`, on amd-1).
+Exit 0, all goals proved. Gappa's own output (the `in ?` goals):
+
+    Results:
+      ln_raw in [140206802144100517b-142 {2.51484e-26, 2^(-85.0397)}, 1121654438628701599b-145 {2.51484e-26, 2^(-85.0397)}]
+      |E| in [0, 720611540997592277b-186 {7.3472e-39, 2^(-126.678)}]
+      log2_raw in [809106513324803039b-144 {3.62816e-26, 2^(-84.5109)}, 809106528816441677b-144 {3.62816e-26, 2^(-84.5109)}]
+      log10_raw in [121784213531659789b-143 {1.0922e-26, 2^(-86.2429)}, 243568431726810713b-144 {1.0922e-26, 2^(-86.2429)}]
 
 ## Proved bounds
 
@@ -49,3 +55,8 @@ for every integer `k <= 85`). So correct rounding is not at risk; the
 This is a finding against the design budget, so the card's DONE-WHEN (`no
 larger than its design budget` for every function) is not established for
 fixLnExact. No library code was changed.
+
+What would close it (outside this card, which adds only proof files): the
+design's ln kernel line and budget restated from the certified supnorm,
+`2^-101.0397` and `2^-85.0397` raw (still below `2^-85`), or a ln budget
+written as `< 2^-85`. The proved ln total then meets it with no proof change.

@@ -57,21 +57,11 @@ static inline fixed_t fixQ32ToFix( int64_t a )
 
 #define FIX_Q62_HALF_PI 7244019458077122842LL // round(pi/2 * 2^62)
 
-fixCosSin fixComputeCosSinPrecise( fixed_t radians )
+// Cosine and sine of quadrant * pi/2 + r62 * 2^-62, for |r62 * 2^-62| <= pi/4 (a hair past is
+// fine): degree 11/12 Taylor polynomials in Q32.32, then the quadrant's signs and swap. Shared by
+// fixComputeCosSinPrecise and fixComputeCosSinExact, which differ only in the reduction.
+static fixCosSin fixCosSinOfQuadrant( int64_t r62, int quadrant )
 {
-	// The angle in Q2.62 at 128 bits is exact: radians * 2^46. The reduction below is not quite:
-	// FIX_Q62_HALF_PI is pi/2 rounded to 62 fraction bits, so r is off by k times its rounding
-	// (0.38 Q2.62 units), up to 0.49 ulp of Q48.16 at |radians| near 2^47 (fixed_math.h).
-	fixInt128 x = fixInt128ShiftLeft( fixInt128FromI64( radians ), 46 );
-	fixInt128 halfPi = fixInt128FromI64( FIX_Q62_HALF_PI );
-
-	// Nearest quadrant k = round( x / (pi/2) ), ties away from zero; |k| < 2^47
-	fixInt128 bias = fixInt128FromI64( FIX_Q62_HALF_PI / 2 );
-	fixInt128 numerator = fixInt128IsNegative( x ) ? fixInt128Sub( x, bias ) : fixInt128Add( x, bias );
-	fixInt128 k = fixInt128Div( numerator, halfPi );
-
-	// Remainder |r| <= pi/4 in Q2.62 (fits 64 bits), rounded to Q32.32
-	int64_t r62 = fixInt128ToI64( fixInt128Sub( x, fixInt128Mul( k, halfPi ) ) );
 	int64_t r = ( r62 + ( (int64_t)1 << 29 ) ) >> 30;
 	int64_t r2 = fixQ32Mul( r, r );
 
@@ -93,7 +83,6 @@ fixCosSin fixComputeCosSinPrecise( fixed_t radians )
 	c = ( (int64_t)1 << 32 ) - fixQ32Mul( r2, c );
 
 	fixed_t sr = fixQ32ToFix( s ), cr = fixQ32ToFix( c );
-	int quadrant = (int)( fixInt128ToI64( k ) & 3 ); // two's complement: k mod 4 for negative k too
 	fixCosSin out;
 	switch ( quadrant )
 	{
@@ -113,6 +102,80 @@ fixCosSin fixComputeCosSinPrecise( fixed_t radians )
 			out.cosine = sr;
 			out.sine = -cr;
 			break;
+	}
+	return out;
+}
+
+fixCosSin fixComputeCosSinPrecise( fixed_t radians )
+{
+	// The angle in Q2.62 at 128 bits is exact: radians * 2^46. The reduction below is not quite:
+	// FIX_Q62_HALF_PI is pi/2 rounded to 62 fraction bits, so r is off by k times its rounding
+	// (0.38 Q2.62 units), up to 0.49 ulp of Q48.16 at |radians| near 2^47 (fixed_math.h).
+	fixInt128 x = fixInt128ShiftLeft( fixInt128FromI64( radians ), 46 );
+	fixInt128 halfPi = fixInt128FromI64( FIX_Q62_HALF_PI );
+
+	// Nearest quadrant k = round( x / (pi/2) ), ties away from zero; |k| < 2^47
+	fixInt128 bias = fixInt128FromI64( FIX_Q62_HALF_PI / 2 );
+	fixInt128 numerator = fixInt128IsNegative( x ) ? fixInt128Sub( x, bias ) : fixInt128Add( x, bias );
+	fixInt128 k = fixInt128Div( numerator, halfPi );
+
+	// Remainder |r| <= pi/4 in Q2.62 (fits 64 bits)
+	int64_t r62 = fixInt128ToI64( fixInt128Sub( x, fixInt128Mul( k, halfPi ) ) );
+	int quadrant = (int)( fixInt128ToI64( k ) & 3 ); // two's complement: k mod 4 for negative k too
+	return fixCosSinOfQuadrant( r62, quadrant );
+}
+
+// 2^113 / pi, truncated: the 112 leading bits of 2/pi (0.A2F9836E4E441529FC2757D1F534DDC0...
+// in hex) as two words. Checked with Python's decimal at 120 digits (pi by Machin) and bc -l:
+//   floor( 2^113 / pi ) = 3305518844145349671841498641069364 = 0xA2F9836E4E44_1529FC2757D1F534
+#define FIX_TWO_OVER_PI_HI UINT64_C( 0x0000A2F9836E4E44 )
+#define FIX_TWO_OVER_PI_LO UINT64_C( 0x1529FC2757D1F534 )
+
+fixCosSin fixComputeCosSinExact( fixed_t radians )
+{
+	// THE REDUCTION, integer only, for every int64 input including INT64_MIN.
+	//
+	// With m = |radians| (raw, as uint64, so 2^63 is fine) the angle is m * 2^-16 rad, and its
+	// count of quarter turns is q = m * 2^-16 * 2/pi = m * C * 2^-128 with C = 2^113 / pi.
+	// C is held truncated to 112 bits, C = HI * 2^64 + LO + c with 0 <= c < 1, so
+	//   m * C = ( m * HI ) * 2^64 + m * LO + m * c
+	// t = m * HI + floor( m * LO / 2^64 ) is that sum in units of 2^-64 quarter turns, short of the
+	// truth by m * c / 2^64 + frac( m * LO / 2^64 ) < 1/2 + 1 < 2 units. It fits 128 bits
+	// (m * HI < 2^63 * 2^48 = 2^111). Its high word is the whole quarter-turn count, its low
+	// word F the fraction in units of 2^-64. Rounding to the nearest quarter, k = high + F / 2^63
+	// and the signed fraction is f = F as int64 in [-2^63, 2^63), so q = k + f * 2^-64 exactly up
+	// to the < 2 units above.
+	//
+	// So the reduced angle r = f * 2^-64 * pi/2 is in error by < 2 * 2^-64 * pi/2 < 2^-62 rad at
+	// EVERY input, with no growth in the angle (the error does not
+	// scale with k, unlike a reduction by a rounded pi/2). A true fraction within 2 units of a
+	// half (r = +-pi/4) can land in the neighbouring quadrant, which is the same angle written
+	// the other way: both quadrants hold it to the same error.
+	//
+	// r in Q2.62 is ( f * round( pi/2 * 2^62 ) ) >> 64, |r| <= pi/4, off by a further 1.2 * 2^-62
+	// rad at most from the rounding of pi/2 (0.38 units, times |f| / 2^64 <= 1/2) and the floor of
+	// the shift (1 unit). In all under 2^-61 rad, 2^-45 of one Q48.16 unit. The polynomials of
+	// fixCosSinOfQuadrant then carry it to Q48.16.
+	//
+	// The bound is 2 raw Q48.16 units of the correctly rounded cosine and sine at every angle
+	// (measured maxulp 1), checked against CORE-MATH at the pin in test/sincos_exact_test.c, on
+	// the native and the emulated 128-bit arms.
+	uint64_t m = radians < 0 ? -(uint64_t)radians : (uint64_t)radians;
+	fixUInt128 t = fixUInt128Add( fixUInt128MulU64( m, FIX_TWO_OVER_PI_HI ),
+								  fixUInt128Shr( fixUInt128MulU64( m, FIX_TWO_OVER_PI_LO ), 64 ) );
+	uint64_t whole = fixUInt128Hi( t );
+	uint64_t fraction = fixUInt128Lo( t );
+	int quadrant = (int)( ( whole + ( fraction >> 63 ) ) & 3 );
+
+	// Two's complement: the fraction as int64 is F - 2^64 when F >= 2^63, the remainder from the
+	// next quarter up. Through the unsigned subtraction so the conversion is the plain one.
+	int64_t f = fraction >= ( UINT64_C( 1 ) << 63 ) ? -(int64_t)( ~fraction ) - 1 : (int64_t)fraction;
+	int64_t r62 = fixInt128ToI64( fixInt128Shr( fixInt128MulI64( f, FIX_Q62_HALF_PI ), 64 ) );
+
+	fixCosSin out = fixCosSinOfQuadrant( r62, quadrant );
+	if ( radians < 0 )
+	{
+		out.sine = -out.sine; // sin( -x ) = -sin( x ), cos( -x ) = cos( x )
 	}
 	return out;
 }

@@ -34,6 +34,17 @@ FIX_API fixCosSin fixComputeCosSinPrecise( fixed_t radians );
 FIX_INLINE fixed_t fixSin( fixed_t radians ) { fixCosSin cs = fixComputeCosSin( radians ); return cs.sine; }
 FIX_INLINE fixed_t fixCos( fixed_t radians ) { fixCosSin cs = fixComputeCosSin( radians ); return cs.cosine; }
 
+/// Cosine and sine within 2 raw Q48.16 units of the correctly rounded value at EVERY input angle
+/// (measured within 1 against CORE-MATH). The reduction is exact to 2^-61 rad for every int64
+/// input: the quarter-turn count is the angle times 112 bits of 2/pi, in integers, so its error
+/// does not grow with the angle. The polynomials are those of fixComputeCosSinPrecise. Integer
+/// only, bit-identical on the native and the emulated 128-bit arms. These are new functions:
+/// fixSin, fixCos, fixComputeCosSin and fixComputeCosSinPrecise keep their frozen outputs.
+FIX_API fixCosSin fixComputeCosSinExact( fixed_t radians );
+
+FIX_INLINE fixed_t fixSinExact( fixed_t radians ) { fixCosSin cs = fixComputeCosSinExact( radians ); return cs.sine; }
+FIX_INLINE fixed_t fixCosExact( fixed_t radians ) { fixCosSin cs = fixComputeCosSinExact( radians ); return cs.cosine; }
+
 /// Convert any angle into the range [-pi, pi].
 FIX_INLINE fixed_t fixUnwindAngle( fixed_t radians )
 {

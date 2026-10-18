@@ -284,6 +284,25 @@ if (NOT MSVC)
     target_compile_definitions(fixed_sincos_negative_control PRIVATE SINCOS_NEGATIVE_CONTROL)
     add_test(NAME sincos_negative_control COMMAND fixed_sincos_negative_control)
     set_tests_properties(sincos_negative_control PROPERTIES WILL_FAIL TRUE)
+
+    # fixComputeCosSinExact / fixSinExact / fixCosExact within 2 raw of CORE-MATH at every angle,
+    # on the input sets of the core-math test (test/sincos_exact_test.c includes it).
+    add_executable(fixed_sincos_exact_test test/sincos_exact_test.c)
+    target_link_libraries(fixed_sincos_exact_test PRIVATE fixed fixed_core_math_object)
+    add_test(NAME sincos_exact COMMAND fixed_sincos_exact_test)
+
+    if (TARGET fixed_emulated)
+        add_executable(fixed_sincos_exact_emulated_test test/sincos_exact_test.c)
+        target_link_libraries(fixed_sincos_exact_emulated_test PRIVATE fixed_emulated fixed_core_math_object)
+        add_test(NAME sincos_exact_emulated COMMAND fixed_sincos_exact_emulated_test)
+    endif()
+
+    # The 107-ulp pair (fixComputeCosSin / fixSin / fixCos) under the 2-raw bound: it must fail.
+    add_executable(fixed_sincos_exact_negative_control test/sincos_exact_test.c)
+    target_link_libraries(fixed_sincos_exact_negative_control PRIVATE fixed fixed_core_math_object)
+    target_compile_definitions(fixed_sincos_exact_negative_control PRIVATE SINCOS_EXACT_NEGATIVE_CONTROL)
+    add_test(NAME sincos_exact_negative_control COMMAND fixed_sincos_exact_negative_control)
+    set_tests_properties(sincos_exact_negative_control PROPERTIES WILL_FAIL TRUE)
 endif()
 option(FIX_BUILD_BENCHMARKS "Build the numerical public-API microbenchmarks" OFF)
 if (FIX_BUILD_BENCHMARKS)

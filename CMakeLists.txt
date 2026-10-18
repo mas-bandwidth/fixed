@@ -449,6 +449,24 @@ target_compile_definitions(fixed_smooth_damped_exact_negative_control PRIVATE SM
 add_test(NAME smooth_damped_exact_negative_control COMMAND fixed_smooth_damped_exact_negative_control)
 set_tests_properties(smooth_damped_exact_negative_control PROPERTIES WILL_FAIL TRUE)
 
+# Exact angle unwinding, with an independent Q80 two-pi reference and the historical reducer
+# retained as a negative control.
+add_executable(fixed_unwind_angle_test test/unwind_angle_test.c)
+target_link_libraries(fixed_unwind_angle_test PRIVATE fixed)
+add_test(NAME unwind_angle COMMAND fixed_unwind_angle_test)
+
+add_executable(fixed_unwind_angle_negative_control test/unwind_angle_test.c)
+target_link_libraries(fixed_unwind_angle_negative_control PRIVATE fixed)
+target_compile_definitions(fixed_unwind_angle_negative_control PRIVATE UNWIND_ANGLE_NEGATIVE_CONTROL)
+add_test(NAME unwind_angle_negative_control COMMAND fixed_unwind_angle_negative_control)
+set_tests_properties(unwind_angle_negative_control PROPERTIES WILL_FAIL TRUE)
+
+if (TARGET fixed_emulated)
+    add_executable(fixed_unwind_angle_emulated_test test/unwind_angle_test.c)
+    target_link_libraries(fixed_unwind_angle_emulated_test PRIVATE fixed_emulated)
+    add_test(NAME unwind_angle_emulated COMMAND fixed_unwind_angle_emulated_test)
+endif()
+
 option(FIX_BUILD_BENCHMARKS "Build the numerical public-API microbenchmarks" OFF)
 if (FIX_BUILD_BENCHMARKS)
     add_executable(fixed_numerical_bench benchmark/numerical_bench.c)

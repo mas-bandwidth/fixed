@@ -152,13 +152,18 @@ FIX_API fixCosSinWide fixComputeCosSinHalfExactWide( fixed_t radians );
 FIX_INLINE fixed_t fixSinExact( fixed_t radians ) { fixCosSin cs = fixComputeCosSinExact( radians ); return cs.sine; }
 FIX_INLINE fixed_t fixCosExact( fixed_t radians ) { fixCosSin cs = fixComputeCosSinExact( radians ); return cs.cosine; }
 
-/// Convert any angle into the range [-pi, pi].
+/// Convert any angle into the range [-pi, pi]. The original function remains frozen because
+/// fixComputeCosSinPrecise and existing hash-pinned consumers use its outputs.
 FIX_INLINE fixed_t fixUnwindAngle( fixed_t radians )
 {
 	const fixed_t twoPi = FIX( 6.28318530718 );
 	int64_t n = ( fixDiv( radians, twoPi ) + FIX_HALF ) >> FIX_FRACTION_BITS;
 	return (fixed_t)fixInt128ToI64( fixInt128Sub( fixInt128FromI64( radians ), fixInt128MulI64( n, twoPi ) ) );
 }
+
+/// Exact reduction into [-pi, pi], within 1 raw of x - 2*pi*round(x/(2*pi)) for every input.
+/// Integer-only and bit-identical on native/emulated 128-bit arms. See test/unwind_angle_test.c.
+FIX_API fixed_t fixUnwindAngleExact( fixed_t radians );
 
 // Saturating replacements for the Q48.16 -> int32 conversions and for the top-edge
 // wrap of fixCeil. The originals live in include/fixed/fixed.h and are frozen:

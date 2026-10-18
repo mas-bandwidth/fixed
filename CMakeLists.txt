@@ -212,6 +212,19 @@ add_executable(fixed_boundary_test test/boundary_test.c)
 target_link_libraries(fixed_boundary_test PRIVATE fixed)
 add_test(NAME boundary COMMAND fixed_boundary_test)
 
+# The Q48.16 -> int32 conversions and Floor/Ceil at INT64_MIN/INT64_MAX. The
+# reference is an independent __int128 oracle inside test/toint_test.c.
+add_executable(fixed_toint_test test/toint_test.c)
+target_link_libraries(fixed_toint_test PRIVATE fixed)
+add_test(NAME toint COMMAND fixed_toint_test)
+
+# Its negative control: the old wrapping casts, verbatim. MUST fail.
+add_executable(fixed_toint_negative_control test/toint_test.c)
+target_link_libraries(fixed_toint_negative_control PRIVATE fixed)
+target_compile_definitions(fixed_toint_negative_control PRIVATE TOINT_NEGATIVE_CONTROL)
+add_test(NAME toint_negative_control COMMAND fixed_toint_negative_control)
+set_tests_properties(toint_negative_control PROPERTIES WILL_FAIL TRUE)
+
 # Its planted removal, the card's negative control. At configure time the headers
 # and the two library sources are copied, every INT64_MIN guard this card added is
 # deleted from the copies, and the suite is built against the unguarded copy. The
@@ -374,6 +387,26 @@ if (TARGET fixed_emulated)
     endif()
     add_test(NAME from_double_emulated COMMAND fixed_from_double_emulated_test)
 endif()
+# Exact critically damped smoothing: the new pair against the formula with the true pi,
+# long double reference, seeded sweeps of the core and the task's wide range. The negative
+# control swaps in the shipped pair and must fail (WILL_FAIL); its core velocity row shows
+# the rounding error the exact path removes.
+add_executable(fixed_smooth_damped_exact_test test/smooth_damped_exact_test.c)
+target_link_libraries(fixed_smooth_damped_exact_test PRIVATE fixed)
+add_test(NAME smooth_damped_exact COMMAND fixed_smooth_damped_exact_test)
+
+if (TARGET fixed_emulated)
+    add_executable(fixed_smooth_damped_exact_emulated_test test/smooth_damped_exact_test.c)
+    target_link_libraries(fixed_smooth_damped_exact_emulated_test PRIVATE fixed_emulated)
+    add_test(NAME smooth_damped_exact_emulated COMMAND fixed_smooth_damped_exact_emulated_test)
+endif()
+
+add_executable(fixed_smooth_damped_exact_negative_control test/smooth_damped_exact_test.c)
+target_link_libraries(fixed_smooth_damped_exact_negative_control PRIVATE fixed)
+target_compile_definitions(fixed_smooth_damped_exact_negative_control PRIVATE SMOOTH_DAMPED_NEGATIVE_CONTROL)
+add_test(NAME smooth_damped_exact_negative_control COMMAND fixed_smooth_damped_exact_negative_control)
+set_tests_properties(smooth_damped_exact_negative_control PROPERTIES WILL_FAIL TRUE)
+
 option(FIX_BUILD_BENCHMARKS "Build the numerical public-API microbenchmarks" OFF)
 if (FIX_BUILD_BENCHMARKS)
     add_executable(fixed_numerical_bench benchmark/numerical_bench.c)
@@ -399,6 +432,13 @@ if (TARGET fixed_emulated)
         add_test(NAME ${suite}_emulated COMMAND fixed_${suite}_emulated_test)
     endforeach()
 
+    add_executable(fixed_toint_emulated_test test/toint_test.c)
+    target_link_libraries(fixed_toint_emulated_test PRIVATE fixed_emulated)
+    if (NOT WIN32)
+        target_link_libraries(fixed_toint_emulated_test PRIVATE m)
+    endif()
+    add_test(NAME toint_emulated COMMAND fixed_toint_emulated_test)
+
     add_executable(fixed_numerical_saturated_emulated_test test/numerical_regression_test.c src/fixed_math.c src/fixed_vec.c)
     target_include_directories(fixed_numerical_saturated_emulated_test PRIVATE include)
     target_compile_definitions(fixed_numerical_saturated_emulated_test PRIVATE FIX_SATURATE FIX_FORCE_EMULATED_INT128)
@@ -415,4 +455,107 @@ if (TARGET fixed_emulated)
     target_compile_definitions(fixed_emulated_negative_control PRIVATE FIXED_NEGATIVE_CONTROL)
     add_test(NAME emulated_negative_control COMMAND fixed_emulated_negative_control)
     set_tests_properties(emulated_negative_control PROPERTIES WILL_FAIL TRUE)
+endif()
+
+# ---------------------------------------------------------------------------------------------
+# THE EXACT-FUNCTION PLUG-IN LAYOUT.
+#
+# A later function card adds src/exact/<name>.c, include/fixed/fixed_<name>.h and
+# test/exact/<name>_test.c and edits nothing here. The globs are CONFIGURE_DEPENDS, so a new
+# file is picked up by the next build without touching this file.
+# ---------------------------------------------------------------------------------------------
+file( GLOB FIX_EXACT_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/exact/*.c" )
+if (FIX_EXACT_SOURCES)
+    target_sources(fixed PRIVATE ${FIX_EXACT_SOURCES})
+    if (TARGET fixed_emulated)
+        target_sources(fixed_emulated PRIVATE ${FIX_EXACT_SOURCES})
+    endif()
+endif()
+
+file( GLOB FIX_EXACT_TESTS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/test/exact/*_test.c" )
+foreach(exact_test ${FIX_EXACT_TESTS})
+    get_filename_component(exact_test_name "${exact_test}" NAME_WE)
+    string(REGEX REPLACE "_test$" "" exact_name "${exact_test_name}")
+    add_executable(fixed_exact_${exact_name}_test "${exact_test}")
+    target_link_libraries(fixed_exact_${exact_name}_test PRIVATE fixed)
+    if (NOT WIN32)
+        target_link_libraries(fixed_exact_${exact_name}_test PRIVATE m)
+    endif()
+    add_test(NAME ${exact_name} COMMAND fixed_exact_${exact_name}_test)
+    if (TARGET fixed_emulated)
+        add_executable(fixed_exact_${exact_name}_emulated_test "${exact_test}")
+        target_link_libraries(fixed_exact_${exact_name}_emulated_test PRIVATE fixed_emulated)
+        if (NOT WIN32)
+            target_link_libraries(fixed_exact_${exact_name}_emulated_test PRIVATE m)
+        endif()
+        add_test(NAME ${exact_name}_emulated COMMAND fixed_exact_${exact_name}_emulated_test)
+    endif()
+endforeach()
+
+file( GLOB FIX_EXACT_NEGATIVE_TESTS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/test/exact/*_negative_control.c" )
+foreach(exact_control ${FIX_EXACT_NEGATIVE_TESTS})
+    get_filename_component(exact_control_name "${exact_control}" NAME_WE)
+    string(REGEX REPLACE "_negative_control$" "" exact_name "${exact_control_name}")
+    add_executable(fixed_exact_${exact_name}_negative_control "${exact_control}")
+    target_link_libraries(fixed_exact_${exact_name}_negative_control PRIVATE fixed)
+    add_test(NAME ${exact_name}_negative_control COMMAND fixed_exact_${exact_name}_negative_control)
+    set_tests_properties(${exact_name}_negative_control PROPERTIES WILL_FAIL TRUE)
+endforeach()
+
+# ---------------------------------------------------------------------------------------------
+# THE MPFR SWEEP AND ITS SCOREBOARD.
+#
+# Off by default, and only built on a machine with MPFR and GMP. Missing either names the
+# missing library at configure time and skips the sweep; it is never a configure error.
+# Descriptors live in sweep/fns/*.c and the registry is generated here, so a function joins
+# the sweep by adding one file.
+# ---------------------------------------------------------------------------------------------
+option(FIX_BUILD_SWEEPS "Build the MPFR accuracy sweeps and scoreboard (slow tier)" OFF)
+if (FIX_BUILD_SWEEPS)
+    find_path(FIX_MPFR_INCLUDE_DIR NAMES mpfr.h)
+    find_library(FIX_MPFR_LIBRARY NAMES mpfr)
+    find_path(FIX_GMP_INCLUDE_DIR NAMES gmp.h)
+    find_library(FIX_GMP_LIBRARY NAMES gmp)
+    if (NOT FIX_MPFR_LIBRARY)
+        message(STATUS "fixed: sweep skipped: libmpfr not found")
+    elseif (NOT FIX_GMP_LIBRARY)
+        message(STATUS "fixed: sweep skipped: libgmp not found")
+    else()
+        find_package(Threads REQUIRED)
+        file(GLOB FIX_SWEEP_FNS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/sweep/fns/*.c")
+        set(FIX_SWEEP_REGISTRY "${CMAKE_CURRENT_BINARY_DIR}/sweep_registry.c")
+        set(FIX_SWEEP_REGISTRY_TEXT "/* generated at configure time from sweep/fns/*.c */\n#include \"sweep.h\"\n")
+        set(FIX_SWEEP_REGISTRY_ENTRIES "")
+        foreach(fn_source ${FIX_SWEEP_FNS})
+            get_filename_component(fn_name "${fn_source}" NAME_WE)
+            string(APPEND FIX_SWEEP_REGISTRY_TEXT "extern const sweep_fn sweep_fn_${fn_name};\n")
+            string(APPEND FIX_SWEEP_REGISTRY_ENTRIES "    &sweep_fn_${fn_name},\n")
+        endforeach()
+        string(APPEND FIX_SWEEP_REGISTRY_TEXT "const sweep_fn *const sweep_fns[] = {\n${FIX_SWEEP_REGISTRY_ENTRIES}};\nconst size_t sweep_nfns = sizeof( sweep_fns ) / sizeof( sweep_fns[0] );\n")
+        file(WRITE "${FIX_SWEEP_REGISTRY}" "${FIX_SWEEP_REGISTRY_TEXT}")
+
+        set(FIX_SWEEP_COMMON sweep/sweep.c "${FIX_SWEEP_REGISTRY}" ${FIX_SWEEP_FNS})
+        add_executable(fixed_sweep ${FIX_SWEEP_COMMON})
+        target_include_directories(fixed_sweep PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/sweep" ${FIX_MPFR_INCLUDE_DIR} ${FIX_GMP_INCLUDE_DIR})
+        target_link_libraries(fixed_sweep PRIVATE fixed ${FIX_MPFR_LIBRARY} ${FIX_GMP_LIBRARY} Threads::Threads)
+        if (NOT WIN32)
+            target_link_libraries(fixed_sweep PRIVATE m)
+        endif()
+        target_compile_definitions(fixed_sweep PRIVATE FIX_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}" FIX_SWEEP_ARM="${CMAKE_C_COMPILER_ID}-native")
+        foreach(fn_source ${FIX_SWEEP_FNS})
+            get_filename_component(fn_name "${fn_source}" NAME_WE)
+            add_test(NAME sweep_${fn_name} COMMAND fixed_sweep --ctest-label-guard --fn ${fn_name} --threads 3)
+            set_tests_properties(sweep_${fn_name} PROPERTIES LABELS slow EXCLUDE_FROM_ALL TRUE)
+        endforeach()
+
+        if (TARGET fixed_emulated)
+            add_executable(fixed_sweep_emulated ${FIX_SWEEP_COMMON})
+            target_include_directories(fixed_sweep_emulated PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/sweep" ${FIX_MPFR_INCLUDE_DIR} ${FIX_GMP_INCLUDE_DIR})
+            target_link_libraries(fixed_sweep_emulated PRIVATE fixed_emulated ${FIX_MPFR_LIBRARY} ${FIX_GMP_LIBRARY} Threads::Threads)
+            if (NOT WIN32)
+                target_link_libraries(fixed_sweep_emulated PRIVATE m)
+            endif()
+            target_compile_definitions(fixed_sweep_emulated PRIVATE FIX_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}" FIX_SWEEP_ARM="${CMAKE_C_COMPILER_ID}-emulated")
+        endif()
+    endif()
 endif()

@@ -844,3 +844,177 @@ fixed_t fixSmoothCriticallyDampedUpDown( fixed_t current, fixed_t target, fixed_
 	fixed_t smoothTime = fixAbs( target ) >= fixAbs( current ) ? smoothTimeUp : smoothTimeDown;
 	return fixSmoothCriticallyDamped( current, target, velocity, smoothTime, deltaTime );
 }
+
+// ---------------------------------------------------------------------------------------------
+// Exact critically damped smoothing.
+//
+// The formula is the one above with the denominators cleared and pi kept as a 62-bit
+// fraction. Write s = 2^-16, T = Traw s, dt = dtraw s, D = Draw s, v = vraw s and
+// pi = P / 2^62, P = 2 * FIX_Q62_HALF_PI (a 64-bit integer, |P - pi 2^62| <= 1). Then
+//
+//   velocity' = ( v T^2 - 4 pi^2 dt D ) / ( T + 2 pi dt )^2
+//             = [ vraw Traw^2 2^124 - 4 P^2 dtraw Draw 2^16 ] / X^2,
+//   X         = Traw 2^62 + 2 P dtraw,
+//
+// and the returned result is [ craw X^2 2^16 + velocityNumerator dtraw ] / ( X^2 2^16 ).
+// Both quotients are taken once, with a round-to-nearest on the exact rational, so the
+// only error left is the pi rounding and the two roundings. Every magnitude below is
+// formed unsigned with its sign carried beside it, so the signed numerator never has to
+// be represented at 256 bits. For the stated range (|c|,|t|,|v| <= 2^20 rad, T in
+// [1/16,1024], dt in (0,1]) the widest intermediate is below 2^229 and the denominator
+// below 2^177, all inside 256 bits. The pi error (<= 2^-62) moves either output by well
+// under 10^-9 raw over that range, and each rounding contributes at most 1/2 raw, so the
+// pair is inside 2 raw of the correctly rounded exact formula. Tested in
+// test/smooth_damped_exact_test.c.
+// ---------------------------------------------------------------------------------------------
+
+// 128x128 -> 256, wrapping modulo 2^256. Four 64x64 products in the fixUInt128 vocabulary:
+// the 256-bit layer is then native on both compilers and on both 128-bit arms.
+static fixUInt256 fixSmoothMulU128( fixUInt128 a, fixUInt128 b )
+{
+	uint64_t a0 = fixUInt128Lo( a ), a1 = fixUInt128Hi( a );
+	uint64_t b0 = fixUInt128Lo( b ), b1 = fixUInt128Hi( b );
+
+	fixUInt256 r = fixUInt256FromU128( fixUInt128MulU64( a0, b0 ) );
+	r = fixUInt256Add( r, fixUInt256Shl( fixUInt256FromU128( fixUInt128MulU64( a0, b1 ) ), 64 ) );
+	r = fixUInt256Add( r, fixUInt256Shl( fixUInt256FromU128( fixUInt128MulU64( a1, b0 ) ), 64 ) );
+	r = fixUInt256Add( r, fixUInt256Shl( fixUInt256FromU128( fixUInt128MulU64( a1, b1 ) ), 128 ) );
+	return r;
+}
+
+// 256x64 -> 256, wrapping modulo 2^256.
+static fixUInt256 fixSmoothMulU256U64( fixUInt256 a, uint64_t b )
+{
+	fixUInt256 r = fixUInt256FromU128( fixUInt128MulU64( fixUInt128Lo( a.lo ), b ) );
+	r = fixUInt256Add( r, fixUInt256Shl( fixUInt256FromU128( fixUInt128MulU64( fixUInt128Hi( a.lo ), b ) ), 64 ) );
+	r = fixUInt256Add( r, fixUInt256Shl( fixUInt256FromU128( fixUInt128MulU64( fixUInt128Lo( a.hi ), b ) ), 128 ) );
+	r = fixUInt256Add( r, fixUInt256Shl( fixUInt256FromU128( fixUInt128MulU64( fixUInt128Hi( a.hi ), b ) ), 192 ) );
+	return r;
+}
+
+// Signed addition of two magnitudes without ever forming a signed 256-bit value. The
+// returned magnitude is |signA*magA + signB*magB| and *signOut is its sign.
+static fixUInt256 fixSmoothSignedAdd( bool signA, fixUInt256 magA, bool signB, fixUInt256 magB, bool* signOut )
+{
+	if ( fixUInt256IsZero( magA ) )
+	{
+		*signOut = signB;
+		return magB;
+	}
+	if ( fixUInt256IsZero( magB ) )
+	{
+		*signOut = signA;
+		return magA;
+	}
+	if ( signA == signB )
+	{
+		*signOut = signA;
+		return fixUInt256Add( magA, magB );
+	}
+	if ( fixUInt256Ge( magA, magB ) )
+	{
+		*signOut = signA;
+		return fixUInt256Sub( magA, magB );
+	}
+	*signOut = signB;
+	return fixUInt256Sub( magB, magA );
+}
+
+// Round-to-nearest quotient num/den (halves away from zero, via the unsigned magnitudes).
+// The comparison r >= den - r avoids doubling the remainder and so cannot overflow.
+static fixUInt256 fixSmoothDivRound( fixUInt256 num, fixUInt256 den )
+{
+	fixUInt256 q, r;
+	fixUInt256DivMod( num, den, &q, &r );
+	if ( !fixUInt256IsZero( den ) && fixUInt256Ge( r, fixUInt256Sub( den, r ) ) )
+	{
+		q = fixUInt256Add( q, fixUInt256FromU64( 1 ) );
+	}
+	return q;
+}
+
+// Narrow a magnitude to fixed_t, saturating instead of wrapping.
+static fixed_t fixSmoothSaturate( bool negative, fixUInt256 magnitude )
+{
+	if ( !fixUInt128Eq( magnitude.hi, FIX_UINT128_ZERO ) || fixUInt128Hi( magnitude.lo ) != 0 ||
+		 fixUInt128Lo( magnitude.lo ) > (uint64_t)INT64_MAX )
+	{
+		return negative ? FIX_MIN : FIX_MAX;
+	}
+	fixed_t value = (fixed_t)fixUInt128Lo( magnitude.lo );
+	return negative ? -value : value;
+}
+
+static uint64_t fixSmoothMagnitude64( int64_t value, bool* negative )
+{
+	*negative = value < 0;
+	// INT64_MIN policy: -INT64_MIN cannot be formed in signed arithmetic, so take its
+	// magnitude through unsigned. It is outside the stated range but still total.
+	return *negative ? (uint64_t)( -( value + 1 ) ) + 1 : (uint64_t)value;
+}
+
+fixed_t fixSmoothCriticallyDampedExact( fixed_t current, fixed_t target, fixed_t* velocity, fixed_t smoothTime,
+										fixed_t deltaTime )
+{
+	if ( smoothTime <= 0 )
+	{
+		return target;
+	}
+
+	if ( deltaTime <= 0 )
+	{
+		return current;
+	}
+
+	// 2 * round(pi/2 * 2^62): pi to at least 62 fraction bits, in a uint64_t.
+	const uint64_t pi62 = (uint64_t)FIX_Q62_HALF_PI * 2;
+	const uint64_t T = (uint64_t)smoothTime;
+	const uint64_t dt = (uint64_t)deltaTime;
+
+	bool vNeg, cNeg;
+	uint64_t vMag = fixSmoothMagnitude64( *velocity, &vNeg );
+	uint64_t cMag = fixSmoothMagnitude64( current, &cNeg );
+	// |current - target| taken from the signed order, so the full int64 range stays total.
+	bool dPositive = current > target;
+	uint64_t dMag = dPositive ? (uint64_t)current - (uint64_t)target : (uint64_t)target - (uint64_t)current;
+
+	// velocity numerator: |v| T^2 2^124 minus 4 P^2 dt |D| 2^16, signs kept apart.
+	fixUInt256 term1 = fixSmoothMulU256U64( fixUInt256FromU128( fixUInt128MulU64( T, T ) ), vMag );
+	term1 = fixUInt256Shl( term1, 124 );
+
+	fixUInt128 pSquared = fixUInt128MulU64( pi62, pi62 );
+	fixUInt256 term2 = fixUInt256Shl( fixUInt256FromU128( pSquared ), 2 );
+	term2 = fixSmoothMulU256U64( term2, dt );
+	term2 = fixSmoothMulU256U64( term2, dMag );
+	term2 = fixUInt256Shl( term2, 16 );
+
+	bool velocityNumeratorNeg;
+	fixUInt256 velocityNumerator =
+		fixSmoothSignedAdd( vNeg, term1, dPositive, term2, &velocityNumeratorNeg );
+
+	// X = T 2^62 + 2 P dt, and the squared denominator X^2.
+	fixUInt128 X = fixUInt128Add( fixUInt128Shl( fixUInt128FromU64( T ), 62 ),
+								  fixUInt128Shl( fixUInt128MulU64( pi62, dt ), 1 ) );
+	fixUInt256 denominator = fixSmoothMulU128( X, X );
+
+	*velocity = fixSmoothSaturate( velocityNumeratorNeg, fixSmoothDivRound( velocityNumerator, denominator ) );
+
+	// result numerator: current X^2 2^16 plus velocityNumerator dt, over X^2 2^16. The
+	// unrounded velocity numerator is used, so the result takes one rounding only.
+	fixUInt256 currentTerm = fixUInt256Shl( fixSmoothMulU256U64( denominator, cMag ), 16 );
+	fixUInt256 velocityTerm = fixSmoothMulU256U64( velocityNumerator, dt );
+
+	bool resultNumeratorNeg;
+	fixUInt256 resultNumerator =
+		fixSmoothSignedAdd( cNeg, currentTerm, velocityNumeratorNeg, velocityTerm, &resultNumeratorNeg );
+
+	fixUInt256 resultDenominator = fixUInt256Shl( denominator, 16 );
+	return fixSmoothSaturate( resultNumeratorNeg, fixSmoothDivRound( resultNumerator, resultDenominator ) );
+}
+
+fixed_t fixSmoothCriticallyDampedUpDownExact( fixed_t current, fixed_t target, fixed_t* velocity,
+											  fixed_t smoothTimeUp, fixed_t smoothTimeDown, fixed_t deltaTime )
+{
+	fixed_t smoothTime = fixAbs( target ) >= fixAbs( current ) ? smoothTimeUp : smoothTimeDown;
+	return fixSmoothCriticallyDampedExact( current, target, velocity, smoothTime, deltaTime );
+}

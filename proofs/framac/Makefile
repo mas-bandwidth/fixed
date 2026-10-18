@@ -1,0 +1,72 @@
+# Frama-C WP runtime-error proofs for the integer kernels of mas-bandwidth/fixed.
+# Runs on a Linux bench only, outside CTest and CI. See README.md.
+#
+#   make -C proofs/framac all       every wrapper on the emulated 128-bit path, then the
+#                                   native path, then the summary table
+#   make -C proofs/framac emulated  emulated path only
+#   make -C proofs/framac native    native __int128 path only
+#   make -C proofs/framac summary   reprint the table from the logs in out/
+#
+# One frama-c run per wrapper, so a goal is always reported against one function.
+
+FRAMAC   ?= frama-c
+OUT      ?= out
+WPFLAGS  ?= -wp -wp-rte -wp-prover alt-ergo,z3 -wp-timeout 60
+# Inline every FIX_ALWAYS_INLINE helper into the wrapper that calls it, so each RTE
+# goal of the seam and of the lane arithmetic is generated and proved in its calling
+# context. -wp-fct then limits WP to the one wrapper.
+KERNEL   ?= -inline-calls @inline -remove-inlined @inline
+CPP_BASE  = -I../../include
+
+KERNELS    = proveFixMul proveFixDiv proveFixISqrt128High
+PRIMITIVES = proveInt128MulI64 proveInt128Add proveInt128Shr proveInt128ShiftLeft \
+             proveUInt128Shl proveUInt128Shr proveUInt128MulU64 proveUInt128Add \
+             proveUInt128Sub proveInt128Div proveInt128ToI64 proveInt128Compare \
+             proveUInt128Compare
+WRAPPERS   = $(KERNELS) $(PRIMITIVES)
+
+EMU_LOGS   = $(patsubst %,$(OUT)/%.emulated.log,$(WRAPPERS)) $(OUT)/proveFixMul.emulated-saturate.log
+NAT_LOGS   = $(patsubst %,$(OUT)/%.native.log,$(WRAPPERS))
+
+.PHONY: all emulated native summary clean
+.NOTPARALLEL:
+
+all: emulated native summary
+
+emulated: $(EMU_LOGS)
+
+native: $(NAT_LOGS)
+
+$(OUT):
+	mkdir -p $(OUT)
+
+# Emulated path: the two-lane fixEmuInt128 arithmetic, as plain MSVC builds it.
+$(OUT)/%.emulated.log: kernels_acsl.c | $(OUT)
+	$(FRAMAC) -cpp-extra-args="$(CPP_BASE) -DFIX_FORCE_EMULATED_INT128" kernels_acsl.c \
+		$(KERNEL) $(WPFLAGS) -wp-fct $* > $@ 2>&1 || true
+	@printf '%-24s %-18s %s\n' $* emulated "$$(grep -E 'Proved goals:' $@ | tail -1 | sed 's/^ *//')"
+
+# fixMul under FIX_SATURATE, the saturating tail.
+$(OUT)/proveFixMul.emulated-saturate.log: kernels_acsl.c | $(OUT)
+	$(FRAMAC) -cpp-extra-args="$(CPP_BASE) -DFIX_FORCE_EMULATED_INT128 -DFIX_SATURATE" kernels_acsl.c \
+		$(KERNEL) $(WPFLAGS) -wp-fct proveFixMul > $@ 2>&1 || true
+	@printf '%-24s %-18s %s\n' proveFixMul emulated-saturate "$$(grep -E 'Proved goals:' $@ | tail -1 | sed 's/^ *//')"
+
+# Native path: compiler __int128. The front end must accept the type for this to run;
+# when it does not, the log holds the parse error and the summary says so.
+$(OUT)/%.native.log: kernels_acsl.c | $(OUT)
+	$(FRAMAC) -cpp-extra-args="$(CPP_BASE)" kernels_acsl.c \
+		$(KERNEL) $(WPFLAGS) -wp-fct $* > $@ 2>&1 || true
+	@printf '%-24s %-18s %s\n' $* native "$$(grep -E 'Proved goals:' $@ | tail -1 | sed 's/^ *//')$$(grep -q 'syntax error' $@ && echo 'front end rejects __int128 (see log)')"
+
+summary:
+	@echo "wrapper                  arm                proved / total"
+	@for f in $(OUT)/*.log; do \
+		b=$$(basename $$f .log); fn=$${b%%.*}; arm=$${b#*.}; \
+		line=$$(grep -E 'Proved goals:' $$f | tail -1 | sed 's/^.*Proved goals: *//'); \
+		grep -q 'syntax error' $$f && line="not run: front end rejects __int128"; \
+		printf '%-24s %-18s %s\n' $$fn $$arm "$${line:-no WP summary (see $$f)}"; \
+	done
+
+clean:
+	rm -rf $(OUT)

@@ -98,6 +98,22 @@ typedef struct fixCosSin
 /// atan2 accurate to ~0.0023 degrees. Deterministic (unlike the standard library).
 FIX_API fixed_t fixAtan2( fixed_t y, fixed_t x );
 
+/// atan2 within 1 raw Q48.16 unit of the correctly rounded value for every pair, monotone in each
+/// argument wherever the true atan2 is, fixAtan2Exact( 0, 0 ) = 0, INT64_MIN taken as -INT64_MAX.
+/// The ratio in Q2.62 at 128 bits, one degree-20 polynomial on [0, 1] evaluated at 128 bits, the
+/// octant map in Q.64 radians and one final rounding (design and error budget in src/fixed_math.c).
+/// Checked against CORE-MATH cr_atan2 at the pin in test/quat_angles_exact_test.c. Integer only,
+/// bit-identical on the native and the emulated 128-bit arms. A new function: fixAtan2 keeps its
+/// frozen outputs.
+FIX_API fixed_t fixAtan2Exact( fixed_t y, fixed_t x );
+
+/// 2 * atan2( y, x ) for |y| = sqrt( ySquared ) and |x| = sqrt( xSquared ) with the given signs,
+/// rounded once to Q48.16 from fixAtan2Exact's wide value: within 1 raw of the correctly rounded
+/// value. The squared magnitudes are exact 128-bit sums of squares (fixDotRaw), so no floored length
+/// enters. The entry point of the exact quaternion angles in fixed_vec.h (fixGetQuatAngleExact and
+/// its siblings); checked in test/quat_angles_exact_test.c.
+FIX_API fixed_t fixDoubleAtan2ExactOfSquares( fixUInt128 ySquared, bool yNegative, fixUInt128 xSquared, bool xNegative );
+
 /// Cosine and sine of an angle in radians. Deterministic.
 FIX_API fixCosSin fixComputeCosSin( fixed_t radians );
 
@@ -114,6 +130,17 @@ FIX_API fixCosSin fixComputeCosSinPrecise( fixed_t radians );
 
 FIX_INLINE fixed_t fixSin( fixed_t radians ) { fixCosSin cs = fixComputeCosSin( radians ); return cs.sine; }
 FIX_INLINE fixed_t fixCos( fixed_t radians ) { fixCosSin cs = fixComputeCosSin( radians ); return cs.cosine; }
+
+/// Cosine and sine within 2 raw Q48.16 units of the correctly rounded value at EVERY input angle
+/// (measured within 1 against CORE-MATH). The reduction is exact to 2^-61 rad for every int64
+/// input: the quarter-turn count is the angle times 112 bits of 2/pi, in integers, so its error
+/// does not grow with the angle. The polynomials are those of fixComputeCosSinPrecise. Integer
+/// only, bit-identical on the native and the emulated 128-bit arms. These are new functions:
+/// fixSin, fixCos, fixComputeCosSin and fixComputeCosSinPrecise keep their frozen outputs.
+FIX_API fixCosSin fixComputeCosSinExact( fixed_t radians );
+
+FIX_INLINE fixed_t fixSinExact( fixed_t radians ) { fixCosSin cs = fixComputeCosSinExact( radians ); return cs.sine; }
+FIX_INLINE fixed_t fixCosExact( fixed_t radians ) { fixCosSin cs = fixComputeCosSinExact( radians ); return cs.cosine; }
 
 /// Convert any angle into the range [-pi, pi].
 FIX_INLINE fixed_t fixUnwindAngle( fixed_t radians )

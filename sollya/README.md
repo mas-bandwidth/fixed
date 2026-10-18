@@ -11,6 +11,9 @@ Version used: Sollya 8.0 (Ubuntu package sollya 8.0+ds-3build2 on Ubuntu 26.04, 
 2026-10-18). Each output is byte-for-byte reproducible: rerun the command and `git diff` shows
 nothing.
 
+The table lists the three scripts of docs/design/transcendentals.md; other cards add their own
+here (for example asin_acos.sollya, from fixed-asin-acos-exact).
+
 | script | output | what it prints |
 |---|---|---|
 | exp_kernel.sollya | exp_kernel.out | degree-8 kernel for e^r on [0, ln2/128], its certified bound (2^-102.67), LN2_128, INV_LN2_63, the 2^(j/128) table; the odd degree-13 sinh kernel (2^-113.91) and the odd degree-19 tanh kernel (2^-117.10) on \|x\| <= 1/16 |

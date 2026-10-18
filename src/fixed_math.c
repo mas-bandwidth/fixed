@@ -534,7 +534,8 @@ fixed_t fixPow( fixed_t base, fixed_t exponent )
 //   1. log2 x as a signed Q7.120 value L (|L| < 47 < 2^6, so |L| * 2^120 < 2^126). The
 //      integer part is the leading-bit position of X minus 16. The fraction is the exact
 //      binary digits of log2 m, m = X normalized into [1, 2), produced by repeated squaring as
-//      fixLog2 does, but with m carried as a 128-bit Q126 mantissa squared at 256 bits. The
+//      fixLog2 does, but with m carried as a 128-bit Q126 mantissa squared at 256 bits for the
+//      leading digits (the ones whose losses weigh most) and at 64 bits for the last 58. The
 //      digit count F is adaptive: F = msb( |Y| ) + 57, in [57, 120], so that |y| * 2^-F is
 //      below 2^-72 for every exponent.
 //   2. z = Y * L / 2^16, formed exactly as a 192-bit product |Y| * |L| (units 2^-136), then
@@ -545,27 +546,34 @@ fixed_t fixPow( fixed_t base, fixed_t exponent )
 //      16 bits of f through fixExp2Exact's own helper fixExp2FractionMantissa, unchanged; the
 //      next 16 bits through the same binary exponentiation over 2^(2^-k), k = 17..32; and the
 //      remaining 88 bits g < 2^-32 through 2^g = 1 + t + t^2/2 + t^3/6, t = g * ln2.
-//   4. raw = 2^f * 2^(n+16), one round to nearest at the final shift, as fixExp2Exact does;
-//      a rounded value that reaches 2^63 saturates.
+//   4. raw = 2^f * 2^(n+16), one round to nearest at the final shift, ties to even (so an
+//      exact half raw, as at base 2 rad and exponent -17 rad, is 0); a rounded value that
+//      reaches 2^63 saturates.
 //
 // ERROR BUDGET, as an absolute error in z and then a relative error in 2^z:
-//   log2 digits:      the truncated tail is below 2^-F; each 256-bit square truncated back to
-//                     Q126 loses under 2^-126 of a value >= 1, and those losses enter L
-//                     weighted by 2^-(k+1), so they sum below 2^-125.4. With F = msb(|Y|)+57,
-//                     |y| * ( 2^-F + 2^-125.4 ) < 2^-72 + 2^-78.
+//   log2 digits:      the truncated tail is below 2^-F; each of the first F - 58 squares
+//                     (truncated, see fixPowSquare128, then cut back to Q126) loses under
+//                     2^-124 + 2^-126 of a value >= 1, and a loss at digit k enters L weighted
+//                     by 2^-(k+1), so those sum below 2^-123.1; the last 58 digits run on a Q62
+//                     mantissa, losing under 2^-62 each from digit F - 58 on, which sums below
+//                     2^-(F+3.5). With F = msb(|Y|)+57, |y| * ( 1.09 * 2^-F + 2^-123.1 ) <
+//                     2^-71.9 + 2^-76.1.
 //   product:          truncation of |Y| * |L| to 2^-120: below 2^-120.
 //   exp2 tables:      32 table entries rounded to 2^-127 and at most 32 truncating
 //                     multiplies at 2^-126 each, plus the 2^g remainder (truncated Taylor
 //                     tail t^4/24 < 2^-134, three truncating multiplies): below 2^-120 relative.
-//   total:            ln2 * ( 2^-72 + 2^-78 + 2^-120 ) + 2^-120 < 2^-72.4 relative, so under
-//                     2^-9.4 raw even for a result near 2^63 raw; with the final round to
-//                     nearest the result is within 0.502 raw of exact, so within 1 raw of the
-//                     correctly rounded value. Bound claimed: 2 raw.
+//   total:            ln2 * ( 2^-71.9 + 2^-76.1 + 2^-120 ) + 2^-120 < 2^-72.3 relative, so under
+//                     2^-9.3 raw even for a result near 2^63 raw; with the final round to
+//                     nearest (ties to even) the result is within 0.502 raw of exact, so within
+//                     1 raw of the correctly rounded value. Bound claimed: 2 raw.
+//   zero:             a true result below half a raw returns 0 unless it lies within that
+//                     2^-72.3 relative error of half a raw; an exact half (base a power of two,
+//                     z = -17 exactly, where every stage is exact) rounds to even, to 0.
 //   measured:         maxulp 1 on every piece of test/pow_exact_test.c where the CORE-MATH
 //                     cr_pow reference (at the pin) is exact, and 0 beyond the half spacing of
 //                     the double reference above 2^53 raw. Off tree, against MPFR at 400 bits
 //                     on 2^22 pairs spread over z in [-18, 48] (a quarter of them with results
-//                     above 2^53 raw): maxulp 1, 26 pairs at 1 raw, the rest exact.
+//                     above 2^53 raw): maxulp 1, 29 pairs at 1 raw, the rest exact.
 //
 // Integer only, through fixUInt128 and fixUInt256, so the native and emulated 128-bit arms are
 // bit-identical. fixPow, fixExp2, fixLog2 and fixExp2Exact are untouched.
@@ -621,20 +629,20 @@ static const uint64_t fixPowExp2TableLo[16] = {
 #define FIX_POW_LN2_Q128_HI 0xB17217F7D1CF79ABull
 #define FIX_POW_LN2_Q128_LO 0xC9E3B39803F2F6AFull
 
-// m^2 for a 128-bit m below 2^127, exact in 256 bits: three 64x64 products, since the cross
-// term 2 * m0 * m1 stays below 2^128 when m1 < 2^63.
+// m^2 at 256 bits for a 128-bit m below 2^127, truncated by leaving out the low product
+// m0 * m0 (< 2^128 in a 256-bit square, so the result is low by under 2^128, which is 2^-124
+// of a Q252 value): two 64x64 products, since the cross term 2 * m0 * m1 stays below 2^128
+// when m1 < 2^63. For a power-of-two X, m0 is zero at every step, so the square is exact.
 static fixUInt256 fixPowSquare128( fixUInt128 m )
 {
 	uint64_t m0 = fixUInt128Lo( m ), m1 = fixUInt128Hi( m );
-	fixUInt128 low = fixUInt128MulU64( m0, m0 );
 	fixUInt128 cross = fixUInt128Shl( fixUInt128MulU64( m0, m1 ), 1 );
 	fixUInt128 high = fixUInt128MulU64( m1, m1 );
 
-	// low + cross * 2^64 + high * 2^128
-	fixUInt128 mid = fixUInt128Add( fixUInt128FromU64( fixUInt128Hi( low ) ), fixUInt128FromU64( fixUInt128Lo( cross ) ) );
+	// cross * 2^64 + high * 2^128
 	fixUInt256 r;
-	r.lo = fixUInt128Make( fixUInt128Lo( mid ), fixUInt128Lo( low ) );
-	r.hi = fixUInt128Add( high, fixUInt128Add( fixUInt128FromU64( fixUInt128Hi( cross ) ), fixUInt128Shr( mid, 64 ) ) );
+	r.lo = fixUInt128Make( fixUInt128Lo( cross ), 0 );
+	r.hi = fixUInt128Add( high, fixUInt128FromU64( fixUInt128Hi( cross ) ) );
 	return r;
 }
 
@@ -645,20 +653,44 @@ static fixUInt128 fixPowLog2Wide( uint64_t x, int digits, bool* negative )
 	int msb = fixMostSignificantBit64( x );
 	fixUInt128 m = fixUInt128Shl( fixUInt128FromU64( x ), 126 - msb ); // Q126, value in [1, 2)
 
+	// A loss at digit k enters L weighted by 2^-(k+1), so only the first digits need the
+	// 128-bit mantissa: after digits - 58 of them, the rest run on a 64-bit Q62 mantissa (one
+	// 64x64 product per digit, as fixLog2 does), whose losses of 2^-62 per digit sum below
+	// 2^-(digits+3.5) in L.
+	int wideDigits = digits > 58 ? digits - 58 : 0;
 	const fixUInt128 two = fixUInt128Shl( fixUInt128FromU64( 1 ), 125 ); // 2.0 in Q252, high half
 	fixUInt128 fraction = FIX_UINT128_ZERO;
-	for ( int i = 0; i < digits; ++i )
+	for ( int i = 0; i < wideDigits; ++i )
 	{
 		fixUInt256 sq = fixPowSquare128( m ); // Q252, value in [1, 4)
 		fraction = fixUInt128Shl( fraction, 1 );
 		if ( fixUInt128Ge( sq.hi, two ) )
 		{
 			fraction = fixUInt128Or( fraction, fixUInt128FromU64( 1 ) );
-			m = fixUInt256Shr( sq, 127 ).lo; // halve back into [1, 2) at Q126
+			// halve back into [1, 2) at Q126: sq >> 127
+			m = fixUInt128Or( fixUInt128Shl( sq.hi, 1 ), fixUInt128Shr( sq.lo, 127 ) );
 		}
 		else
 		{
-			m = fixUInt256Shr( sq, 126 ).lo;
+			// sq >> 126
+			m = fixUInt128Or( fixUInt128Shl( sq.hi, 2 ), fixUInt128Shr( sq.lo, 126 ) );
+		}
+	}
+
+	uint64_t m62 = fixUInt128Lo( fixUInt128Shr( m, 64 ) ); // Q62, in [2^62, 2^63); exact at i = 0
+	const fixUInt128 two124 = fixUInt128Shl( fixUInt128FromU64( 1 ), 125 ); // 2.0 in Q124
+	for ( int i = wideDigits; i < digits; ++i )
+	{
+		fixUInt128 sq = fixUInt128MulU64( m62, m62 ); // Q124, value in [1, 4)
+		fraction = fixUInt128Shl( fraction, 1 );
+		if ( fixUInt128Ge( sq, two124 ) )
+		{
+			fraction = fixUInt128Or( fraction, fixUInt128FromU64( 1 ) );
+			m62 = fixUInt128Lo( fixUInt128Shr( sq, 63 ) );
+		}
+		else
+		{
+			m62 = fixUInt128Lo( fixUInt128Shr( sq, 62 ) );
 		}
 	}
 	fraction = fixUInt128Shl( fraction, 120 - digits ); // Q120, in [0, 2^120)
@@ -774,11 +806,16 @@ FIX_API fixed_t fixPowExact( fixed_t base, fixed_t exponent )
 
 	fixUInt128 r = fixPowExp2Mantissa( f ); // Q126, in [2^126, 2^127]
 
-	// raw = r * 2^(n - 110), one round to nearest; for n in [-17, 46] the shift is in
-	// [64, 127] and r + half stays below 2^128.
+	// raw = r * 2^(n - 110), one round to nearest, ties to even; for n in [-17, 46] the shift
+	// is in [64, 127].
 	int shift = 110 - (int)n;
 	fixUInt128 half = fixUInt128Shl( fixUInt128FromU64( 1 ), shift - 1 );
-	fixUInt128 rounded = fixUInt128Shr( fixUInt128Add( r, half ), shift );
+	fixUInt128 dropped = fixUInt128And( r, fixUInt128Sub( fixUInt128Shl( half, 1 ), fixUInt128FromU64( 1 ) ) );
+	fixUInt128 rounded = fixUInt128Shr( r, shift );
+	if ( fixUInt128Gt( dropped, half ) || ( fixUInt128Eq( dropped, half ) && ( fixUInt128Lo( rounded ) & 1 ) ) )
+	{
+		rounded = fixUInt128Add( rounded, fixUInt128FromU64( 1 ) );
+	}
 	if ( fixUInt128Ge( rounded, fixUInt128Shl( fixUInt128FromU64( 1 ), 63 ) ) )
 	{
 		return INT64_MAX;

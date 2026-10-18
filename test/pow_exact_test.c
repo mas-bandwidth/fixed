@@ -8,7 +8,8 @@
 // that it converts to binary64 exactly. Where the reference is below 2^53 raw it is exact to
 // far under a raw unit, so the bound is 2 raw. Where it is above 2^53 raw the double reference
 // is coarser than a raw unit, so there the bound is 2 raw plus half the spacing of the double
-// reference at that value. The row line reports those inputs apart: maxulp is over the
+// reference at that value. Where the reference is 0 the bound is 0: the library must return
+// exactly 0 there. The row line reports those inputs apart: maxulp is over the
 // inputs whose reference is at or below 2^53 raw, wide counts the rest, and wide_excess is the
 // largest error there beyond the half spacing of the double reference (at most 2 to pass).
 //
@@ -146,7 +147,12 @@ static void check( int64_t base, int64_t exponent, row* r )
 	int64_t lib = COMPUTE( base, exponent );
 
 	uint64_t bound = BOUND;
-	if ( d >= 9223372036854775808.0 )
+	if ( ref == 0 )
+	{
+		// where the correctly rounded result is 0, the library returns exactly 0
+		bound = 0;
+	}
+	else if ( d >= 9223372036854775808.0 )
 	{
 		// A reference at or above 2^63 raw (or infinite) saturates; the true value is at least
 		// 2^63 less half the spacing of doubles just below 2^63 (1024), so allow that half.
@@ -362,6 +368,8 @@ int main( void )
 		// the same neighbourhood through the reference: base 1 raw and INT64_MAX (cleared to
 		// 53 bits), every exponent within 64 raw of the edges of the result range.
 		check( 1, -RAD, &r );
+		check( 1, -1, &r ); // (2^-16)^(-2^-16) = 2^(2^-12)
+		check( 1, 1, &r );
 		check( INT64_MAX, 1, &r );
 		check( INT64_MAX, RAD, &r );
 		check( INT64_MAX, -RAD, &r );

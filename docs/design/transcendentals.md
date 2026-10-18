@@ -329,7 +329,7 @@ all unsaturated (MPFR, found by the cold read). Below 32 rad nothing saturates
 
 ### 3.2 Reduction: Payne-Hanek, shared with fixed-sincos-exact
 
-`fixComputeCosSinExact` (fixed-sincos-exact, PR #41, src/fixed_math.c on its branch) reduces
+`fixComputeCosSinExact` (fixed-sincos-exact, PR #41, landed in src/fixed_math.c on sprint/fixed-core) reduces
 by `m * C` with `C = floor( 2^113 / pi ) = HI * 2^64 + LO`, the first 112 fraction bits of
 2/pi (`FIX_TWO_OVER_PI_HI = 0x0000A2F9836E4E44`, `FIX_TWO_OVER_PI_LO = 0x1529FC2757D1F534`),
 which gives the quarter-turn fraction to < 2 units of 2^-64. That is the right reduction for
@@ -378,7 +378,8 @@ tool), `F` = the 128 bits from the leading one (relative truncation 2^-127). The
   `tan r = r * (1 + w)`, `w = r^2 * q(r^2)` in fixed Q0.127 (|w| < 2^-16). Even quarter:
   `y = 2^16 * tan r`, under 256 raw. Odd quarter: `y = 2^16 / ( r * (1 + w) )`:
   `D = ( R * (2^127 + w) ) >> 127`, below 2^127.66 so no overflow, then `2^255 / D` (one
-  `fixUInt256DivMod`) and a shift by the exponent; |r| < 2^-48 saturates
+  `fixUInt256DivMod`; the quotient is below 2^128.35, so keep it in fixUInt256 until the
+  shift) and a shift by the exponent; |r| < 2^-48 saturates
   without dividing, and a computed `|Y| >= 2^63 - 3/2` saturates.
 
 **Kernel.** `tan(s) = s + sum_{k=3,5,..,13} C_k * 2^-127 * s^k`, odd degree 13, the s

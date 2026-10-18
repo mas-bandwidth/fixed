@@ -715,6 +715,60 @@ FIX_INLINE fixed_t fixGetSwingAngle( fixQuat q )
 	return swing;
 }
 
+// THE EXACT ANGLES. New functions beside the four above, which keep their frozen outputs. Each is
+// twice the atan2 of its exact inputs, rounded once: the lengths come from the exact 128-bit sums
+// of squares (fixDotRaw), never from the floored fixLength, and go to the wide atan2 on squared
+// magnitudes (fixDoubleAtan2ExactOfSquares, see fixAtan2Exact in src/fixed_math.c). Within 1 raw of
+// the correctly rounded 2 * atan2; bound 2, checked against CORE-MATH at the pin in
+// test/quat_angles_exact_test.c, on the native and the emulated 128-bit arms.
+
+/// Get the angle for a quaternion in radians, 2 * atan2( |v|, s ), within 2 raw of correctly
+/// rounded (test/quat_angles_exact_test.c).
+FIX_INLINE fixed_t fixGetQuatAngleExact( fixQuat q )
+{
+	fixUInt128 v2 = fixInt128ToUnsigned( fixDotRaw( q.v, q.v ) );
+	fixUInt128 s2 = fixInt128ToUnsigned( fixInt128MulI64( q.s, q.s ) );
+	return fixDoubleAtan2ExactOfSquares( v2, false, s2, q.s < 0 );
+}
+
+/// Get the axis and angle from a quaternion. The angle is fixGetQuatAngleExact's, within 2 raw of
+/// correctly rounded (test/quat_angles_exact_test.c); the axis is fixGetAxisAngle's. Assumes the
+/// quaternion is normalized.
+FIX_INLINE fixVec3 fixGetAxisAngleExact( fixed_t* radians, fixQuat q )
+{
+	*radians = fixGetQuatAngleExact( q );
+	fixed_t length = fixLength( q.v );
+	if ( length > FIX( 0.0f ) )
+	{
+		return fixNormalize( q.v );
+	}
+
+	return fixVec3_zero;
+}
+
+/// Twist angle around the z-axis, 2 * atan2( z, s ) with fixGetTwistAngle's polarity rule (q.s < 0
+/// flips both arguments, so the angle is in [-pi, pi]). Within 2 raw of correctly rounded
+/// (test/quat_angles_exact_test.c).
+FIX_INLINE fixed_t fixGetTwistAngleExact( fixQuat q )
+{
+	// Flipping both arguments leaves the squares alone and moves only the signs: -z is negative
+	// when z is positive, and -s >= 0.
+	bool flip = q.s < FIX( 0.0f );
+	fixUInt128 z2 = fixInt128ToUnsigned( fixInt128MulI64( q.v.z, q.v.z ) );
+	fixUInt128 s2 = fixInt128ToUnsigned( fixInt128MulI64( q.s, q.s ) );
+	return fixDoubleAtan2ExactOfSquares( z2, flip ? q.v.z > 0 : q.v.z < 0, s2, false );
+}
+
+/// Swing angle used for cone limit, 2 * atan2( sqrt( x^2 + y^2 ), sqrt( z^2 + s^2 ) ). Within 2 raw
+/// of correctly rounded (test/quat_angles_exact_test.c).
+FIX_INLINE fixed_t fixGetSwingAngleExact( fixQuat q )
+{
+	// Polarity does not matter because all terms are squared.
+	fixUInt128 x2 = fixInt128ToUnsigned( fixDotRaw( FIX_LITERAL( fixVec3 ){ q.v.z, q.s, 0 }, FIX_LITERAL( fixVec3 ){ q.v.z, q.s, 0 } ) );
+	fixUInt128 y2 = fixInt128ToUnsigned( fixDotRaw( FIX_LITERAL( fixVec3 ){ q.v.x, q.v.y, 0 }, FIX_LITERAL( fixVec3 ){ q.v.x, q.v.y, 0 } ) );
+	return fixDoubleAtan2ExactOfSquares( y2, false, x2, false );
+}
+
 /// Linearly interpolate and normalize between two quaternions
 FIX_INLINE fixQuat fixNLerp( fixQuat q1, fixQuat q2, fixed_t alpha )
 {

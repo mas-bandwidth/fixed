@@ -303,6 +303,29 @@ if (NOT MSVC)
     target_compile_definitions(fixed_sincos_exact_negative_control PRIVATE SINCOS_EXACT_NEGATIVE_CONTROL)
     add_test(NAME sincos_exact_negative_control COMMAND fixed_sincos_exact_negative_control)
     set_tests_properties(sincos_exact_negative_control PROPERTIES WILL_FAIL TRUE)
+
+    # CORE-MATH cr_atan2, the test-only oracle for fixAtan2Exact and the exact quaternion angles.
+    # Its own object library with the same flags, linked only into the tests below.
+    add_library(fixed_core_math_atan2_object OBJECT extern/core-math/atan2/atan2.c)
+    target_compile_options(fixed_core_math_atan2_object PRIVATE -O2 -ffp-contract=off -w)
+
+    # fixAtan2Exact within 1 raw and monotone, the four exact quaternion angles within 2 raw.
+    add_executable(fixed_quat_angles_exact_test test/quat_angles_exact_test.c)
+    target_link_libraries(fixed_quat_angles_exact_test PRIVATE fixed fixed_core_math_atan2_object)
+    add_test(NAME quat_angles_exact COMMAND fixed_quat_angles_exact_test)
+
+    if (TARGET fixed_emulated)
+        add_executable(fixed_quat_angles_exact_emulated_test test/quat_angles_exact_test.c)
+        target_link_libraries(fixed_quat_angles_exact_emulated_test PRIVATE fixed_emulated fixed_core_math_atan2_object)
+        add_test(NAME quat_angles_exact_emulated COMMAND fixed_quat_angles_exact_emulated_test)
+    endif()
+
+    # fixAtan2 and the four frozen angle functions under the same bounds: they must fail.
+    add_executable(fixed_quat_angles_exact_negative_control test/quat_angles_exact_test.c)
+    target_link_libraries(fixed_quat_angles_exact_negative_control PRIVATE fixed fixed_core_math_atan2_object)
+    target_compile_definitions(fixed_quat_angles_exact_negative_control PRIVATE QUAT_ANGLES_EXACT_NEGATIVE_CONTROL)
+    add_test(NAME quat_angles_exact_negative_control COMMAND fixed_quat_angles_exact_negative_control)
+    set_tests_properties(quat_angles_exact_negative_control PROPERTIES WILL_FAIL TRUE)
 endif()
 option(FIX_BUILD_BENCHMARKS "Build the numerical public-API microbenchmarks" OFF)
 if (FIX_BUILD_BENCHMARKS)

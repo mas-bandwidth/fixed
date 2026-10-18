@@ -284,6 +284,95 @@ if (NOT MSVC)
     target_compile_definitions(fixed_sincos_negative_control PRIVATE SINCOS_NEGATIVE_CONTROL)
     add_test(NAME sincos_negative_control COMMAND fixed_sincos_negative_control)
     set_tests_properties(sincos_negative_control PROPERTIES WILL_FAIL TRUE)
+
+    # fixComputeCosSinExact / fixSinExact / fixCosExact within 2 raw of CORE-MATH at every angle,
+    # on the input sets of the core-math test (test/sincos_exact_test.c includes it).
+    add_executable(fixed_sincos_exact_test test/sincos_exact_test.c)
+    target_link_libraries(fixed_sincos_exact_test PRIVATE fixed fixed_core_math_object)
+    add_test(NAME sincos_exact COMMAND fixed_sincos_exact_test)
+
+    if (TARGET fixed_emulated)
+        add_executable(fixed_sincos_exact_emulated_test test/sincos_exact_test.c)
+        target_link_libraries(fixed_sincos_exact_emulated_test PRIVATE fixed_emulated fixed_core_math_object)
+        add_test(NAME sincos_exact_emulated COMMAND fixed_sincos_exact_emulated_test)
+    endif()
+
+    # The 107-ulp pair (fixComputeCosSin / fixSin / fixCos) under the 2-raw bound: it must fail.
+    add_executable(fixed_sincos_exact_negative_control test/sincos_exact_test.c)
+    target_link_libraries(fixed_sincos_exact_negative_control PRIVATE fixed fixed_core_math_object)
+    target_compile_definitions(fixed_sincos_exact_negative_control PRIVATE SINCOS_EXACT_NEGATIVE_CONTROL)
+    add_test(NAME sincos_exact_negative_control COMMAND fixed_sincos_exact_negative_control)
+    set_tests_properties(sincos_exact_negative_control PROPERTIES WILL_FAIL TRUE)
+
+    # CORE-MATH cr_atan2, the test-only oracle for fixAtan2Exact and the exact quaternion angles.
+    # Its own object library with the same flags, linked only into the tests below.
+    add_library(fixed_core_math_atan2_object OBJECT extern/core-math/atan2/atan2.c)
+    target_compile_options(fixed_core_math_atan2_object PRIVATE -O2 -ffp-contract=off -w)
+
+    # fixAtan2Exact within 1 raw and monotone, the four exact quaternion angles within 2 raw.
+    add_executable(fixed_quat_angles_exact_test test/quat_angles_exact_test.c)
+    target_link_libraries(fixed_quat_angles_exact_test PRIVATE fixed fixed_core_math_atan2_object)
+    add_test(NAME quat_angles_exact COMMAND fixed_quat_angles_exact_test)
+
+    if (TARGET fixed_emulated)
+        add_executable(fixed_quat_angles_exact_emulated_test test/quat_angles_exact_test.c)
+        target_link_libraries(fixed_quat_angles_exact_emulated_test PRIVATE fixed_emulated fixed_core_math_atan2_object)
+        add_test(NAME quat_angles_exact_emulated COMMAND fixed_quat_angles_exact_emulated_test)
+    endif()
+
+    # fixAtan2 and the four frozen angle functions under the same bounds: they must fail.
+    add_executable(fixed_quat_angles_exact_negative_control test/quat_angles_exact_test.c)
+    target_link_libraries(fixed_quat_angles_exact_negative_control PRIVATE fixed fixed_core_math_atan2_object)
+    target_compile_definitions(fixed_quat_angles_exact_negative_control PRIVATE QUAT_ANGLES_EXACT_NEGATIVE_CONTROL)
+    add_test(NAME quat_angles_exact_negative_control COMMAND fixed_quat_angles_exact_negative_control)
+    set_tests_properties(quat_angles_exact_negative_control PROPERTIES WILL_FAIL TRUE)
+
+    # The correctly-rounded exp2 oracle for fixExp2Exact. Same pattern as the sincos oracle:
+    # a test-only object library with its own flags and warnings off, linked only into the
+    # exp2 tests below.
+    add_library(fixed_core_math_exp2_object OBJECT extern/core-math/exp2/exp2.c)
+    target_compile_options(fixed_core_math_exp2_object PRIVATE -O2 -ffp-contract=off -w)
+
+    add_executable(fixed_exp2_exact_test test/exp2_exact_test.c)
+    target_link_libraries(fixed_exp2_exact_test PRIVATE fixed fixed_core_math_exp2_object)
+    add_test(NAME exp2_exact COMMAND fixed_exp2_exact_test)
+
+    # Same oracle against the emulated 128-bit arm: fixExp2Exact must be bit-identical.
+    if (TARGET fixed_emulated)
+        add_executable(fixed_exp2_exact_emulated_test test/exp2_exact_test.c)
+        target_link_libraries(fixed_exp2_exact_emulated_test PRIVATE fixed_emulated fixed_core_math_exp2_object)
+        add_test(NAME exp2_exact_emulated COMMAND fixed_exp2_exact_emulated_test)
+    endif()
+
+    # Negative control: the same test evaluating fixExp2 instead of fixExp2Exact. It must
+    # exceed the bound and fail, so CTest expects failure.
+    add_executable(fixed_exp2_exact_negative_control test/exp2_exact_test.c)
+    target_link_libraries(fixed_exp2_exact_negative_control PRIVATE fixed fixed_core_math_exp2_object)
+    target_compile_definitions(fixed_exp2_exact_negative_control PRIVATE EXP2_NEGATIVE_CONTROL)
+    add_test(NAME exp2_exact_negative_control COMMAND fixed_exp2_exact_negative_control)
+    set_tests_properties(exp2_exact_negative_control PROPERTIES WILL_FAIL TRUE)
+endif()
+
+# The double/float to Q48.16 conversions, checked against an integer-only bit-level
+# reference. Its negative control builds the same file with fixFromDouble/fixFromFloat
+# replaced by the old buggy +-0.5 formula; those checks must fail (WILL_FAIL).
+add_executable(fixed_from_double_test test/from_double_test.c)
+target_link_libraries(fixed_from_double_test PRIVATE fixed)
+add_test(NAME from_double COMMAND fixed_from_double_test)
+
+add_executable(fixed_from_double_negative_control test/from_double_test.c)
+target_link_libraries(fixed_from_double_negative_control PRIVATE fixed)
+target_compile_definitions(fixed_from_double_negative_control PRIVATE FROM_DOUBLE_NEGATIVE_CONTROL)
+add_test(NAME from_double_negative_control COMMAND fixed_from_double_negative_control)
+set_tests_properties(from_double_negative_control PROPERTIES WILL_FAIL TRUE)
+
+if (TARGET fixed_emulated)
+    add_executable(fixed_from_double_emulated_test test/from_double_test.c)
+    target_link_libraries(fixed_from_double_emulated_test PRIVATE fixed_emulated)
+    if (NOT WIN32)
+        target_link_libraries(fixed_from_double_emulated_test PRIVATE m)
+    endif()
+    add_test(NAME from_double_emulated COMMAND fixed_from_double_emulated_test)
 endif()
 # Exact critically damped smoothing: the new pair against the formula with the true pi,
 # long double reference, seeded sweeps of the core and the task's wide range. The negative
@@ -346,4 +435,107 @@ if (TARGET fixed_emulated)
     target_compile_definitions(fixed_emulated_negative_control PRIVATE FIXED_NEGATIVE_CONTROL)
     add_test(NAME emulated_negative_control COMMAND fixed_emulated_negative_control)
     set_tests_properties(emulated_negative_control PROPERTIES WILL_FAIL TRUE)
+endif()
+
+# ---------------------------------------------------------------------------------------------
+# THE EXACT-FUNCTION PLUG-IN LAYOUT.
+#
+# A later function card adds src/exact/<name>.c, include/fixed/fixed_<name>.h and
+# test/exact/<name>_test.c and edits nothing here. The globs are CONFIGURE_DEPENDS, so a new
+# file is picked up by the next build without touching this file.
+# ---------------------------------------------------------------------------------------------
+file( GLOB FIX_EXACT_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/exact/*.c" )
+if (FIX_EXACT_SOURCES)
+    target_sources(fixed PRIVATE ${FIX_EXACT_SOURCES})
+    if (TARGET fixed_emulated)
+        target_sources(fixed_emulated PRIVATE ${FIX_EXACT_SOURCES})
+    endif()
+endif()
+
+file( GLOB FIX_EXACT_TESTS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/test/exact/*_test.c" )
+foreach(exact_test ${FIX_EXACT_TESTS})
+    get_filename_component(exact_test_name "${exact_test}" NAME_WE)
+    string(REGEX REPLACE "_test$" "" exact_name "${exact_test_name}")
+    add_executable(fixed_exact_${exact_name}_test "${exact_test}")
+    target_link_libraries(fixed_exact_${exact_name}_test PRIVATE fixed)
+    if (NOT WIN32)
+        target_link_libraries(fixed_exact_${exact_name}_test PRIVATE m)
+    endif()
+    add_test(NAME ${exact_name} COMMAND fixed_exact_${exact_name}_test)
+    if (TARGET fixed_emulated)
+        add_executable(fixed_exact_${exact_name}_emulated_test "${exact_test}")
+        target_link_libraries(fixed_exact_${exact_name}_emulated_test PRIVATE fixed_emulated)
+        if (NOT WIN32)
+            target_link_libraries(fixed_exact_${exact_name}_emulated_test PRIVATE m)
+        endif()
+        add_test(NAME ${exact_name}_emulated COMMAND fixed_exact_${exact_name}_emulated_test)
+    endif()
+endforeach()
+
+file( GLOB FIX_EXACT_NEGATIVE_TESTS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/test/exact/*_negative_control.c" )
+foreach(exact_control ${FIX_EXACT_NEGATIVE_TESTS})
+    get_filename_component(exact_control_name "${exact_control}" NAME_WE)
+    string(REGEX REPLACE "_negative_control$" "" exact_name "${exact_control_name}")
+    add_executable(fixed_exact_${exact_name}_negative_control "${exact_control}")
+    target_link_libraries(fixed_exact_${exact_name}_negative_control PRIVATE fixed)
+    add_test(NAME ${exact_name}_negative_control COMMAND fixed_exact_${exact_name}_negative_control)
+    set_tests_properties(${exact_name}_negative_control PROPERTIES WILL_FAIL TRUE)
+endforeach()
+
+# ---------------------------------------------------------------------------------------------
+# THE MPFR SWEEP AND ITS SCOREBOARD.
+#
+# Off by default, and only built on a machine with MPFR and GMP. Missing either names the
+# missing library at configure time and skips the sweep; it is never a configure error.
+# Descriptors live in sweep/fns/*.c and the registry is generated here, so a function joins
+# the sweep by adding one file.
+# ---------------------------------------------------------------------------------------------
+option(FIX_BUILD_SWEEPS "Build the MPFR accuracy sweeps and scoreboard (slow tier)" OFF)
+if (FIX_BUILD_SWEEPS)
+    find_path(FIX_MPFR_INCLUDE_DIR NAMES mpfr.h)
+    find_library(FIX_MPFR_LIBRARY NAMES mpfr)
+    find_path(FIX_GMP_INCLUDE_DIR NAMES gmp.h)
+    find_library(FIX_GMP_LIBRARY NAMES gmp)
+    if (NOT FIX_MPFR_LIBRARY)
+        message(STATUS "fixed: sweep skipped: libmpfr not found")
+    elseif (NOT FIX_GMP_LIBRARY)
+        message(STATUS "fixed: sweep skipped: libgmp not found")
+    else()
+        find_package(Threads REQUIRED)
+        file(GLOB FIX_SWEEP_FNS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/sweep/fns/*.c")
+        set(FIX_SWEEP_REGISTRY "${CMAKE_CURRENT_BINARY_DIR}/sweep_registry.c")
+        set(FIX_SWEEP_REGISTRY_TEXT "/* generated at configure time from sweep/fns/*.c */\n#include \"sweep.h\"\n")
+        set(FIX_SWEEP_REGISTRY_ENTRIES "")
+        foreach(fn_source ${FIX_SWEEP_FNS})
+            get_filename_component(fn_name "${fn_source}" NAME_WE)
+            string(APPEND FIX_SWEEP_REGISTRY_TEXT "extern const sweep_fn sweep_fn_${fn_name};\n")
+            string(APPEND FIX_SWEEP_REGISTRY_ENTRIES "    &sweep_fn_${fn_name},\n")
+        endforeach()
+        string(APPEND FIX_SWEEP_REGISTRY_TEXT "const sweep_fn *const sweep_fns[] = {\n${FIX_SWEEP_REGISTRY_ENTRIES}};\nconst size_t sweep_nfns = sizeof( sweep_fns ) / sizeof( sweep_fns[0] );\n")
+        file(WRITE "${FIX_SWEEP_REGISTRY}" "${FIX_SWEEP_REGISTRY_TEXT}")
+
+        set(FIX_SWEEP_COMMON sweep/sweep.c "${FIX_SWEEP_REGISTRY}" ${FIX_SWEEP_FNS})
+        add_executable(fixed_sweep ${FIX_SWEEP_COMMON})
+        target_include_directories(fixed_sweep PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/sweep" ${FIX_MPFR_INCLUDE_DIR} ${FIX_GMP_INCLUDE_DIR})
+        target_link_libraries(fixed_sweep PRIVATE fixed ${FIX_MPFR_LIBRARY} ${FIX_GMP_LIBRARY} Threads::Threads)
+        if (NOT WIN32)
+            target_link_libraries(fixed_sweep PRIVATE m)
+        endif()
+        target_compile_definitions(fixed_sweep PRIVATE FIX_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}" FIX_SWEEP_ARM="${CMAKE_C_COMPILER_ID}-native")
+        foreach(fn_source ${FIX_SWEEP_FNS})
+            get_filename_component(fn_name "${fn_source}" NAME_WE)
+            add_test(NAME sweep_${fn_name} COMMAND fixed_sweep --ctest-label-guard --fn ${fn_name} --threads 3)
+            set_tests_properties(sweep_${fn_name} PROPERTIES LABELS slow EXCLUDE_FROM_ALL TRUE)
+        endforeach()
+
+        if (TARGET fixed_emulated)
+            add_executable(fixed_sweep_emulated ${FIX_SWEEP_COMMON})
+            target_include_directories(fixed_sweep_emulated PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/sweep" ${FIX_MPFR_INCLUDE_DIR} ${FIX_GMP_INCLUDE_DIR})
+            target_link_libraries(fixed_sweep_emulated PRIVATE fixed_emulated ${FIX_MPFR_LIBRARY} ${FIX_GMP_LIBRARY} Threads::Threads)
+            if (NOT WIN32)
+                target_link_libraries(fixed_sweep_emulated PRIVATE m)
+            endif()
+            target_compile_definitions(fixed_sweep_emulated PRIVATE FIX_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}" FIX_SWEEP_ARM="${CMAKE_C_COMPILER_ID}-emulated")
+        endif()
+    endif()
 endif()

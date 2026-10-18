@@ -7,6 +7,87 @@
 #include "fixed/base.h"
 #include "fixed/fixed.h"
 
+// ---------------------------------------------------------------------------------------------
+// Correctly rounded double/float to Q48.16 conversion.
+//
+// The existing fixFromDouble and fixFromFloat in fixed.h use the old formula (scale by
+// 65536, add or subtract 0.5, then truncate). That formula has two defects: (1) the +/- 0.5
+// add is itself a double, so it rounds near a half-integer (e.g. -0.49999999999999994 - 0.5
+// rounds to -1.0, giving -1 where the correct answer is 0) and above 2^52 the add does
+// nothing, leaving the result off by one raw; (2) truncation toward zero misrounds negatives.
+// Their results are pinned by existing tests and frozen hashes (geometry_test, usage_test,
+// quantize_test, port_equality among others), so they are left bit for bit as they are and
+// these Rounded entry points sit beside them.
+//
+// ROUNDING RULE: round half to even (the CORE-MATH / llrint reference rule). A value exactly
+// halfway between two raws goes to the one with an even last bit, positive or negative.
+//
+// WHY THIS FORM. The scale by 65536 is exact in double (a power-of-two multiply), so the
+// integer part and the exact fractional remainder are split without a rounding add. For
+// |d| >= 2^52 the scaled value is already an integer and needs no rounding. No libm and no
+// FPU rounding-mode change. NaN and out-of-range inputs behave as they do in fixFromDouble
+// today: the scaled double is cast straight to fixed_t, so those are unspecified.
+// Test: test/from_double_test.c.
+// ---------------------------------------------------------------------------------------------
+
+/// Convert a float to Q48.16, rounding half to even (the rule in the block above). A
+/// boundary helper. Test: test/from_double_test.c.
+FIX_INLINE fixed_t fixFromFloatRounded( float x )
+{
+	double d = (double)x * (double)FIX_ONE;
+	if ( d >= 9007199254740992.0 || d <= -9007199254740992.0 )
+	{
+		return (fixed_t)d;
+	}
+	fixed_t n = (fixed_t)d;       // integer part, truncation toward zero
+	double f = d - (double)n;     // exact remainder in (-1, 1)
+	if ( f > 0.5 )
+	{
+		n += 1;
+	}
+	else if ( f < -0.5 )
+	{
+		n -= 1;
+	}
+	else if ( f == 0.5 || f == -0.5 )
+	{
+		if ( n & 1 )
+		{
+			n += ( f > 0.0 ) ? 1 : -1;
+		}
+	}
+	return n;
+}
+
+/// Convert a double to Q48.16, rounding half to even (the rule in the block above). A
+/// boundary helper. Test: test/from_double_test.c.
+FIX_INLINE fixed_t fixFromDoubleRounded( double x )
+{
+	double d = x * (double)FIX_ONE;
+	if ( d >= 9007199254740992.0 || d <= -9007199254740992.0 )
+	{
+		return (fixed_t)d;
+	}
+	fixed_t n = (fixed_t)d;
+	double f = d - (double)n;
+	if ( f > 0.5 )
+	{
+		n += 1;
+	}
+	else if ( f < -0.5 )
+	{
+		n -= 1;
+	}
+	else if ( f == 0.5 || f == -0.5 )
+	{
+		if ( n & 1 )
+		{
+			n += ( f > 0.0 ) ? 1 : -1;
+		}
+	}
+	return n;
+}
+
 /// Cosine and sine pair.
 typedef struct fixCosSin
 {
@@ -16,6 +97,22 @@ typedef struct fixCosSin
 
 /// atan2 accurate to ~0.0023 degrees. Deterministic (unlike the standard library).
 FIX_API fixed_t fixAtan2( fixed_t y, fixed_t x );
+
+/// atan2 within 1 raw Q48.16 unit of the correctly rounded value for every pair, monotone in each
+/// argument wherever the true atan2 is, fixAtan2Exact( 0, 0 ) = 0, INT64_MIN taken as -INT64_MAX.
+/// The ratio in Q2.62 at 128 bits, one degree-20 polynomial on [0, 1] evaluated at 128 bits, the
+/// octant map in Q.64 radians and one final rounding (design and error budget in src/fixed_math.c).
+/// Checked against CORE-MATH cr_atan2 at the pin in test/quat_angles_exact_test.c. Integer only,
+/// bit-identical on the native and the emulated 128-bit arms. A new function: fixAtan2 keeps its
+/// frozen outputs.
+FIX_API fixed_t fixAtan2Exact( fixed_t y, fixed_t x );
+
+/// 2 * atan2( y, x ) for |y| = sqrt( ySquared ) and |x| = sqrt( xSquared ) with the given signs,
+/// rounded once to Q48.16 from fixAtan2Exact's wide value: within 1 raw of the correctly rounded
+/// value. The squared magnitudes are exact 128-bit sums of squares (fixDotRaw), so no floored length
+/// enters. The entry point of the exact quaternion angles in fixed_vec.h (fixGetQuatAngleExact and
+/// its siblings); checked in test/quat_angles_exact_test.c.
+FIX_API fixed_t fixDoubleAtan2ExactOfSquares( fixUInt128 ySquared, bool yNegative, fixUInt128 xSquared, bool xNegative );
 
 /// Cosine and sine of an angle in radians. Deterministic.
 FIX_API fixCosSin fixComputeCosSin( fixed_t radians );
@@ -33,6 +130,17 @@ FIX_API fixCosSin fixComputeCosSinPrecise( fixed_t radians );
 
 FIX_INLINE fixed_t fixSin( fixed_t radians ) { fixCosSin cs = fixComputeCosSin( radians ); return cs.sine; }
 FIX_INLINE fixed_t fixCos( fixed_t radians ) { fixCosSin cs = fixComputeCosSin( radians ); return cs.cosine; }
+
+/// Cosine and sine within 2 raw Q48.16 units of the correctly rounded value at EVERY input angle
+/// (measured within 1 against CORE-MATH). The reduction is exact to 2^-61 rad for every int64
+/// input: the quarter-turn count is the angle times 112 bits of 2/pi, in integers, so its error
+/// does not grow with the angle. The polynomials are those of fixComputeCosSinPrecise. Integer
+/// only, bit-identical on the native and the emulated 128-bit arms. These are new functions:
+/// fixSin, fixCos, fixComputeCosSin and fixComputeCosSinPrecise keep their frozen outputs.
+FIX_API fixCosSin fixComputeCosSinExact( fixed_t radians );
+
+FIX_INLINE fixed_t fixSinExact( fixed_t radians ) { fixCosSin cs = fixComputeCosSinExact( radians ); return cs.sine; }
+FIX_INLINE fixed_t fixCosExact( fixed_t radians ) { fixCosSin cs = fixComputeCosSinExact( radians ); return cs.cosine; }
 
 /// Convert any angle into the range [-pi, pi].
 FIX_INLINE fixed_t fixUnwindAngle( fixed_t radians )
@@ -64,6 +172,12 @@ FIX_API fixed_t fixLog2( fixed_t a );
 /// INT64_MAX at and above 2^47 (the top of the Q48.16 whole-unit domain) and returns 0
 /// below the smallest representable value.
 FIX_API fixed_t fixExp2( fixed_t a );
+
+/// Base-2 exponential within 2 raw units of correctly rounded over the whole Q48.16 domain,
+/// integer only. Saturates to INT64_MAX at and above 47 rad and returns 0 where the
+/// correctly rounded result is 0. The bound of 2 raw over the whole domain is checked
+/// against CORE-MATH at the pin by test/exp2_exact_test.c.
+FIX_API fixed_t fixExp2Exact( fixed_t a );
 
 /// base raised to exponent, as fixExp2( exponent * fixLog2( base ) ). Returns 0 for
 /// base <= 0 and one for a zero exponent.

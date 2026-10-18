@@ -6,16 +6,30 @@
 // +inf (fixRoundToInt), and exposes fixFloor / fixCeilSat on the raw itself.
 // Before this card the int32 casts wrapped silently above +/-2^31 (truncating
 // the high bits of the int64), and fixCeil returned INT64_MIN at INT64_MAX.
-// Every result here is compared against an independent __int128 reference that
-// clamps to INT32_MIN/INT32_MAX (or FIX_MAX for ceil) and rounds exactly the
-// way the library does. The CTest negative control (TOINT_NEGATIVE_CONTROL)
-// applies the old wrapping casts verbatim and must fail (WILL_FAIL).
+// Every result here is compared against an independent reference that splits the
+// raw into a floor quotient and a [0, FIX_ONE) remainder in two 64-bit halves
+// (no compiler __int128, so it builds and links on every arm), then clamps to
+// INT32_MIN/INT32_MAX (or FIX_MAX for ceil). The CTest negative control
+// (TOINT_NEGATIVE_CONTROL) applies the old wrapping casts verbatim and must fail
+// (WILL_FAIL).
 #include "fixed/fixed_math.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-typedef __int128 Ref128;
+static void split( int64_t a, int64_t* n, int64_t* r )
+{
+	// Euclidean split: a = n*FIX_ONE + r with 0 <= r < FIX_ONE, so n is floor.
+	int64_t q = a / FIX_ONE;
+	int64_t rem = a % FIX_ONE;
+	if ( rem < 0 )
+	{
+		rem += FIX_ONE;
+		q -= 1;
+	}
+	*n = q;
+	*r = rem;
+}
 
 static void mismatch( const char* f, int64_t raw, long long got, long long exp )
 {
@@ -30,15 +44,17 @@ static void mismatch( const char* f, int64_t raw, long long got, long long exp )
 #define ROUNDI( a ) ( (int)( ( (fixed_t)( (uint64_t)(a) + FIX_HALF ) ) >> FIX_FRACTION_BITS ) )
 #define CEILR( a )  ( (fixed_t)( (uint64_t)(a) + FIX_ONE - 1 ) & ~( FIX_ONE - 1 ) )
 #else
-#define TRUNC( a )  fixTruncToInt( a )
-#define FLOORI( a ) fixFloorToInt( a )
-#define ROUNDI( a ) fixRoundToInt( a )
+#define TRUNC( a )  fixTruncToIntSat( a )
+#define FLOORI( a ) fixFloorToIntSat( a )
+#define ROUNDI( a ) fixRoundToIntSat( a )
 #define CEILR( a )  fixCeilSat( a )
 #endif
 
 static int ref_trunc( int64_t a )
 {
-	Ref128 q = (Ref128)a / FIX_ONE;
+	int64_t n, r;
+	split( a, &n, &r );
+	int64_t q = a >= 0 ? n : ( r != 0 ? n + 1 : n );
 	if ( q > INT32_MAX ) return INT32_MAX;
 	if ( q < INT32_MIN ) return INT32_MIN;
 	return (int)q;
@@ -46,20 +62,19 @@ static int ref_trunc( int64_t a )
 
 static int ref_floor( int64_t a )
 {
-	Ref128 q = (Ref128)a / FIX_ONE;
-	Ref128 r = (Ref128)a % FIX_ONE;
-	if ( r != 0 && a < 0 ) q--;
-	if ( q > INT32_MAX ) return INT32_MAX;
-	if ( q < INT32_MIN ) return INT32_MIN;
-	return (int)q;
+	int64_t n, r;
+	split( a, &n, &r );
+	(void)r;
+	if ( n > INT32_MAX ) return INT32_MAX;
+	if ( n < INT32_MIN ) return INT32_MIN;
+	return (int)n;
 }
 
 static int ref_round( int64_t a )
 {
-	Ref128 t = (Ref128)a + FIX_HALF;
-	Ref128 q = t / FIX_ONE;
-	Ref128 r = t % FIX_ONE;
-	if ( r != 0 && t < 0 ) q--;
+	int64_t n, r;
+	split( a, &n, &r );
+	int64_t q = n + ( r >= FIX_HALF ? 1 : 0 );
 	if ( q > INT32_MAX ) return INT32_MAX;
 	if ( q < INT32_MIN ) return INT32_MIN;
 	return (int)q;
@@ -67,23 +82,21 @@ static int ref_round( int64_t a )
 
 static int64_t ref_ceil( int64_t a )
 {
-	// ceil(a/FIX_ONE) = -floor(-a/FIX_ONE); saturate to FIX_MAX on overflow.
-	Ref128 na = -(Ref128)a;
-	Ref128 q = na / FIX_ONE;
-	Ref128 r = na % FIX_ONE;
-	if ( r != 0 && na < 0 ) q--;
-	Ref128 res = -q * FIX_ONE;
-	if ( res > (Ref128)FIX_MAX ) return FIX_MAX;
-	return (int64_t)res;
+	int64_t n, r;
+	split( a, &n, &r );
+	int64_t q = n + ( r != 0 ? 1 : 0 );
+	// The largest representable multiple of FIX_ONE is (2^47 - 1) * FIX_ONE.
+	if ( q > ( (int64_t)1 << 47 ) - 1 ) return FIX_MAX;
+	return (fixed_t)( q * FIX_ONE );
 }
 
 static void check_one( int64_t a )
 {
 	int tr = TRUNC( a ), fr = FLOORI( a ), rr = ROUNDI( a );
 	int etr = ref_trunc( a ), efr = ref_floor( a ), err_ = ref_round( a );
-	if ( tr != etr ) mismatch( "fixTruncToInt", a, tr, etr );
-	if ( fr != efr ) mismatch( "fixFloorToInt", a, fr, efr );
-	if ( rr != err_ ) mismatch( "fixRoundToInt", a, rr, err_ );
+	if ( tr != etr ) mismatch( "fixTruncToIntSat", a, tr, etr );
+	if ( fr != efr ) mismatch( "fixFloorToIntSat", a, fr, efr );
+	if ( rr != err_ ) mismatch( "fixRoundToIntSat", a, rr, err_ );
 
 	int64_t ce = CEILR( a ), ece = ref_ceil( a );
 	if ( ce != ece ) mismatch( "fixCeilSat", a, ce, ece );

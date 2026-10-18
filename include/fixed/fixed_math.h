@@ -42,12 +42,97 @@ FIX_INLINE fixed_t fixUnwindAngle( fixed_t radians )
 	return (fixed_t)fixInt128ToI64( fixInt128Sub( fixInt128FromI64( radians ), fixInt128MulI64( n, twoPi ) ) );
 }
 
-/// Smallest integral fixed-point value not less than a (like ceilf), saturating at
-/// the top edge: if rounding up would pass INT64_MAX the result is FIX_MAX instead
-/// of wrapping to INT64_MIN (the behavior of fixCeil, which is kept unchanged for
-/// the frozen exhaustive hash). Below that the low fraction bits are dropped the
-/// same way fixCeil does, so every in-range result is identical. At INT64_MIN the
-/// result is INT64_MIN itself. Tested by test/toint_test.c.
+// Saturating replacements for the Q48.16 -> int32 conversions and for the top-edge
+// wrap of fixCeil. The originals live in include/fixed/fixed.h and are frozen:
+// determinism_test's hash mixes the results of fixTruncToInt, fixFloorToInt and
+// fixRoundToInt, and exhaustive_test's hash mixes fixFloor and fixCeil. Replacing
+// them in place would move those hashes, so they are left bit for bit as they are
+// and the Sat names below are added beside them. Current behavior of the originals:
+//
+//   fixTruncToInt   (int)( a / FIX_ONE )            truncates toward zero, then the
+//                                                   int64 -> int32 cast drops the high
+//                                                   bits, so it wraps above +-2^31.
+//   fixFloorToInt   (int)( a >> 16 )                arithmetic floor, then the same
+//                                                   wrapping cast.
+//   fixRoundToInt   (int)( (a + FIX_HALF) >> 16 )   half-up toward +infinity, also with
+//                                                   the wrapping cast (and an unsigned
+//                                                   add so the raw edge wraps).
+//   fixFloor        a & ~(FIX_ONE - 1)              already defined for every input,
+//                                                   including INT64_MIN and INT64_MAX.
+//   fixCeil         (a + FIX_ONE - 1) & ~mask       in unsigned arithmetic: defined,
+//                                                   but at the top edge it rounds past
+//                                                   INT64_MAX and wraps to INT64_MIN.
+//
+// The three ToInt replacements clamp to INT32_MIN/INT32_MAX. fixFloor needs no
+// replacement. fixCeilSat saturates to FIX_MAX instead of wrapping. All of them keep
+// the old truncation/floor/rounding rule and use only defined signed arithmetic, so
+// every in-range result is bit-identical to the original. Tested by test/toint_test.c.
+
+/// fixTruncToInt with saturation: truncate toward zero and clamp to INT32_MIN/INT32_MAX.
+/// In-range results are identical to fixTruncToInt. Tested by test/toint_test.c.
+FIX_INLINE int fixTruncToIntSat( fixed_t a )
+{
+	int64_t q = a / FIX_ONE;
+	if ( q > INT32_MAX )
+	{
+		return INT32_MAX;
+	}
+	if ( q < INT32_MIN )
+	{
+		return INT32_MIN;
+	}
+	return (int)q;
+}
+
+/// fixFloorToInt with saturation: round toward negative infinity and clamp to
+/// INT32_MIN/INT32_MAX. In-range results are identical to fixFloorToInt.
+/// Tested by test/toint_test.c.
+FIX_INLINE int fixFloorToIntSat( fixed_t a )
+{
+	int64_t q = a / FIX_ONE;
+	int64_t r = a % FIX_ONE;
+	if ( r != 0 && a < 0 )
+	{
+		q--;
+	}
+	if ( q > INT32_MAX )
+	{
+		return INT32_MAX;
+	}
+	if ( q < INT32_MIN )
+	{
+		return INT32_MIN;
+	}
+	return (int)q;
+}
+
+/// fixRoundToInt with saturation: round half-up toward +infinity (floor(a/FIX_ONE +
+/// 0.5)) and clamp to INT32_MIN/INT32_MAX. The q/r decomposition reproduces the old
+/// (a + FIX_HALF) >> 16 result on every in-range input without the unsigned wrap.
+/// Tested by test/toint_test.c.
+FIX_INLINE int fixRoundToIntSat( fixed_t a )
+{
+	int64_t q = a / FIX_ONE;
+	int64_t r = a % FIX_ONE;
+	int64_t adj = a >= 0 ? ( r >= FIX_HALF ? 1 : 0 ) : ( r < -FIX_HALF ? -1 : 0 );
+	q += adj;
+	if ( q > INT32_MAX )
+	{
+		return INT32_MAX;
+	}
+	if ( q < INT32_MIN )
+	{
+		return INT32_MIN;
+	}
+	return (int)q;
+}
+
+/// fixCeil with saturation: smallest integral fixed-point value not less than a (like
+/// ceilf), saturating at the top edge. If rounding up would pass INT64_MAX the result
+/// is FIX_MAX instead of wrapping to INT64_MIN (the behavior of fixCeil, which is kept
+/// unchanged for the frozen exhaustive hash). Below that the low fraction bits are
+/// dropped the same way fixCeil does, so every in-range result is identical. At
+/// INT64_MIN the result is INT64_MIN itself. Tested by test/toint_test.c.
 FIX_INLINE fixed_t fixCeilSat( fixed_t a )
 {
 	if ( a >= 0 )

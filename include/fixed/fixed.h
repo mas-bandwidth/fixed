@@ -412,61 +412,34 @@ FIX_ALWAYS_INLINE fixed_t fixFromInt( int64_t i )
 	return fixShiftLeft( (fixed_t)i, FIX_FRACTION_BITS );
 }
 
-/// Convert fixed point to an integer, truncating toward zero (C float-to-int semantics).
-/// Saturates to INT32_MIN/INT32_MAX outside the representable range instead of
-/// wrapping (the old cast of the int64 quotient truncated its high bits). Truncation
-/// toward zero is the C division already performed, so every in-range result is
-/// unchanged. Tested by test/toint_test.c.
+/// Convert fixed point to an integer, truncating toward zero (C float-to-int semantics)
 FIX_ALWAYS_INLINE int fixTruncToInt( fixed_t a )
 {
-	int64_t q = a / FIX_ONE;
-	if ( q > INT32_MAX ) return INT32_MAX;
-	if ( q < INT32_MIN ) return INT32_MIN;
-	return (int)q;
+	return (int)( a / FIX_ONE );
 }
 
-/// Convert fixed point to an integer, rounding toward negative infinity.
-/// Saturates to INT32_MIN/INT32_MAX instead of wrapping. In-range results are
-/// unchanged (arithmetic floor is the documented rounding). Tested by test/toint_test.c.
+/// Convert fixed point to an integer, rounding toward negative infinity
 FIX_ALWAYS_INLINE int fixFloorToInt( fixed_t a )
 {
-	int64_t q = a / FIX_ONE;
-	if ( a < 0 && a % FIX_ONE != 0 ) q--;
-	if ( q > INT32_MAX ) return INT32_MAX;
-	if ( q < INT32_MIN ) return INT32_MIN;
-	return (int)q;
+	return (int)( a >> FIX_FRACTION_BITS );
 }
 
-/// Convert fixed point to an integer, rounding half-up toward +infinity
-/// (floor(a/FIX_ONE + 0.5)). Saturates to INT32_MIN/INT32_MAX outside the
-/// representable range instead of wrapping. The q/r decomposition below reproduces
-/// exactly the old (a + FIX_HALF) >> 16 floor on every in-range input. Tested by
-/// test/toint_test.c.
+/// Convert fixed point to an integer, rounding to nearest
 FIX_ALWAYS_INLINE int fixRoundToInt( fixed_t a )
 {
-	int64_t r = a % FIX_ONE;
-	int64_t q = a / FIX_ONE;
-	int64_t adj = a >= 0 ? ( r >= FIX_HALF ? 1 : 0 ) : ( r < -FIX_HALF ? -1 : 0 );
-	q += adj;
-	if ( q > INT32_MAX ) return INT32_MAX;
-	if ( q < INT32_MIN ) return INT32_MIN;
-	return (int)q;
+	// The add is unsigned so the extreme-edge wrap (a near FIX_MAX) is
+	// defined two's-complement behavior instead of signed-overflow UB. Same
+	// bits on every compiler; the frozen hashes pin it.
+	return (int)( (fixed_t)( (uint64_t)a + FIX_HALF ) >> FIX_FRACTION_BITS );
 }
 
-/// Largest integral fixed-point value not greater than a (like floorf). A mask of
-/// the low fraction bits; well-defined for every input including INT64_MIN, which
-/// is itself an exact multiple of FIX_ONE, so floor(INT64_MIN) == INT64_MIN.
-/// Tested by test/toint_test.c.
+/// Largest integral fixed-point value not greater than a (like floorf)
 FIX_ALWAYS_INLINE fixed_t fixFloor( fixed_t a )
 {
 	return a & ~( FIX_ONE - 1 );
 }
 
-/// Smallest integral fixed-point value not less than a (like ceilf).
-/// INTENTIONALLY UNCHANGED to keep the frozen exhaustive hash: ceil(INT64_MAX)
-/// wraps to INT64_MIN here, pinned as a value rather than a trap. Use fixCeilSat
-/// for saturating semantics at the top edge. At INT64_MIN the unsigned add is exact
-/// and returns INT64_MIN (an exact multiple of FIX_ONE). Tested by test/toint_test.c.
+/// Smallest integral fixed-point value not less than a (like ceilf)
 FIX_ALWAYS_INLINE fixed_t fixCeil( fixed_t a )
 {
 	// Unsigned add: defined wrap at the extreme edge (see fixRoundToInt)

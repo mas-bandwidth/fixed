@@ -212,6 +212,19 @@ add_executable(fixed_boundary_test test/boundary_test.c)
 target_link_libraries(fixed_boundary_test PRIVATE fixed)
 add_test(NAME boundary COMMAND fixed_boundary_test)
 
+# The Q48.16 -> int32 conversions and Floor/Ceil at INT64_MIN/INT64_MAX. The
+# reference is an independent __int128 oracle inside test/toint_test.c.
+add_executable(fixed_toint_test test/toint_test.c)
+target_link_libraries(fixed_toint_test PRIVATE fixed)
+add_test(NAME toint COMMAND fixed_toint_test)
+
+# Its negative control: the old wrapping casts, verbatim. MUST fail.
+add_executable(fixed_toint_negative_control test/toint_test.c)
+target_link_libraries(fixed_toint_negative_control PRIVATE fixed)
+target_compile_definitions(fixed_toint_negative_control PRIVATE TOINT_NEGATIVE_CONTROL)
+add_test(NAME toint_negative_control COMMAND fixed_toint_negative_control)
+set_tests_properties(toint_negative_control PROPERTIES WILL_FAIL TRUE)
+
 # Its planted removal, the card's negative control. At configure time the headers
 # and the two library sources are copied, every INT64_MIN guard this card added is
 # deleted from the copies, and the suite is built against the unguarded copy. The
@@ -334,6 +347,13 @@ if (TARGET fixed_emulated)
         endif()
         add_test(NAME ${suite}_emulated COMMAND fixed_${suite}_emulated_test)
     endforeach()
+
+    add_executable(fixed_toint_emulated_test test/toint_test.c)
+    target_link_libraries(fixed_toint_emulated_test PRIVATE fixed_emulated)
+    if (NOT WIN32)
+        target_link_libraries(fixed_toint_emulated_test PRIVATE m)
+    endif()
+    add_test(NAME toint_emulated COMMAND fixed_toint_emulated_test)
 
     add_executable(fixed_numerical_saturated_emulated_test test/numerical_regression_test.c src/fixed_math.c src/fixed_vec.c)
     target_include_directories(fixed_numerical_saturated_emulated_test PRIVATE include)

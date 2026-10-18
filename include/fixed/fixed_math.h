@@ -42,6 +42,27 @@ FIX_INLINE fixed_t fixUnwindAngle( fixed_t radians )
 	return (fixed_t)fixInt128ToI64( fixInt128Sub( fixInt128FromI64( radians ), fixInt128MulI64( n, twoPi ) ) );
 }
 
+/// Smallest integral fixed-point value not less than a (like ceilf), saturating at
+/// the top edge: if rounding up would pass INT64_MAX the result is FIX_MAX instead
+/// of wrapping to INT64_MIN (the behavior of fixCeil, which is kept unchanged for
+/// the frozen exhaustive hash). Below that the low fraction bits are dropped the
+/// same way fixCeil does, so every in-range result is identical. At INT64_MIN the
+/// result is INT64_MIN itself. Tested by test/toint_test.c.
+FIX_INLINE fixed_t fixCeilSat( fixed_t a )
+{
+	if ( a >= 0 )
+	{
+		if ( a > FIX_MAX - ( FIX_ONE - 1 ) )
+		{
+			return FIX_MAX;
+		}
+		return (fixed_t)( (uint64_t)a + (uint64_t)( FIX_ONE - 1 ) ) & ~(uint64_t)( FIX_ONE - 1 );
+	}
+	// a < 0: ceil = trunc(a/FIX_ONE)*FIX_ONE = a - (a % FIX_ONE); the remainder is in
+	// (-FIX_ONE, 0], so the subtraction stays in [INT64_MIN, 0] and never overflows.
+	return a - ( a % FIX_ONE );
+}
+
 /// Interpolate a scalar.
 FIX_INLINE fixed_t fixLerp( fixed_t a, fixed_t b, fixed_t alpha )
 {

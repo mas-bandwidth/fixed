@@ -18,6 +18,17 @@ double cr_cos( double x );
 #define SAMPLE_COUNT ( 1u << 18 )
 
 static uint64_t axisangle_rng = UINT64_C( 0x9E3779B97F4A7C15 );
+/* Test-local determinism fingerprint; never mixed into an existing frozen hash. */
+static uint64_t axisangle_output_hash = UINT64_C( 0xCBF29CE484222325 );
+static void hash_result( int64_t value )
+{
+	uint64_t bits = (uint64_t)value;
+	for ( int i = 0; i < 8; i++ )
+	{
+		axisangle_output_hash ^= ( bits >> ( 8 * i ) ) & 0xFF;
+		axisangle_output_hash *= UINT64_C( 0x00000100000001B3 );
+	}
+}
 static uint64_t axisangle_next( void )
 {
 	uint64_t x = axisangle_rng;
@@ -81,6 +92,7 @@ static void check_one( sample_row* row, fixVec3 axis, fixed_t radians )
 	radians = (fixed_t)oracleRaw;
 	fixQuat q = make( axis, radians );
 	int64_t got[4] = { q.v.x, q.v.y, q.v.z, q.s };
+	for ( int i = 0; i < 4; i++ ) hash_result( got[i] );
 	int64_t ulp = 0;
 	for ( int i = 0; i < 4; i++ ) if ( diff_i64( got[i], want[i] ) > ulp ) ulp = diff_i64( got[i], want[i] );
 	row->count++;
@@ -161,6 +173,7 @@ static int run( void )
 		for ( int a = 0; a < 3; a++ ) for ( size_t i = 0; i < sizeof angles / sizeof angles[0]; i++ ) check_one( &r, axes[a], angles[i] );
 		print_axisangle_row( "coordinate-and-edge", &r ); failed |= r.maxulp > QUAT_BOUND;
 	}
+	printf( "axis angle exact hash=0x%016llx\n", (unsigned long long)axisangle_output_hash );
 	if ( failed ) return 1;
 	puts( "axis angle exact test passed" );
 	return 0;

@@ -1,0 +1,42 @@
+// The exp kernel of docs/design/transcendentals.md (the exp family section).
+// Run: sollya sollya/exp_kernel.sollya > sollya/exp_kernel.out
+//
+// e^x = 2^m * 2^(j/128) * e^r, N = floor( x * 128 / ln2 ), m = N >> 7, j = N & 127,
+// r = x - N * ln2/128 in [0, ln2/128). The kernel is P(r) = 1 + r + sum c_k r^k, k = 2..8,
+// each c_k a multiple of 2^-127 (fixed, 127 fraction bits), minimax in the absolute error on
+// [0, ln2/128 + slack], then certified with supnorm. Also prints the 2^(j/128) table and the
+// ln2 constants, so every digit the exp card needs comes from this one file.
+prec = 400!;
+display = decimal!;
+verbosity = 0!;
+
+// nearest integer of a constant expression: round it to 350 bits first, so Sollya prints a
+// number and never the unevaluated expression (every value here is below 2^130)
+procedure ni(e) { return nearestint(round(e, 350, RN)); };
+
+t = 7;
+n = 8;
+hi = ceil(log(2)/2^t * 2^130)/2^130;  // ln2/128 rounded up to 2^-130: covers the computed r
+I = [0; hi];
+f = exp(x) - 1 - x;
+
+fm = [||]; for i from 2 to n do fm = fm :. 127;
+// The fit runs on [2^-20; hi]: on [0; hi] every monomial x^k, k >= 2, vanishes at 0 and the
+// Remez system is degenerate there. The certificate below is on the whole of [0; hi].
+p = fpminimax(f, [|2,...,n|], fm, [2^-20; hi], fixed, absolute);
+s = supnorm(p, f, I, absolute, 2^-80);
+
+print("exp kernel: P(r) = 1 + r + sum_{k=2}^{8} C_k * 2^-127 * r^k on r in [0, ln2/128]");
+print("table bits t =", t, " degree =", n, " coefficient format: unsigned, 127 fraction bits");
+for i from 2 to n do print("C_" @ i @ " =", coeff(p, i) * 2^127);
+print("supnorm |P - e^r| on [0, ln2/128 + 2^-130], absolute:", s);
+print("log2 of the certified bound:", round(log2(sup(s)), 24, RU));
+
+print("LN2_128 = round(ln2 * 2^128) =", ni(log(2) * 2^128));
+print("INV_LN2_64 = round(2^64 / ln2) =", ni(2^64 / log(2)));
+print("table T_j = round(2^(j/128) * 2^126), j = 0..127, as hi:lo 64-bit words");
+for j from 0 to 2^t - 1 do {
+  v = ni(2^(j/2^t) * 2^126);
+  h = floor(v / 2^64);
+  print("T", j, h, v - h * 2^64);
+};

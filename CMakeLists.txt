@@ -387,6 +387,26 @@ if (TARGET fixed_emulated)
     endif()
     add_test(NAME from_double_emulated COMMAND fixed_from_double_emulated_test)
 endif()
+# Exact critically damped smoothing: the new pair against the formula with the true pi,
+# long double reference, seeded sweeps of the core and the task's wide range. The negative
+# control swaps in the shipped pair and must fail (WILL_FAIL); its core velocity row shows
+# the rounding error the exact path removes.
+add_executable(fixed_smooth_damped_exact_test test/smooth_damped_exact_test.c)
+target_link_libraries(fixed_smooth_damped_exact_test PRIVATE fixed)
+add_test(NAME smooth_damped_exact COMMAND fixed_smooth_damped_exact_test)
+
+if (TARGET fixed_emulated)
+    add_executable(fixed_smooth_damped_exact_emulated_test test/smooth_damped_exact_test.c)
+    target_link_libraries(fixed_smooth_damped_exact_emulated_test PRIVATE fixed_emulated)
+    add_test(NAME smooth_damped_exact_emulated COMMAND fixed_smooth_damped_exact_emulated_test)
+endif()
+
+add_executable(fixed_smooth_damped_exact_negative_control test/smooth_damped_exact_test.c)
+target_link_libraries(fixed_smooth_damped_exact_negative_control PRIVATE fixed)
+target_compile_definitions(fixed_smooth_damped_exact_negative_control PRIVATE SMOOTH_DAMPED_NEGATIVE_CONTROL)
+add_test(NAME smooth_damped_exact_negative_control COMMAND fixed_smooth_damped_exact_negative_control)
+set_tests_properties(smooth_damped_exact_negative_control PROPERTIES WILL_FAIL TRUE)
+
 option(FIX_BUILD_BENCHMARKS "Build the numerical public-API microbenchmarks" OFF)
 if (FIX_BUILD_BENCHMARKS)
     add_executable(fixed_numerical_bench benchmark/numerical_bench.c)

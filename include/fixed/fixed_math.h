@@ -313,3 +313,18 @@ FIX_API fixed_t fixSmoothCriticallyDamped( fixed_t current, fixed_t target, fixe
 /// magnitude) and down. The time is selected by comparing |target| to |current|.
 FIX_API fixed_t fixSmoothCriticallyDampedUpDown( fixed_t current, fixed_t target, fixed_t* velocity,
 												 fixed_t smoothTimeUp, fixed_t smoothTimeDown, fixed_t deltaTime );
+
+/// The same formula with the true pi and one rounding per output: omega = 2 pi / smoothTime;
+/// velocity' = ( velocity - omega^2 dt ( current - target ) ) / ( 1 + omega dt )^2;
+/// result = current + velocity' dt. Both outputs are within 2 raw units of the correctly
+/// rounded exact value for current, target and velocity in +-2^20 rad, smoothTime in
+/// [1/16, 1024] rad and deltaTime in (0, 1]; outputs past the fixed_t range saturate.
+/// The early returns are unchanged: smoothTime <= 0 returns target, deltaTime <= 0 returns
+/// current, and velocity is not touched. See test/smooth_damped_exact_test.c.
+FIX_API fixed_t fixSmoothCriticallyDampedExact( fixed_t current, fixed_t target, fixed_t* velocity,
+												fixed_t smoothTime, fixed_t deltaTime );
+
+/// fixSmoothCriticallyDampedExact with separate smoothing times for moving up (toward a
+/// larger magnitude) and down, selected by comparing |target| to |current|.
+FIX_API fixed_t fixSmoothCriticallyDampedUpDownExact( fixed_t current, fixed_t target, fixed_t* velocity,
+													  fixed_t smoothTimeUp, fixed_t smoothTimeDown, fixed_t deltaTime );

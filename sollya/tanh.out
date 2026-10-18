@@ -1,0 +1,7 @@
+tanh identity at raw = 1860: nearestint(tanh(1860*2^-16)*2^16) == 1860: true
+tanh identity stops at raw = 1861: nearestint(tanh(1861*2^-16)*2^16) == 1860 (not 1861): true
+tanh below saturation at raw = 408834: nearestint(tanh(408834*2^-16)*2^16) < 65536: true
+tanh saturation at raw = 408835: nearestint(tanh(408835*2^-16)*2^16) == 65536: true
+exp kernel certificate: log2 |P - e^r| = -102.6738433837890625
+tanh exp-path budget: log2( 2^16 * ( 2^-102.67 + 2^-128 ) ) = -86.67383575439453125
+tanh exp-path budget below 2^-86.67: true

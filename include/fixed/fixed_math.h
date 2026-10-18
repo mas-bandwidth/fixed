@@ -95,6 +95,13 @@ typedef struct fixCosSin
 	fixed_t sine;
 } fixCosSin;
 
+/* Wide Q2.62 sine/cosine pair used by exact fixed-point quaternion construction. */
+typedef struct fixCosSinWide
+{
+	int64_t cosineQ62;
+	int64_t sineQ62;
+} fixCosSinWide;
+
 /// atan2 accurate to ~0.0023 degrees. Deterministic (unlike the standard library).
 FIX_API fixed_t fixAtan2( fixed_t y, fixed_t x );
 
@@ -138,6 +145,9 @@ FIX_INLINE fixed_t fixCos( fixed_t radians ) { fixCosSin cs = fixComputeCosSin( 
 /// only, bit-identical on the native and the emulated 128-bit arms. These are new functions:
 /// fixSin, fixCos, fixComputeCosSin and fixComputeCosSinPrecise keep their frozen outputs.
 FIX_API fixCosSin fixComputeCosSinExact( fixed_t radians );
+
+/* Exact wide sine/cosine of radians / 2, before Q48.16 rounding. */
+FIX_API fixCosSinWide fixComputeCosSinHalfExactWide( fixed_t radians );
 
 FIX_INLINE fixed_t fixSinExact( fixed_t radians ) { fixCosSin cs = fixComputeCosSinExact( radians ); return cs.sine; }
 FIX_INLINE fixed_t fixCosExact( fixed_t radians ) { fixCosSin cs = fixComputeCosSinExact( radians ); return cs.cosine; }

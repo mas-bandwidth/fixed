@@ -1,0 +1,10 @@
+// SPDX-FileCopyrightText: 2026 Más Bandwidth LLC
+// SPDX-License-Identifier: MIT
+//
+// ACSL imported with -acsl-import by the loop-annotation harness. It holds one logic
+// function: the unsigned 128-bit value of the two-lane representation, used as the loop
+// variant of the restoring shift-subtract square root. The header documents the loops
+// and the two-lane arithmetic; the value is the obvious one and introduces no new
+// assumption.
+
+/*@ logic integer fixUInt128Val( fixUInt128 x ) = x.hi * 18446744073709551616 + x.lo; */

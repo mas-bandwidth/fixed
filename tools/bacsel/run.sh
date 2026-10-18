@@ -6,10 +6,11 @@
 #   bash tools/bacsel/run.sh --check-only   # compile check_hard and verify all 7 lists
 #
 # All seven lists cover their full Q48.16 binade range with at least 8 cases
-# per binade (or all 2^(e+16) inputs when e < -13) and at most 256 cases per
-# binade.  Every binade is searched with W = 4 windows of 2^16 consecutive raws
-# starting at the binade's 0, 1/4, 1/2 and 3/4 points, one BaCSeL search per
-# window; the per-binade wall-clock time is recorded in tools/bacsel/NOTES.md.
+# per binade (for ln/log2/log10/rsqrt, e = -16..-9 list every raw of the
+# binade) and at most 256 cases per binade.  Every binade e >= -8 is searched
+# with W = 4 windows of 2^16 consecutive raws starting at the binade's 0, 1/4,
+# 1/2 and 3/4 points, one BaCSeL search per window; the per-binade wall-clock
+# time is recorded in tools/bacsel/NOTES.md.
 #   - ln, log2, log10, rsqrt : e = -16 .. 46  (BaCSeL sha e372414)
 #   - cos_big, tan_big       : e =  16 .. 46  (BaCSeL sha e372414)
 #   - sin_big                : e =  16 .. 46  (BaCSeL sha e17f67c, -DSINBIG -Q 2470649)
@@ -54,15 +55,22 @@ elif [ -f "/usr/include/fplll/fplll.h" ] || pkg-config --exists fplll 2>/dev/nul
   INC="$(pkg-config --cflags fplll 2>/dev/null || true) -I/usr/include/fplll"
 else
   if [ ! -f "$FPLLL_PREFIX/include/fplll/fplll.h" ]; then
-    if [ ! -d "$CACHE/fplll-src/.git" ]; then
-      git clone --depth 1 --branch 5.5.0 https://github.com/fplll/fplll.git "$CACHE/fplll-src"
+    # The release tarball ships a generated `configure`, so no autotools are
+    # needed on the bench (autoconf/automake/libtool are not installed here).
+    TARBALL="$CACHE/fplll-5.5.0.tar.gz"
+    SRCDIR="$CACHE/fplll-5.5.0"
+    if [ ! -f "$TARBALL" ]; then
+      curl -sL -o "$TARBALL" \
+        https://github.com/fplll/fplll/releases/download/5.5.0/fplll-5.5.0.tar.gz
+    fi
+    if [ ! -d "$SRCDIR" ]; then
+      tar -C "$CACHE" -xzf "$TARBALL"
     fi
     (
-      cd "$CACHE/fplll-src"
-      if [ ! -f configure ]; then ./autogen.sh; fi
-      ./configure --prefix="$FPLLL_PREFIX" --disable-static
-      make -j4
-      make install
+      cd "$SRCDIR"
+      nice -n 19 ./configure --prefix="$FPLLL_PREFIX" --disable-static
+      nice -n 19 make -j3
+      nice -n 19 make install
     )
   fi
   INC="-I$FPLLL_PREFIX/include/fplll -I$FPLLL_PREFIX/include"
@@ -96,7 +104,8 @@ def checkout(sha):
 def build_defs(defs):
     subprocess.run(["make", "-C", bac, "clean"],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    subprocess.run(["make", "-C", bac, "-j4", "MPFR=/usr", "GMP=/usr",
+    subprocess.run(["nice", "-n", "19", "make", "-C", bac, "-j3",
+                    "MPFR=/usr", "GMP=/usr",
                     "FPLLL=" + inc, "INC=" + inc, "LIB=" + lib,
                     "DEFSAL=" + defs],
                    stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, check=True)
@@ -152,6 +161,24 @@ def get_out_exp(fn, raw):
     out = subprocess.check_output([ch, "--getexp", fn, str(raw)], text=True).split()
     return int(out[0]) if out else 0
 
+def enumerate_binade(fn, e):
+    """No BaCSeL: list every positive raw of a small binade (-16..-9)."""
+    p = subprocess.run([ch, "--enumerate", fn, str(e)],
+                       capture_output=True, text=True, check=True)
+    rows = []
+    k = None
+    for line in p.stdout.splitlines():
+        a = line.split()
+        if a and a[0] == "#":
+            if len(a) == 3 and a[1] == "k":
+                k = int(a[2])
+            continue
+        if len(a) == 3:
+            rows.append((int(a[0]), int(a[1]), float(a[2])))
+    if k is None:
+        raise RuntimeError(f"no k from enumerate for {fn} e={e}")
+    return rows, k
+
 def run_mono(fn, e, k):
     wins = four_windows(e)
     nn = get_out_exp(fn, wins[0][0]) + 16
@@ -160,7 +187,7 @@ def run_mono(fn, e, k):
     for (t0, t1) in wins:
         span = t1 - t0
         if e <= -4 or span < 4096 or k <= 3:
-            r = run_common(fn, e, k, nn, 1, t0, min(t1, t0 + 4096), 0, 1, [])
+            r = run_common(fn, e, k, nn, 1, t0, t1, 0, 1, [])
         else:
             r = run_common(fn, e, k, nn, 12, t0, t1, 2, 2, [])
         if r is None:
@@ -175,7 +202,7 @@ def run_trig(fn, e, k):
     seen = set()
     for (t0, t1) in four_windows(e):
         if k <= 3:
-            r = run_common(fn, e, k, 16, 1, t0, min(t1, t0 + 4096), 0, 1, [])
+            r = run_common(fn, e, k, 16, 1, t0, t1, 0, 1, [])
         else:
             r = run_common(fn, e, k, 16, 7, t0, t1, 2, 2, [])
         if r is None:
@@ -200,26 +227,30 @@ def run_sinbig(fn, e, k):
                 seen.add(row[0]); rows.append(row)
     return rows
 
-def collect(fn, run, es, kinit):
+def collect(fn, run, es, kinit, exhaustive_small=()):
     rows = []
     meta = []
     timings = []
     for e in es:
-        min_req = (1 << (e + 16)) if (e + 16 < 3) else 8
-        k = max(1, kinit(e))
         t_start = time.monotonic()
-        r = None
-        while True:
-            r = run(fn, e, k)
-            if r is not None and len(r) >= min_req:
-                break
-            if k <= 1:
-                break
-            k -= 1
+        if e in exhaustive_small:
+            r, k = enumerate_binade(fn, e)
+            min_req = 1 << (e + 16)
+        else:
+            min_req = (1 << (e + 16)) if (e + 16 < 3) else 8
+            k = max(1, kinit(e))
+            r = None
+            while True:
+                r = run(fn, e, k)
+                if r is not None and len(r) >= min_req:
+                    break
+                if k <= 1:
+                    break
+                k -= 1
         elapsed = time.monotonic() - t_start
         if not r or len(r) < min_req:
             raise RuntimeError(f"failed to collect >= {min_req} cases for {fn} e={e}")
-        if len(r) > 256:
+        if e not in exhaustive_small and len(r) > 256:
             r = sorted(r, key=lambda x: (x[2], x[0]))[:256]
         r.sort()
         rows += r
@@ -251,15 +282,19 @@ all_timings = {}
 checkout(sha_main)
 for fn in ("ln", "log2", "log10", "rsqrt"):
     build(fn)
-    rows, meta, timings = collect(fn, run_mono, MONO_ES, lambda e: min(16, max(1, e + 11)))
+    rows, meta, timings = collect(fn, run_mono, MONO_ES,
+                                  lambda e: min(16, max(1, e + 11)),
+                                  exhaustive_small=range(-16, -8))
     h = ("./bacsel -rnd_mode nearest -prec max(160,2*(n+|nn|)+64) -n max(2,e+17) "
          "-nn (eo+16) -m k -t 12 -t0 <win_t0> -t1 <win_t1> -d 2 -alpha 2 "
-         "-e_in e+1 -nthreads 3 -q (e = -16..46; 4 windows of 2^16 raws per binade "
-         "at the binade's 0, 1/4, 1/2 and 3/4 points; -d 0 -t 1 on e <= -4)")
+         "-e_in e+1 -nthreads 3 -q (e = -8..46; 4 windows of 2^16 raws per binade "
+         "at the binade's 0, 1/4, 1/2 and 3/4 points; -d 0 -t 1 on e <= -4 or k <= 3); "
+         "e = -16..-9 enumerated exhaustively by check_hard with no BaCSeL")
     name, tl = write_list(fn, sha_main, rows, meta, h,
                           "k per binade as listed (lowered to reach >= min(8, 2^(e+16)) cases); "
                           "4 windows of 2^16 consecutive raws per binade starting at the binade's "
-                          "0, 1/4, 1/2 and 3/4 points", timings)
+                          "0, 1/4, 1/2 and 3/4 points; e = -16..-9 list every raw of the binade, "
+                          "k = largest observed", timings)
     all_timings[name] = tl
 
 # 2. cos_big and tan_big over e = 16 .. 46
@@ -269,10 +304,10 @@ for fn in ("cos", "tan"):
     h = ("./bacsel -rnd_mode nearest -prec max(160,2*(n+16)+64) -n e+17 -nn 16 "
          "-m k -t 7 -t0 <win_t0> -t1 <win_t1> -d 2 -alpha 2 "
          "-e_in e+1 -nthreads 3 -q (e = 16..46; 4 windows of 2^16 raws per binade "
-         "at the binade's 0, 1/4, 1/2 and 3/4 points)")
+         "at the binade's 0, 1/4, 1/2 and 3/4 points; -m 1 -d 0 -t 1 on k <= 3)")
     name, tl = write_list(fn, sha_main, rows, meta, h,
                           "k = 10 (lowered per binade to reach >= 8 cases); "
-                          "4 windows of 2^16 raws per binade at 0, 1/4, 1/2, 3/4", timings)
+                          "4 windows of 2^16 raws per binade at 0, 1/4, 1/2, 3/4; -m 1 -d 0 -t 1 searches the whole window on k <= 3", timings)
     all_timings[name] = tl
 
 # 3. sin_big over e = 16 .. 46 via SINBIG (pinned sha e17f67c, Q = 2470649)

@@ -451,6 +451,38 @@ do_window (const char *fn, long e, long log2w)
   return 0;
 }
 
+/* List every positive raw of one small binade with its distance, then a
+ * `# k <n>` line giving the largest n for which all distances are <= 2^-n. */
+static int
+do_enumerate (const char *fn, long e)
+{
+  unsigned long long lo = 1ULL << (e + 16);
+  unsigned long long hi = 1ULL << (e + 17);
+  unsigned long long raw;
+  long best = 1000000;
+  mpfr_t d, l;
+  mpfr_inits2 (PREC, d, l, (mpfr_ptr) 0);
+  for (raw = lo; raw < hi; raw++)
+    {
+      long kk;
+      distance_units (d, fn, raw);
+      mpfr_printf ("%llu %ld %.17Rg\n", raw, e, d);
+      if (mpfr_zero_p (d))
+        continue;
+      mpfr_log2 (l, d, MPFR_RNDU);
+      mpfr_neg (l, l, MPFR_RNDN);
+      mpfr_floor (l, l);
+      kk = (long) mpfr_get_si (l, MPFR_RNDN);
+      if (kk < best)
+        best = kk;
+    }
+  mpfr_clears (d, l, (mpfr_ptr) 0);
+  if (best < 1)
+    best = 1;
+  printf ("# k %ld\n", best);
+  return 0;
+}
+
 int
 main (int argc, char **argv)
 {
@@ -464,11 +496,14 @@ main (int argc, char **argv)
     return do_getexp (argv[2], strtoull (argv[3], NULL, 10));
   if (argc == 5 && strcmp (argv[1], "--window") == 0)
     return do_window (argv[2], atol (argv[3]), atol (argv[4]));
+  if (argc == 4 && strcmp (argv[1], "--enumerate") == 0)
+    return do_enumerate (argv[2], atol (argv[3]));
   fprintf (stderr,
            "usage: %s [--check] <fn> <list>\n"
            "       %s --convert <fn> <e> <k> < bacsel.out\n"
            "       %s --getexp  <fn> <raw>\n"
-           "       %s --window  <fn> <e> <log2w>\n",
-           argv[0], argv[0], argv[0], argv[0]);
+           "       %s --window  <fn> <e> <log2w>\n"
+           "       %s --enumerate <fn> <e>\n",
+           argv[0], argv[0], argv[0], argv[0], argv[0]);
   return 2;
 }

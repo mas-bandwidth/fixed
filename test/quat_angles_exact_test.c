@@ -20,7 +20,8 @@
 // PIECES. (a) atan2 on every pair of raws in [-1024, 1024)^2, with monotonicity reversals counted
 // along every row and column; (b) 2^20 seeded pairs in raw +-2^20 and 2^18 in raw +-2^62; (c) the
 // axes, the diagonals and +-1 raw around each at a ladder of magnitudes, and INT64_MIN and
-// +-INT64_MAX in either argument; (d) 2^18 seeded unit quaternions (four random raws in +-65536,
+// +-INT64_MAX in either argument, and 1024-step walks across the diagonal and the x axis at
+// magnitudes 2^20..2^52 with reversals counted; (d) 2^18 seeded unit quaternions (four random raws in +-65536,
 // normalized by fixNormalizeQuat) for each angle function, plus the identity, its negation and
 // quaternions within 16 raw of a half turn.
 //
@@ -357,6 +358,37 @@ int main( void )
 		row_print( "atan2", "c", &r, ATAN2_BOUND );
 	}
 
+	// (c-walk) monotonicity at large magnitudes: at m = 2^e, e = 20..52 (raws that are exact as
+	// doubles), walk 1024 steps across the diagonal (y = m, x from m - 512) and across the positive
+	// x axis (x = m, y from -512), counting reversals against the reference as in piece (a).
+	{
+		row r = { 0 };
+		for ( int e = 20; e <= 52; e++ )
+		{
+			int64_t m = (int64_t)1 << e;
+			for ( int walk = 0; walk < 2; walk++ )
+			{
+				int64_t prevLibW = 0;
+				double prevRefW = 0;
+				for ( int i = 0; i < 1024; i++ )
+				{
+					int64_t y = walk == 0 ? m : -512 + i;
+					int64_t x = walk == 0 ? m - 512 + i : m;
+					int64_t lib;
+					double ref;
+					check_atan2( &r, y, x, &lib, &ref );
+					if ( i > 0 && opposite( ref - prevRefW, lib - prevLibW ) )
+					{
+						r.reversals++;
+					}
+					prevLibW = lib;
+					prevRefW = ref;
+				}
+			}
+		}
+		row_print( "atan2", "c-walk", &r, ATAN2_BOUND );
+	}
+
 	// (d) unit quaternions for each angle function, then the identity, its negation and
 	// quaternions within 16 raw of a half turn.
 	{
@@ -413,9 +445,9 @@ int main( void )
 	// Checked after the bounds, so an accuracy failure reports its worst input first.
 	// FROZEN 2026-10-18 (fixed-quat-angles-exact): identical from gcc and clang, native and
 	// emulated 128-bit, on x86-64 Linux. A different value is a determinism finding, not a re-freeze.
-	if ( fnv != 0x9326db644ed827a3ULL )
+	if ( fnv != 0xab1f6151d8102e23ULL )
 	{
-		printf( "quat angles exact FAIL determinism hash 0x%016llx, frozen 0x9326db644ed827a3\n", (unsigned long long)fnv );
+		printf( "quat angles exact FAIL determinism hash 0x%016llx, frozen 0xab1f6151d8102e23\n", (unsigned long long)fnv );
 		return 1;
 	}
 #endif

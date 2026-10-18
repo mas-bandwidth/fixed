@@ -20,6 +20,7 @@ double cr_cos( double x );
 static uint64_t axisangle_rng = UINT64_C( 0x9E3779B97F4A7C15 );
 /* Test-local determinism fingerprint; never mixed into an existing frozen hash. */
 static uint64_t axisangle_output_hash = UINT64_C( 0xCBF29CE484222325 );
+static uint64_t axisangle_input_hash = UINT64_C( 0xCBF29CE484222325 );
 static void hash_result( int64_t value )
 {
 	uint64_t bits = (uint64_t)value;
@@ -28,6 +29,7 @@ static void hash_result( int64_t value )
 		axisangle_output_hash ^= ( bits >> ( 8 * i ) ) & 0xFF;
 		axisangle_output_hash *= UINT64_C( 0x00000100000001B3 );
 	}
+	(void)value;
 }
 static uint64_t axisangle_next( void )
 {
@@ -81,6 +83,16 @@ static fixQuat make( fixVec3 axis, fixed_t radians )
 #endif
 }
 
+static void hash_input( int64_t value )
+{
+	uint64_t bits = (uint64_t)value;
+	for ( int i = 0; i < 8; i++ )
+	{
+		axisangle_input_hash ^= ( bits >> ( 8 * i ) ) & 0xFF;
+		axisangle_input_hash *= UINT64_C( 0x00000100000001B3 );
+	}
+}
+
 static void check_one( sample_row* row, fixVec3 axis, fixed_t radians )
 {
 	fixed_t oracleRaw = exact_raw( radians );
@@ -90,6 +102,7 @@ static void check_one( sample_row* row, fixVec3 axis, fixed_t radians )
 	int64_t want[4] = { round_even_ld( sr * axis.x ), round_even_ld( sr * axis.y ),
 					  round_even_ld( sr * axis.z ), round_even_ld( cr * 65536.0L ) };
 	radians = (fixed_t)oracleRaw;
+	hash_input( axis.x ); hash_input( axis.y ); hash_input( axis.z ); hash_input( radians );
 	fixQuat q = make( axis, radians );
 	int64_t got[4] = { q.v.x, q.v.y, q.v.z, q.s };
 	for ( int i = 0; i < 4; i++ ) hash_result( got[i] );
@@ -173,6 +186,7 @@ static int run( void )
 		for ( int a = 0; a < 3; a++ ) for ( size_t i = 0; i < sizeof angles / sizeof angles[0]; i++ ) check_one( &r, axes[a], angles[i] );
 		print_axisangle_row( "coordinate-and-edge", &r ); failed |= r.maxulp > QUAT_BOUND;
 	}
+	printf( "axis angle exact input_hash=0x%016llx\n", (unsigned long long)axisangle_input_hash );
 	printf( "axis angle exact hash=0x%016llx\n", (unsigned long long)axisangle_output_hash );
 	if ( failed ) return 1;
 	puts( "axis angle exact test passed" );

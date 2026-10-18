@@ -3,11 +3,12 @@
 //
 // After the Payne-Hanek reduction, |r| <= pi/4; j = round(r * 128) in 0..101 and
 // s = r - j/128, |s| <= 2^-8. tan(s) = s + sum C_k s^k, k = 3, 5, ..., 13, each C_k a multiple of
-// 2^-127, the s coefficient fixed at exactly 1. This kernel feeds a reciprocal near the poles
-// (cot r = 1/tan r with j = 0), so its error has to be small relative to tan(s) right down to
-// s = 2^-65, not only in absolute terms: the fit is minimax in the RELATIVE error, and the
-// certificate is printed twice, relative (used near the poles) and absolute (used on the
-// table path). Also prints the tan(j/128) table, pi/2 and 240 bits of 2/pi.
+// 2^-127, the s coefficient fixed at exactly 1. The fit is fpminimax of the residual tan(s) - s
+// over the odd powers 3..13 in the ABSOLUTE error, fixed format, then supnorm certifies the
+// reconstructed s + p absolutely (used on the table path). This kernel also feeds a reciprocal
+// near the poles (cot r = 1/tan r with j = 0), so a second supnorm certifies s + p against tan
+// in the RELATIVE error on the same interval (used on the pole path). Also prints the
+// tan(j/128) table, pi/2 and 240 bits of 2/pi.
 prec = 400!;
 display = decimal!;
 verbosity = 0!;
@@ -16,19 +17,21 @@ procedure ni(e) { return nearestint(round(e, 350, RN)); };
 n = 13;
 h = 2^-8 + 2^-100;  // the slack covers the rounding of s; 2^-120 makes this Remez fail to converge at prec 400
 I = [-h; h];
-ml = [|1|]; for i from 3 to n by 2 do ml = ml :. i;
-fm = [|0|]; for i from 3 to n by 2 do fm = fm :. 127;
-p = fpminimax(tan(x), ml, fm, I, fixed, relative);
-sr = supnorm(p, tan(x), I, relative, 2^-80);
-sa = supnorm(p, tan(x), I, absolute, 2^-80);
+ml = [||]; for i from 3 to n by 2 do ml = ml :. i;
+fm = [||]; for i from 3 to n by 2 do fm = fm :. 127;
+// The fit runs on [2^-20; h]: s^k, k >= 3, vanishes at 0 and the Remez system is degenerate
+// there (as in exp_kernel.sollya); both certificates cover the whole of [-h; h].
+p = fpminimax(tan(x) - x, ml, fm, [2^-20; h], fixed, absolute);
+sa = supnorm(p, tan(x) - x, I, absolute, 2^-80);
+sr = supnorm(x + p, tan(x), I, relative, 2^-80);
 
 print("tan kernel: tan(s) = s + sum_{k=3,5,..,13} C_k * 2^-127 * s^k on s in [-(2^-8 + 2^-100), 2^-8 + 2^-100]");
-print("degree =", n, " coefficient format: unsigned, 127 fraction bits; C_1 =", coeff(p, 1));
+print("degree =", n, " coefficient format: unsigned, 127 fraction bits; C_1 = 1 exactly");
 for i from 3 to n by 2 do print("C_" @ i @ " =", coeff(p, i) * 2^127);
-print("supnorm |p/tan - 1|, relative:", sr);
-print("log2 of the certified relative bound:", round(log2(sup(sr)), 24, RU));
-print("supnorm |p - tan|, absolute:", sa);
+print("supnorm |s + p - tan|, absolute:", sa);
 print("log2 of the certified absolute bound:", round(log2(sup(sa)), 24, RU));
+print("supnorm |(s + p)/tan - 1|, relative:", sr);
+print("log2 of the certified relative bound:", round(log2(sup(sr)), 24, RU));
 
 print("PIO2_127 = round(pi/2 * 2^127) =", ni(pi/2 * 2^127));
 w = floor(round(2^240 * 2 / pi, 350, RN));

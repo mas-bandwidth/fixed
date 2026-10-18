@@ -168,25 +168,47 @@ takes the saturated branch, so the magnitude is never negated as a signed value)
 * **Saturation.** `RN(sinh) >= INT64_MAX` and `RN(cosh) >= INT64_MAX` both start at
   |raw| = 2180453 (x >= asinh(2^47), measured): return INT64_MAX (sinh: with the input's
   sign, so -INT64_MAX for negative inputs, never INT64_MIN).
-* **Small |x|, sinh.** `RN(sinh x * 2^16) = raw` for every 0 <= raw <= 2344 (measured; the
-  cubic term raw^3 * 2^-32 / 6 stays under the distance to the midpoint): return raw. This is
-  the "small kernel" near 0, and it is exact. cosh needs none.
-* **Otherwise.** `fixExpKernel( |raw| )` gives `(Ma, ma)`, `fixExpKernel( -|raw| )` gives
+* **Identity, sinh.** `RN(sinh x * 2^16) = raw` for every 0 <= raw <= 2344 (measured; the
+  cubic term raw^3 * 2^-32 / 6 stays under the distance to the midpoint): return raw, exact.
+* **Odd kernel near 0, sinh, 2345 <= |raw| <= 4096 (|x| <= 1/16).** Here `e^x - e^-x`
+  cancels, so sinh has its own odd polynomial, and the exp kernel is not called (below).
+* **Otherwise** (cosh for every |raw| <= 2180452; sinh for 4097 <= |raw| <= 2180452).
+  `fixExpKernel( |raw| )` gives `(Ma, ma)`, `fixExpKernel( -|raw| )` gives
   `(Mb, mb)`, `ma >= 0 > mb`. With `d = ma - mb` (at most 95):
   `Y = 2^(ma + 15 - 126) * ( Ma -/+ (Mb >> d) )`, minus for sinh, plus for cosh, in 128 bits
   (Ma + Mb < 2^128), then one round to nearest by the shift `111 - ma`.
 
-**Why no separate odd kernel near 0 is needed.** Cancellation in `e^x - e^-x` costs relative
-bits, but the output is fixed point: what has to be small is the *absolute* error in raw
-units. Each kernel call is good to 2^-101.67 absolute on its mantissa, so the difference is
-good to 2^-101.67 * 2^(ma + 15) (+ half that from the e^-x side), whatever the size of
-sinh x. Near 0 that is 2^-86 raw; the identity cut-off above handles the region where the
-result is just `raw`. If a sweep ever showed `notcr` near 0, the named fix is the odd kernel
-`x + x^3 q(x^2)` on |x| < 2^-4 from a fourth Sollya script; the budget says it will not.
+**The sinh odd kernel.** `sinh x = x + sum_{k=3,5,..,13} S_k * 2^-127 * x^k`, odd degree 13,
+the x coefficient exactly 1, `S_3..S_13` unsigned integers (127 fraction bits, all positive).
+fpminimax of the residual `sinh(x) - x` over the odd powers 3..13 in the absolute error, fixed
+format (fit on [2^-20, 1/16], the Remez system being degenerate at 0); supnorm certifies
+`|x + p - sinh x| <= 2^-113.91` on the whole of [-1/16, 1/16] (the `sinh odd kernel` lines of
+`exp_kernel.out`). Why 1/16: it is where degree 13 at 127 fraction bits already sits 12 bits
+under the exp path's 2^-101.67, and above it the cancellation has stopped mattering (m = 0 and
+`d = ma - mb = 1` there). Evaluation on |raw|, every value unsigned:
 
-**sinh and cosh budget: eps <= 2^62 * ( 2^-101.67 + 2^-102.67 + 2^-126 ) = 2^-39.09 raw,
-against margins 2^-32.75 (sinh) and 2^-20.58 (cosh).** sinh's margin is the tightest of the
-exp family, still a factor 2^6.3.
+    X  = |raw| << 112                       // x in Q0.128, exact (|raw| <= 2^12)
+    x2 = mulhi( X, X )                      // x^2, Q0.128
+    w  = S_13;  for k = 11 .. 3:  w = S_k + mulhi( w, x2 )   // Q.127
+    c  = mulhi( x2, w )                     // x^2 * w, Q.127
+    S  = X + ( mulhi( X, c ) << 1 )         // x + x^3 q(x^2), Q0.128, S < 2^124.01
+    raw_out = ( S + 2^111 ) >> 112, sign applied
+
+Kernel budget (absolute, on sinh x): kernel 2^-113.91; x2 truncation 2^-128 times
+x * q < 2^-6; the five Horner truncations below 2^-127 each, damped by x2 <= 2^-8, sum
+2^-126.99 on w, times x^3 <= 2^-12; c's truncation below 2^-127 times x <= 2^-4, and the last
+product's below 2^-127 (the `<< 1` only realigns the units); sum, rounded up,
+2^-113.91 + 2^-125.9 = 2^-113.91. **On the kernel range eps <= 2^16 *
+2^-113.91 = 2^-97.91 raw.**
+
+Why the exp path is fine above 1/16 (and was fine below it too, which the kernel makes moot):
+the output is fixed point, so what has to be small is the *absolute* error in raw units, and
+each `fixExpKernel` call is good to 2^-101.67 absolute on its mantissa whatever the size of
+sinh x.
+
+**sinh and cosh budget: eps <= 2^62 * ( 2^-101.67 + 2^-102.67 + 2^-126 ) = 2^-39.09 raw on the
+exp path and 2^-97.91 raw on the odd kernel, against margins 2^-32.75 (sinh) and 2^-20.58
+(cosh).** sinh's margin is the tightest of the exp family, still a factor 2^6.3.
 
 ### 1.4 tanh, `fixTanhExact`
 
@@ -194,17 +216,37 @@ On |raw|, sign applied at the end (odd exactly; `fixTanhExact(INT64_MIN) = -6553
 
 * **Saturation.** `RN(tanh x * 2^16) = 65536` for every |raw| >= 408835 (measured,
   x >= 6.2383): return 65536 with the sign.
-* **Small |x|.** `RN = raw` for every 0 <= raw <= 1860 (measured): return raw.
-* **Otherwise.** `E = e^(2x)`: `fixExpKernel( 2 * |raw| )` gives `(M, m)`, m in [0, 18].
+* **Identity.** `RN = raw` for every 0 <= raw <= 1860 (measured): return raw, exact.
+* **Small-|x| kernel, 1861 <= |raw| <= 4096 (|x| <= 1/16)**, below.
+* **Otherwise**, 4097 <= |raw| <= 408834.
+  `E = e^(2x)`: `fixExpKernel( 2 * |raw| )` gives `(M, m)`, m in [0, 18].
   With `a = 2^(126 - m)` (exact): `num = M - a`, `den = M + a` (both < 2^128),
   `Q = floor( num * 2^128 / den )` by `fixUInt256DivMod`, Q in Q0.128 (tanh < 1), and
   `raw_out = ( Q + 2^111 ) >> 112`.
 
-No separate small-|x| polynomial is needed, for the same reason as sinh: the quotient's
-absolute error is `0.5 * err(M) + 2^-128` because d/dM of (M - a)/(M + a) is at most 1/2.
+**The small-|x| tanh kernel.** `tanh x = x + sum_{k=3,5,..,19} H_k * 2^-127 * x^k`, odd degree
+19, the x coefficient exactly 1, `H_3..H_19` signed integers (127 fraction bits) alternating in
+sign, H_3 < 0. fpminimax of the residual `tanh(x) - x` over the odd powers 3..19 in the
+absolute error, fixed format (fit on [2^-20, 1/16]); supnorm certifies
+`|x + p - tanh x| <= 2^-117.10` on [-1/16, 1/16] (the `tanh small kernel` lines of
+`exp_kernel.out`). The degree is higher than sinh's because tanh's Taylor coefficients shrink
+only by about (2/pi)^2 per step (poles at +/-i pi/2). Because the signs alternate and
+|H_(k+2)| * x2 < |H_k|, Horner runs unsigned on magnitudes, as the log kernel does:
 
-**tanh budget: eps <= 2^16 * ( 2^-102.67 + 2^-128 ) = 2^-86.67 raw, against the margin
-2^-20.28.**
+    X  = |raw| << 112;  x2 = mulhi( X, X )
+    w  = |H_19|;  for k = 17 .. 3:  w = |H_k| - mulhi( w, x2 )   // every w > 0, Q.127
+    c  = mulhi( x2, w )
+    T  = X - ( mulhi( X, c ) << 1 )         // x - x^3 |q(x^2)|, Q0.128
+    raw_out = ( T + 2^111 ) >> 112, sign applied
+
+Kernel budget, as sinh's with eight Horner steps: 2^-117.10 + 2^-125.9 = 2^-117.09 absolute,
+**eps <= 2^16 * 2^-117.09 = 2^-101.09 raw on the kernel range.**
+
+On the exp path the quotient's absolute error is `0.5 * err(M) + 2^-128`, because d/dM of
+(M - a)/(M + a) is at most 1/2, so cancellation in `M - a` costs no absolute bits there either.
+
+**tanh budget: eps <= 2^16 * ( 2^-102.67 + 2^-128 ) = 2^-86.67 raw on the exp path and
+2^-101.09 raw on the small-|x| kernel, against the margin 2^-20.28.**
 
 ## 2. The log family: ln, log2, log10
 
@@ -383,12 +425,13 @@ tool), `F` = the 128 bits from the leading one (relative truncation 2^-127). The
   without dividing, and a computed `|Y| >= 2^63 - 3/2` saturates.
 
 **Kernel.** `tan(s) = s + sum_{k=3,5,..,13} C_k * 2^-127 * s^k`, odd degree 13, the s
-coefficient exactly 1, the others unsigned with 127 fraction bits. This kernel feeds a
-reciprocal near the poles, so its error has to be small relative to tan(s) down to s = 2^-65,
-not only absolutely: fpminimax runs in the **relative** error (the absolute fit of the
-odd basis does not converge in Sollya 8.0), and supnorm certifies both, on
-[-(2^-8 + 2^-100), 2^-8 + 2^-100]: **relative 2^-134.23, absolute 2^-142.32**
-(`tan_kernel.out`). Horner in s^2: `w = C_13; for k = 11..3: w = C_k + mulhi( w, s2 )`, then
+coefficient exactly 1, the others unsigned with 127 fraction bits. fpminimax of the residual
+`tan(s) - s` over the odd powers 3..13 in the **absolute** error, fixed format (fit on
+[2^-20, 2^-8 + 2^-100], the Remez system being degenerate at 0); supnorm certifies the
+reconstructed `s + p` on the whole of [-(2^-8 + 2^-100), 2^-8 + 2^-100]: **absolute
+2^-143.08** (the table path). This kernel also feeds a reciprocal near the poles, so its error
+has to be small relative to tan(s) down to s = 2^-65; a second supnorm on the same interval
+certifies **relative 2^-133.01** (the pole path). Both lines are in `tan_kernel.out`. Horner in s^2: `w = C_13; for k = 11..3: w = C_k + mulhi( w, s2 )`, then
 `t = s + mulhi( s, mulhi( s2, w ) )` (sign-magnitude on s; `s2 = mulhi( s, s )`, Q0.128; products realigned to Q0.128 by one
 exact shift where a Q.127 factor enters).
 
@@ -404,7 +447,7 @@ Table path, absolute on tan r (|r| in [2^-8, pi/4]):
 | F, pi/2, product: relative 2^-125.7 on r <= 0.786 | 2^-126.05 |
 | r to Q0.128 | 2^-128 |
 | so r absolute 2^-125.7, times tan' = 1 + tan^2 <= 2.02 | 2^-124.7 |
-| kernel (Sollya, absolute 2^-142.32), Horner, TAN_j, through the combination | 2^-125 |
+| kernel (Sollya, absolute 2^-143.08), Horner, TAN_j, through the combination | 2^-125 |
 | combination and divide truncations | 2^-127 |
 | **total, absolute on tan r** | **2^-123.6** |
 
@@ -414,7 +457,7 @@ Pole path, relative on r * (1 + w) and its reciprocal (|r| < 2^-8):
 |---|---|
 | 2/pi to 240 bits at \|f\| >= f_sat | 2^-145.35 |
 | F, pi/2, product | 2^-125.7 |
-| kernel (Sollya, relative 2^-134.23) and the Horner for w (absolute 2^-126 on 1 + w) | 2^-126 |
+| kernel (Sollya, relative 2^-133.01) and the Horner for w (absolute 2^-126 on 1 + w) | 2^-126 |
 | D truncation, divide truncation | 2^-127 + 2^-127 |
 | **total, relative** | **2^-124** |
 
@@ -450,10 +493,12 @@ the 256 worst inputs of the sweep) and checks each exactly, plus these named cas
   says so**): the same points with
   `LN2_128` replaced by a 64-bit ln 2 (`round(ln 2 * 2^64) << 64`): at |N| ~ 6000 that moves r by
   2^-65 * 6000 / 128 = 2^-59.4 and y by up to 2^63 * 2^-59.4 = 12 raw, so it must fail.
-* **sinh / cosh**: 0 -> 0 / 65536; 2344 -> 2344 and 2345 (the identity edge); +/-2180452 and
+* **sinh / cosh**: 0 -> 0 / 65536; 2344 -> 2344 and 2345 (the identity edge); 4096 and 4097
+  (the odd-kernel / exp switch), each signed; +/-2180452 and
   +/-2180453 (saturation edges, sign); INT64_MIN -> -INT64_MAX / INT64_MAX; the sinh margin
   raw 441619. Oddness and evenness on every point.
-* **tanh**: 1860, 1861; 408834, 408835 -> 65536; INT64_MIN -> -65536; margin raw 144246;
+* **tanh**: 1860, 1861; 4096, 4097 (the small-kernel / exp switch); 408834, 408835 -> 65536;
+  INT64_MIN -> -65536; margin raw 144246;
   oddness on every point.
 * **ln / log10 / log2_exact**: raw <= 0 -> INT64_MIN; 1, 65536 (ln 1 = 0 exactly),
   2^k raws (log2 exactly k - 16), 655360 for log10 (exactly 1); the margin raws (541866,
@@ -476,26 +521,26 @@ quotes the four sweep hashes.
 | card | functions (new header) | method | constants and tables | budget, margin |
 |---|---|---|---|---|
 | fixed-exp-exact | `fixExpExact` (fixed_exp.h); `src/exact/exp_kernel.h` | 1.1, 1.2 | LN2_128, INV_LN2_63, T_j (128) from exp_kernel.out; C_2..C_8 | 2^-39.67 vs 2^-21.15 |
-| fixed-sinh-cosh-exact | `fixSinhExact`, `fixCoshExact` (fixed_sinh_cosh.h) | 1.3, includes exp_kernel.h | none of its own (identity cut-off 2344, saturation 2180453) | 2^-39.09 vs 2^-32.75 / 2^-20.58 |
-| fixed-tanh-exact | `fixTanhExact` (fixed_tanh.h) | 1.4, includes exp_kernel.h | none (cut-offs 1860, 408835) | 2^-86.67 vs 2^-20.28 |
+| fixed-sinh-cosh-exact | `fixSinhExact`, `fixCoshExact` (fixed_sinh_cosh.h) | 1.3, includes exp_kernel.h | S_3..S_13 (sinh odd kernel) from exp_kernel.out; cut-offs 2344, 4096, saturation 2180453 | 2^-39.09 (exp path) / 2^-97.91 (odd kernel) vs 2^-32.75 / 2^-20.58 |
+| fixed-tanh-exact | `fixTanhExact` (fixed_tanh.h) | 1.4, includes exp_kernel.h | H_3..H_19 (small-\|x\| kernel) from exp_kernel.out; cut-offs 1860, 4096, 408835 | 2^-86.67 (exp path) / 2^-101.09 (kernel) vs 2^-20.28 |
 | fixed-log-exact | `fixLnExact`, `fixLog10Exact`, `fixLog2Exact` (fixed_log.h) | 2.1-2.3 | INV_i, L_i (128), LN2_128, LOG2E_127, LOG10E_128; C_2..C_10 | ln 2^-85.04, log2 2^-84.5, log10 2^-86.2; margins 2^-21.44 / 2^-20.50 / 2^-26.00 and BaCSeL k <= 84 |
 | fixed-tan-exact | `fixTanExact` (fixed_tan.h) | 3.1-3.4 | W0..W3, PIO2_127, TAN_j (102); C_3..C_13 | 2^-61 (pole) / 2^-91.6 vs 2^-22.24 and k <= 60 |
 
 Each card's own `sollya/<fn>.sollya` is its kernel script: for exp, log and tan it can be the
 matching `*_kernel.sollya` here (same fpminimax and supnorm), so the coefficients pasted in
-its source are the ones this budget certifies; sinh_cosh and tanh have no polynomial of their
-own (their script prints the cut-offs' checks or restates the exp kernel's certificate).
+its source are the ones this budget certifies; for sinh_cosh and tanh it is the same
+`exp_kernel.sollya`, whose last two blocks are the sinh odd kernel and the tanh small-|x|
+kernel (the same calls, copied, if the card wants a file of its own).
 
 Where this design differs from a card's text, the design is the method and the card text
-yields: (1) sinh and tanh need no odd/small-|x| polynomial, only the exact identity cut-off
-(1.3, 1.4); (2) `fixLog2Exact` is required, with witnesses (2.2); (3) the tan kernel is fit
-and certified in the relative error, with the absolute bound printed too (3.3); (4) log10's
-constant carries 128 bits, not 64 (2.3); (5) tan holds its own four words of 2/pi, the first
-two equal to and citing sincos's, because there is nothing callable to reuse: fixed-tan-exact's
-"call what is there, never copy it" is met for the method, not for the digits (3.2); (6) the
-exp and log fits run on [2^-20, hi] because the Remez system is degenerate at 0, while the
-supnorm certificate covers the whole of [0, hi] (the scripts say so); (7) the negative-control
-files of section 5 need adding to the exp and tan cards' NEW lists.
+yields: (1) `fixLog2Exact` is required, with witnesses (2.2); (2) log10's constant carries 128
+bits, not 64 (2.3); (3) tan holds its own four words of 2/pi, the first two equal to and citing
+sincos's, because there is nothing callable to reuse: fixed-tan-exact's "call what is there,
+never copy it" is met for the method, not for the digits (3.2); (4) every fit (exp, log, tan,
+sinh, tanh) runs on [2^-20, hi] because the Remez system is degenerate at 0, while each supnorm
+certificate covers the whole interval (the scripts say so); (5) the negative-control files of
+section 5 need adding to the exp and tan cards' NEW lists. The sinh odd kernel and the tanh
+small-|x| kernel (1.3, 1.4) and the tan kernel's absolute fit (3.3) are as the cards ask.
 
 Not designed here, each carded on its own: `fixed-asin-acos-exact`, `fixed-rsqrt-exact`,
 `fixed-mod-exact`, `fixed-cbrt-exact`.

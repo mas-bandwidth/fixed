@@ -6,6 +6,13 @@
 // each c_k a multiple of 2^-127 (fixed, 127 fraction bits), minimax in the absolute error on
 // [0, ln2/128 + slack], then certified with supnorm. Also prints the 2^(j/128) table and the
 // ln2 constants, so every digit the exp card needs comes from this one file.
+//
+// It then prints the exp family's two kernels near 0 (sections 1.3 and 1.4), both on
+// x = raw * 2^-16 with 0 <= x <= 1/16 (raw <= 4096, exact, no slack):
+//   sinh(x) = x + sum_{k=3,5,..,13} S_k * 2^-127 * x^k, the odd kernel (all S_k > 0, unsigned);
+//   tanh(x) = x + sum_{k=3,5,..,19} H_k * 2^-127 * x^k, the small-|x| kernel (signs alternate,
+//   H_3 < 0). Each is fpminimax of the residual f(x) - x in the absolute error, fixed format,
+//   then supnorm certified on [-1/16, 1/16].
 prec = 400!;
 display = decimal!;
 verbosity = 0!;
@@ -40,5 +47,31 @@ for j from 0 to 2^t - 1 do {
   h = floor(v / 2^64);
   print("T", j, h, v - h * 2^64);
 };
+
+// The odd kernels fit the residual on [2^-20; 1/16] for the same reason as above (x^k, k >= 3,
+// vanishes at 0); the certificate covers the whole of [-1/16; 1/16].
+hs = 1/16;
+J = [-hs; hs];
+procedure oddkernel(g, deg) {
+  var ml, fm, i;
+  ml = [||]; fm = [||];
+  for i from 3 to deg by 2 do { ml = ml :. i; fm = fm :. 127; };
+  return fpminimax(g, ml, fm, [2^-20; hs], fixed, absolute);
+};
+ps = oddkernel(sinh(x) - x, 13);
+ss = supnorm(ps, sinh(x) - x, J, absolute, 2^-80);
+print("sinh odd kernel: sinh(x) = x + sum_{k=3,5,..,13} S_k * 2^-127 * x^k on x in [-1/16, 1/16]");
+print("degree = 13  coefficient format: unsigned (all positive), 127 fraction bits; S_1 = 1 exactly");
+for i from 3 to 13 by 2 do print("S_" @ i @ " =", coeff(ps, i) * 2^127);
+print("supnorm |x + p - sinh| on [-1/16, 1/16], absolute:", ss);
+print("log2 of the certified bound:", round(log2(sup(ss)), 24, RU));
+
+pt = oddkernel(tanh(x) - x, 19);
+st = supnorm(pt, tanh(x) - x, J, absolute, 2^-80);
+print("tanh small kernel: tanh(x) = x + sum_{k=3,5,..,19} H_k * 2^-127 * x^k on x in [-1/16, 1/16]");
+print("degree = 19  coefficient format: signed, 127 fraction bits; H_1 = 1 exactly");
+for i from 3 to 19 by 2 do print("H_" @ i @ " =", coeff(pt, i) * 2^127);
+print("supnorm |x + p - tanh| on [-1/16, 1/16], absolute:", st);
+print("log2 of the certified bound:", round(log2(sup(st)), 24, RU));
 
 quit;

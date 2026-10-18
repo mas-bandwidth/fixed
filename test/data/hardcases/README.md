@@ -17,3 +17,6 @@ BaCSeL code.
 
 Regenerate with `tools/bacsel/run.sh`; see `tools/bacsel/NOTES.md` for the
 mapping, the pinned commit and the coverage that was cut.
+
+Attempt 5 status: see `tools/bacsel/NOTES.md`; the committed lists are
+not yet exhaustive over the full requested ranges.

@@ -18,7 +18,7 @@
 #   * records the exact per-binade command and the k chosen for it in the
 #     list header, so the lists are reproducible from this script.
 set -euo pipefail
-SHA=e372414bc6af4a2911e07abe03de9854f32561fd
+SHA=e17f67c
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 WORK=${BAC_DIR:-"$ROOT/.bacsel"}
 CACHE=${BAC_CACHE:-"$WORK/cache"}
@@ -54,10 +54,12 @@ build() { # $1 = DEFSAL
 # BaCSeL's own README example; it must be re-verified on a machine where the
 # SINBIG build actually runs (see NOTES.md).
 SINBIG_OK=0
-if build "-DSINBIG -DBASIS=2 -DAUTOMATIC -DMONOTONIC"; then
-  if "$BAC/bacsel" -rnd_mode nearest -prec 200 -n 33 -nn 32 -m 10 -t 7 \
-       -Q 15106909301 -t0 $((1<<32)) -t1 $((1<<33)) -d 2 -alpha 2 \
-       -e_in 17 -nthreads 3 -q | grep -q '\*\*\*'; then
+if build "-DSINBIG -DBASIS=2 -DAUTOMATIC -DMONOTONOUS"; then
+  # The pinned e17f67c SINBIG build reproduces BaCSeL's own README example
+  # (13 cases); later revisions (e4bda4c onward) broke SINBIG and are not used.
+  if "$BAC/bacsel" -rnd_mode all -prec 128 -n 53 -nn 53 -m 17 -t 7 \
+       -Q 15106909301 -t0 4503599627370496 -t1 9007199254740992 \
+       -d 1 -alpha 1 -e_in 1024 -q | grep -q '\*\*\*'; then
     SINBIG_OK=1
   fi
 fi
@@ -83,7 +85,7 @@ def build_defs(defs):
 
 def build(fn, extra=""):
     d,_=builds[fn]
-    build_defs(d+" "+extra+" -DBASIS=2 -DVBSE -DAUTOMATIC -DMONOTONIC")
+    build_defs(d+" "+extra+" -DBASIS=2 -DVBSE -DAUTOMATIC -DMONOTONOUS")
 
 def getexp(fn,raw):
     return int(subprocess.check_output([ch,"--getexp",fn,str(raw)],text=True).split()[0])
@@ -144,8 +146,8 @@ def write_list(fn, rows, meta, header_line, kline):
         for raw,e,d in rows: f.write("%d %d %.17g\n"%(raw,e,d))
     print(fn, len(rows))
 
-MONO_ES = range(-10,21)
-TRIG_FB_ES = range(16,21)
+MONO_ES = range(-16,47)
+TRIG_FB_ES = range(16,47)
 TRIG_BIG_ES = range(16,47)
 
 # monotonic builders (full-binade searches over the committed ranges)
@@ -171,7 +173,7 @@ for fn in ("cos","tan"):
 # sin: use SINBIG (full per-binade sweep over 16..46) when the probe succeeded,
 # else fall back to the ordinary SIN window scan over 16..20.
 if sinbig_ok:
-    build_defs("-DSINBIG -DBASIS=2 -DAUTOMATIC -DMONOTONIC")
+    build_defs("-DSINBIG -DBASIS=2 -DAUTOMATIC -DMONOTONOUS")
     probe = run_sinbig("sin",16,10)
     if probe is not None and len(probe) >= 8:
         rows, meta = collect("sin", run_sinbig, TRIG_BIG_ES, lambda e: 10)

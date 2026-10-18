@@ -289,6 +289,14 @@ FIX_API fixed_t fixExp2Exact( fixed_t a );
 /// base <= 0 and one for a zero exponent.
 FIX_API fixed_t fixPow( fixed_t base, fixed_t exponent );
 
+/// base raised to exponent within 2 raw units of correctly rounded, for every base > 0 and
+/// every exponent, integer only: 2^( exponent * log2( base ) ) with log2 carried to up to 120
+/// fraction bits and the product held wide, so it never wraps. Saturates to INT64_MAX when the
+/// result is at or above 2^47, returns 0 where the correctly rounded result is 0, FIX_ONE for
+/// a zero exponent, and 0 for base <= 0. The bound of 2 raw for every base > 0 is checked
+/// against CORE-MATH at the pin by test/pow_exact_test.c.
+FIX_API fixed_t fixPowExact( fixed_t base, fixed_t exponent );
+
 // ---------------------------------------------------------------------------------------------
 // Q2.30 normalization
 // ---------------------------------------------------------------------------------------------

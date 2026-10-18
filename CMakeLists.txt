@@ -364,6 +364,31 @@ if (NOT MSVC)
     target_compile_definitions(fixed_exp2_exact_negative_control PRIVATE EXP2_NEGATIVE_CONTROL)
     add_test(NAME exp2_exact_negative_control COMMAND fixed_exp2_exact_negative_control)
     set_tests_properties(exp2_exact_negative_control PROPERTIES WILL_FAIL TRUE)
+
+    # The correctly-rounded pow oracle for fixPowExact. Same pattern as the exp2 oracle: a
+    # test-only object library with its own flags and warnings off, linked only into the pow
+    # tests below.
+    add_library(fixed_core_math_pow_object OBJECT extern/core-math/pow/pow.c)
+    target_compile_options(fixed_core_math_pow_object PRIVATE -O2 -ffp-contract=off -w)
+
+    add_executable(fixed_pow_exact_test test/pow_exact_test.c)
+    target_link_libraries(fixed_pow_exact_test PRIVATE fixed fixed_core_math_pow_object)
+    add_test(NAME pow_exact COMMAND fixed_pow_exact_test)
+
+    # Same oracle against the emulated 128-bit arm: fixPowExact must be bit-identical.
+    if (TARGET fixed_emulated)
+        add_executable(fixed_pow_exact_emulated_test test/pow_exact_test.c)
+        target_link_libraries(fixed_pow_exact_emulated_test PRIVATE fixed_emulated fixed_core_math_pow_object)
+        add_test(NAME pow_exact_emulated COMMAND fixed_pow_exact_emulated_test)
+    endif()
+
+    # Negative control: the same test evaluating fixPow instead of fixPowExact. It must
+    # exceed the bound and fail, so CTest expects failure.
+    add_executable(fixed_pow_exact_negative_control test/pow_exact_test.c)
+    target_link_libraries(fixed_pow_exact_negative_control PRIVATE fixed fixed_core_math_pow_object)
+    target_compile_definitions(fixed_pow_exact_negative_control PRIVATE POW_NEGATIVE_CONTROL)
+    add_test(NAME pow_exact_negative_control COMMAND fixed_pow_exact_negative_control)
+    set_tests_properties(pow_exact_negative_control PROPERTIES WILL_FAIL TRUE)
 endif()
 
 # The double/float to Q48.16 conversions, checked against an integer-only bit-level

@@ -19,19 +19,27 @@
  *     sides of pi/4 and of 1/256;
  *   - the libfixmath edge list.
  *
- * The pole window centres use A = round( pi/2 * 2^32 ) = 6746518852, so the window's
- * centre raw is ( m * A ) >> 16 and is within 5.1 raw of the exact multiple for every
- * m <= 667544, far inside the required 64. Negative angles are covered by exact oddness
- * and by the signed exhaustive and named pieces.
+ * The pole window centres are derived, not rounded at 32 bits. With
+ * C = floor( pi/2 * 2^63 ) = 0xc90fdaa22168c234 and T = m * pi/2 * 2^16 (the exact
+ * quarter-turn raw), centre = round( m * C / 2^47 ). C is low by e < 1, so
+ * m * C / 2^47 = T - m * e / 2^47 and 0 <= m * e / 2^47 < 2^20 * 2^-47 = 2^-27;
+ * rounding adds at most 1/2, hence |centre - T| < 1/2 + 2^-27. The window
+ * centre - 65 .. centre + 65 therefore contains every integer raw within 64 of T:
+ * centre - 65 <= T - 64.4999999 < T - 64 and centre + 65 >= T + 64.4999999 > T + 64.
+ * (The old 32-bit A = round( pi/2 * 2^32 ) drifted by up to 5.1 raw at m = 667544,
+ * so centre +/- 64 could omit true-pole +/- 64 inputs.) Negative angles are covered by
+ * exact oddness and by the signed exhaustive and named pieces.
  */
 #include "../sweep.h"
 #include "../data/libfixmath_edges.h"
 #include "fixed/fixed_tan.h"
+#include "fixed/fixed_int128.h"
 
 #define TAN_NAMED_COUNT 35
 #define TAN_HARD_COUNT 7936
 #define TAN_POLE_M_MAX 667544
-#define TAN_POLE_POINT_COUNT ( ( TAN_POLE_M_MAX + 1 ) * 129 )
+#define TAN_POLE_HALF_WIDTH 65
+#define TAN_POLE_POINT_COUNT ( ( TAN_POLE_M_MAX + 1 ) * ( 2 * TAN_POLE_HALF_WIDTH + 1 ) )
 #define TAN_POINT_COUNT ( TAN_NAMED_COUNT + TAN_HARD_COUNT + TAN_POLE_POINT_COUNT )
 
 static mpfr_t* tan_limit( void )
@@ -1097,11 +1105,12 @@ static void tan_fill_points( void )
 		tan_points[k].b = 0;
 		k++;
 	}
-	const uint64_t A = UINT64_C( 6746518852 );
+	const uint64_t C = UINT64_C( 0xc90fdaa22168c234 ); /* floor( pi/2 * 2^63 ) */
 	for ( uint64_t m = 0; m <= TAN_POLE_M_MAX; ++m )
 	{
-		int64_t centre = (int64_t)( ( m * A ) >> 16 );
-		for ( int d = -64; d <= 64; ++d )
+		fixUInt128 prod = fixUInt128Add( fixUInt128MulU64( m, C ), fixUInt128FromU64( UINT64_C( 1 ) << 46 ) );
+		int64_t centre = (int64_t)fixUInt128Lo( fixUInt128Shr( prod, 47 ) );
+		for ( int d = -TAN_POLE_HALF_WIDTH; d <= TAN_POLE_HALF_WIDTH; ++d )
 		{
 			tan_points[k].a = centre + d;
 			tan_points[k].b = 0;

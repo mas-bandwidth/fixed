@@ -61,12 +61,14 @@ Two modelling choices, both stated in the source:
   take their plain C `/` spelling. CBMC does not model the inline `divq`.
 - CBMC has no body for `__builtin_sqrt`. Left alone, it returns a different free value
   in each arm, so the repair loops in `fixISqrt128High` never bound. Both arms' seed call
-  is routed to one stub. The harness computes the production seed once per input, from
-  the library's own double expression, with CBMC's math.h `sqrt` (its correctly rounded
-  IEEE model) and the library's `(uint64_t)` truncation; the stub asserts that each arm
-  passes exactly that double and returns that seed. Nothing about the seed is assumed:
-  the repair loops are bounded by `--unwinding-assertions` on the real seed, and the seed
-  lying within `CBMC_SEED_BOUND` (3) of the exact root is a checked assertion.
+  is routed to one stub. The harness rebuilds the library's double argument `x`
+  bit-exactly and the stub asserts each arm passes exactly that `x`. The seed is then any
+  integer r the IEEE 754 contract of sqrt allows (round to nearest, `x` evaluated in
+  double): `(2r - 1)^2 <= 4x < (2r + 3)^2`, one value shared by both arms. One-sided
+  checked assertions show every allowed r lies within `CBMC_SEED_WINDOW` (4) of the exact
+  root, and the seed lemma `|r - s| <= CBMC_SEED_BOUND` (3) is checked, not assumed.
+  CBMC's own math.h `sqrt` model is not used: it bounds the root through rounded
+  squares, so it is not the IEEE operation.
 
 ## Why some properties are narrowed
 

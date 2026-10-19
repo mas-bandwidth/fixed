@@ -6,7 +6,7 @@ Planned work for mas-bandwidth/fixed. Landed work is in git.
 
 ## Contents
 
-- [Sprint work deferred to the roadmap](#sprint-work-deferred-to-the-roadmap) (2)
+- [Sprint work deferred to the roadmap](#sprint-work-deferred-to-the-roadmap) (3)
 
 ## Sprint work deferred to the roadmap
 
@@ -27,3 +27,9 @@ RESULT: fixed-isqrt128-high-fast tier: pro REPO: mas-bandwidth/fixed BASE: sprin
 Target: after v1.4
 
 From: card moved out of the sprint (work record, 2026-10-19)
+
+### With the helper contracts of helpers_acsl.h in place, finish the fixDiv proof in proofs/framac/fixdiv
+
+Carried: branch sprint/fixed-framac-fixdiv-full-proof.w4.g1.e21 head 71fd23310f792a9171d96a226cfb65c858eaf960 (attempt 5, review). With the helper contracts of helpers_acsl.h in place, finish the fixDiv proof in proofs/framac/fixdiv.
+
+From: sprint card fixed-framac-fixdiv-full-proof, moved out of the sprint 2026-10-19 (Glenn: not for the rocketnet v1.0.0 release)

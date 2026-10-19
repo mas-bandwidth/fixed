@@ -1,0 +1,122 @@
+; The fixed roadmap: the data ROADMAP.md is generated from.
+; Same shape as nova-sprint's docs/roadmap.sexp (nova-tools pkg/roadmap): data, never evaluated.
+; Edit this file with nova-work roadmap verbs (add, done, note, ...), which write ROADMAP.md in
+; the same step; never edit ROADMAP.md by hand. Created 2026-10-19 when the waiting sprint cards
+; of this repository were deferred to the roadmap.
+(roadmap "v1"
+ :title "fixed roadmap"
+ :text "Planned work for mas-bandwidth/fixed. Landed work is in git."
+
+ :groups
+ (
+  (group "sprint" :title "Sprint work deferred to the roadmap"
+   :text "Sprint work deferred to the roadmap (2026-10-19), when Glenn moved everything in the sprint that is not rocketnet related into roadmaps: the waiting cards of sprint stream(s) fixed-core, one item per card, each with the card's whole brief kept.")
+ )
+
+ :items
+ (
+ 
+  (item "fixed-framac-isqrt-loop-annotations" :group "sprint"
+   :title "You work in your own directory (given on the NEW: line); the files of the main card (the wrappers, Makefile, README and results.md under the proofs/framac directory) arrive when that card lands and are read-only context: copy what you need into your own files and do not edit them, so the two never conflict; the main card's `nightly` target is extended afterwards by the coordinator to call yours"
+   :text "RESULT: fixed-framac-isqrt-loop-annotations tier: pro
+REPO: mas-bandwidth/fixed
+BASE: sprint/fixed-core
+PRIORITY: normal
+STREAM: fixed-core
+KIND: test
+DEPENDS-ON: fixed-framac-wp-integer-kernels
+SOURCE: the coordinator, 2026-10-18, splitting the open goals of fixed-framac-wp-integer-kernels (pass 5, head 125af853, draft PR mas-bandwidth/fixed#45) into their own pro cards after the coordinator's Frama-C rule: contracts state only what the code documents, unproved goals are listed with their reasons, proofs run nightly only. The main card lands the wrappers, Makefile, README and results.md under proofs/framac; this card starts from them once it has landed.
+PATHS: none
+START: include/fixed/fixed.h (read), include/fixed/fixed_int128.h (read), docs/design/transcendentals.md (read)
+NEW: proofs/framac/loops/Makefile,proofs/framac/loops/loops_acsl.acsl,proofs/framac/loops/wrappers_acsl.c,proofs/framac/loops/results.md
+TEST: none because the suites are C and CTest, not a Go package; DONE-WHEN names the make targets that run the proofs
+TOOLCHAIN: the Linux bench amd-2, which has Frama-C 33.0, Alt-Ergo 2.4.3, Z3 4.13.3 and Why3 1.8.2 (if `command -v frama-c` prints nothing, export PATH=\"$HOME/sdk/bin:$PATH\" and check again before any HOLD); gcc, make and git. Frama-C proofs run on a bench only and nightly only: no per-commit CI, no CTest entry, no CI file touched.
+GATE-NEEDS: linux
+STOP: when DONE-WHEN holds and the commit is on your branch, or the deadline is reached; then report, with not-done named.
+The REPO: and BASE: lines are the repository and the branch the work starts from and lands on: the member stages REPO: at BASE:, and nova-sprint land merges the card's head onto BASE:.
+You are a child of the coordinator: one task, one worktree, one branch, unattended. This card is the whole of the task and it stands alone in front of a stranger.
+DEADLINE: finish within 150 minutes.
+
+# Loop invariants, assigns and variants close the fixISqrt128High and Int128Div open goals
+
+RULES.
+The report starts with `Verdict: LAND|HOLD` on line 1 and `Head: <sha>` on line 2.
+Work only in the job directory this card names.
+Never read outside the job's working directory.
+Never force-push or rebase a shared branch. Never kill a process you did not start. Never pkill or killall by pattern. Never start a server on this machine. No `rm -rf` outside the job directory.
+No gh, no push: JOB.md's finish does both. Never merge. Never git stash. Do not commit build directories or build logs.
+Never run `nova-sprint friend stage`. Clone on the bench from GitHub, never on the studio Mac.
+Never install system packages (no apt, no brew, no sudo). A tool TOOLCHAIN names that is not on PATH is a HOLD at once, naming it.
+Never search /, ~ or /Volumes; never crawl the filesystem.
+Unit tests use no real time, no sockets, no network and no outside services. Time is an argument, and a test clock starts at 1000.0.
+Make the smallest change, with no refactor. Touch only the files PATHS and NEW name. No edit to any library header: contracts, annotations and stubs live in your own directory.
+Never touch the space game's baseline or delta code.
+DETERMINISM: fixed promises every result bit-identical on every platform, architecture and compiler. Never change a frozen hash, an oracle-baseline row or an existing expected value.
+Contracts state only what the code documents. Every goal left unproved is listed in your results.md with its line and its reason (a real undefined behaviour, confirmed with a C program under -fsanitize=undefined and pasted, or a prover limit, said which and why). Never weaken a contract to make a goal pass.
+Finish LAND with `--head <sha>`; finish HOLD with `--failed`. Report what was not done. \"Not done\" is a welcome report; a green claim you did not run is not.
+
+THE TASK. You work in your own directory (given on the NEW: line); the files of the main card (the wrappers, Makefile, README and results.md under the proofs/framac directory) arrive when that card lands and are read-only context: copy what you need into your own files and do not edit them, so the two never conflict; the main card's `nightly` target is extended afterwards by the coordinator to call yours. fixISqrt128High's header loops (include/fixed/fixed.h (read) and include/fixed/fixed_int128.h (read), notably fixEmuUInt128DivMod at fixed_int128.h:417) carry no loop annotations, so on the main card's wrappers its assigns and terminates goals sit at 49/107 (52 assigns + 6 terminates open) and the Int128Div wrapper at 22/27 (shift_2 and mem_access_5..8 open). Add, in proofs/framac only (no header edit; use a separate ACSL file loaded with -acsl-import, or annotations on the wrappers), a `loop invariant`, `loop assigns` and `loop variant` for each of those loops, stating only what the code documents. Run the sqrt and Int128Div wrappers again and update results.md. The 2 float is_finite seed goals at fixed.h:300 are a prover limit and are out of scope: list them again with their reason.
+DONE-WHEN: `make -C proofs/framac/loops sqrt` ends with fixISqrt128High's assigns and terminates goals closed (paste the summary line; was 49/107) or each remaining goal named in your results.md with its line and reason; `make -C proofs/framac/loops prims` ends with Int128Div closed (paste the line; was 22/27) or each remaining goal named with its reason; the RTE counts that were proved before (fixISqrt128High 34/36, the other primitives) do not drop; your Makefile has a `nightly` target that runs; git diff --stat shows only NEW files under your own directory.
+
+STEP 1. cd into the staged checkout JOB.md names and run git log --oneline -1; confirm the proofs/framac directory exists there (the main card has landed). Run `command -v frama-c`. Use nice and a timeout on every Frama-C run; never leave one running past its cap.
+STEP 2. Red first: run the command that shows the current state (the open goals or the missing result) and keep its line.
+STEP 3. Walk THE TASK in order, in the files PATHS and NEW name only.
+STEP 4. Gate: the DONE-WHEN lines, each with its last line pasted.
+STEP 5. Commit on your own branch with the trailer. The finish JOB.md names opens the pull request; its body holds the red line, the gate outputs and what was not done.
+STEP 6. End as JOB.md says."
+   :date "2026-10-19"
+   :release "after v1.4"
+   :origin "card moved out of the sprint (work record, 2026-10-19)")
+  (item "fixed-isqrt128-high-fast" :group "sprint"
+   :title "fixISqrt128High( hi, lo ) in include/fixed/fixed.h (about line 292) returns floor( sqrt( hi * 2^64 + lo ) ), exactly"
+   :text "RESULT: fixed-isqrt128-high-fast tier: pro
+REPO: mas-bandwidth/fixed
+BASE: sprint/fixed-core
+PRIORITY: normal
+STREAM: fixed-core
+KIND: feature
+DEPENDS-ON: fixed-framac-isqrt-loop-annotations
+SOURCE: the coordinator, 2026-10-19, from Virtual Go's rest-search profile (card vg-rest-search-profile, docs/REST-PROFILE.md on its branch): after the search fix, 73% of the remaining single-stone placement-search time is two functions, vgLength32 (38.5% self, 83.5 million calls, through fixISqrt128High) and vgMeridianSupportHalf (34.8%). The worst placement on a full 19 x 19 board is about 40 ms against a 20 ms bound. This card is the fixISqrt128High half; vgLength32 lives in Virtual Go's stone/ (not in this repository) and is not touched here, so a faster fixISqrt128High reaches it only when the vendored copy under stone/extern/fixed is next synced. HELD by the coordinator behind Glenn's rule (2026-10-18) that optimisation of fixed starts only once fixed is feature complete and correct: release when every fixed-core card has landed (open at admission: fixed-cbmc-int128-paths-agree, fixed-cbmc-rsqrt-mod-exact, fixed-framac-isqrt-loop-annotations, fixed-framac-fixdiv-helper-contracts, fixed-framac-fixdiv-full-proof).
+PATHS: include/fixed/fixed.h,CMakeLists.txt,benchmark/README.md
+NEW: test/isqrt_fast_test.c,benchmark/isqrt_bench.c,proofs/framac/isqrt-fast/Makefile,proofs/framac/isqrt-fast/results.md
+TEST: none because the suites are C and CTest, not a Go package; DONE-WHEN names the CTest names and the commands that run them
+TOOLCHAIN: a Linux member with gcc and clang, cmake, make, git and python3; for the proof the Linux bench amd-2 (Frama-C 33.0, Alt-Ergo, Z3, Why3; if `command -v frama-c` prints nothing, export PATH=\"$HOME/sdk/bin:$PATH\" and check again before any HOLD).
+GATE-NEEDS: linux
+STOP: when DONE-WHEN holds and the commit is on your branch, or the deadline is reached; then report, with not-done named.
+The REPO: and BASE: lines are the repository and the branch the work starts from and lands on: the member stages REPO: at BASE:, and nova-sprint land merges the card's head onto BASE:.
+You are a child of the coordinator: one task, one worktree, one branch, unattended. This card is the whole of the task and it stands alone in front of a stranger.
+DEADLINE: finish within 150 minutes.
+
+# A faster exact fixISqrt128High, bit-identical to today's
+
+RULES.
+The report starts with `Verdict: LAND|HOLD` on line 1 and `Head: <sha>` on line 2.
+Work only in the job directory this card names.
+Never force-push or rebase a shared branch. Never kill a process you did not start. Never pkill or killall by pattern. Never start a server on this machine. No `rm -rf` outside the job directory.
+No gh, no push: JOB.md's finish does both. Never merge. Never git stash. Do not commit build directories or build logs.
+Never run `nova-sprint friend stage`. Clone on the bench from GitHub, never on the studio Mac.
+Never install system packages (no apt, no brew, no sudo).
+Never search /, ~ or /Volumes; never crawl the filesystem.
+Unit tests use no real time, no sockets, no network and no outside services. Time is an argument, and a test clock starts at 1000.0. The micro-benchmark reads a clock and is therefore functional: it is never a CTest entry.
+Make the smallest change, with no refactor. Touch only the files PATHS and NEW name.
+Never touch the space game's baseline or delta code.
+DETERMINISM: fixed promises every result bit-identical on every platform, architecture and compiler. Never change a frozen hash, an oracle-baseline row or an existing expected value.
+Finish LAND with `--head <sha>`; finish HOLD with `--failed`. Report what was not done. \"Not done\" is a welcome report; a green claim you did not run is not.
+
+THE TASK. fixISqrt128High( hi, lo ) in include/fixed/fixed.h (about line 292) returns floor( sqrt( hi * 2^64 + lo ) ), exactly. It has three branches: (A) 0 < hi < 2^40, a double seed repaired by two loops over 128-bit squares (fixUInt128MulU64 twice per step); (B) hi == 0, a double seed repaired against 64-bit squares; (C) the rare large case, a 64-iteration restoring shift-subtract root. Virtual Go's hot callers are Q32 vector lengths (fixed_vec.h lifts a squared length into the 128-bit value and calls it), whose lifted values should land in branch A; confirm that first with a counter in a scratch copy of the test (inputs as the callers form them: three Q32 components of magnitude 2^-8..2^8 metres), and report the share of each branch. Then make the function faster WITHOUT changing a single result, by any exact method. Candidates, yours to measure: (1) in branch A form the residual n - r*r once as a 128-bit value, keep it signed-small, and correct by comparing it against 2r+1 instead of building (r+1)^2 and doing two full 128-bit compares per step; (2) in branch C replace the 64-step restoring loop by a double seed, one Newton step with an exact 128/64 division and the same residual repair, falling back to the restoring loop only if a proved bound is not met; (3) hoist the seed so the compiler can overlap the sqrt latency with the first multiply. Portable C only: no intrinsics-only path, no runtime dispatch and no ISA-specific code here (the SIMD and ISA research pass is a later card, which needs this scalar baseline); the function must still compile to the same bits on gcc, clang, MSVC (FIX_SQRT_SEED) and the emulated 128-bit type.
+
+Keep the current function verbatim in the test, renamed fixISqrt128HighReference, as the oracle for the differential: it is the specification of today's behaviour. Do not keep the old body in the header.
+
+Files: include/fixed/fixed.h (the one function, plus its comment: say why each repair step is exact and what bound on the seed error it relies on); CMakeLists.txt (one add_executable and add_test pair, plus the negative control, copying the pattern of the existing *_negative_control targets); NEW test/isqrt_fast_test.c (CTest names isqrt_fast and isqrt_fast_negative_control; prints `isqrt fast test passed`); NEW benchmark/isqrt_bench.c plus a few lines in benchmark/README.md; NEW proofs/framac/isqrt-fast/ for the proof.
+
+THE DIFFERENTIAL TEST (no real time, under 5 s). The new function against fixISqrt128HighReference, result equal for: (a) every lo in [0, 2^24) with hi == 0, exhaustive; (b) for every k in a set containing 0..2^16, every k within 64 of a power of two up to 2^64 - 1, and 2^32 - 1 + j for j in [0, 64): n = k*k - 1, k*k, k*k + 1 and k*k + 2k, k*k + 2k + 1 as 128-bit values (clamped, never wrapped), in all three branches including the branch boundaries hi = 2^40 - 1, 2^40, and hi = 1, UINT64_MAX; (c) at least 4 million pseudo-random (hi, lo) pairs from a fixed-seed xorshift (a seed written in the test), drawn log-uniform over bit length 1..128 so every branch gets a million; (d) the fixSqrt( a ) public result for a spread of fixed_t, including 1, INT64_MAX. The negative control compiles the test with a deliberately wrong variant (the new function's result plus one for hi >= 2^32, switched on by a compile definition) and must fail, naming the first differing input.
+
+THE MICRO-BENCHMARK (functional, not in CTest). benchmark/isqrt_bench.c compiles the SAME source against the old and the new header (the README's before/after recipe: a git worktree of BASE, same compiler and flags, -O3 -DNDEBUG -ffp-contract=off) and prints ns per call for each branch separately and for a mix shaped like the Virtual Go callers, with a checksum of all results so the compiler cannot drop the loop and so the two builds can be compared bit for bit. Setup outside the timed loop; inputs from the fixed-seed generator; five alternating trials; median and spread. Run on amd-2 and one more bench; quote each bench's load average with its numbers (the fleet is never unloaded).
+
+THE PROOF. The existing proof is the Frama-C WP work under proofs/framac (cards fixed-framac-wp-integer-kernels and fixed-framac-isqrt-loop-annotations, which this card depends on and which put the fixISqrt128High wrapper, its contract and its loop annotations there; read them, copy what you need into your own directory, edit none of theirs). Extend it to the NEW body: state the contract as r*r <= n and n < (r+1)*(r+1) (the unique floor root), prove it for the new function, and note in results.md that this contract, together with the reference being an exact floor root, is what makes the two bit-identical for every input (the differential test then checks the implementation of the reference, not the argument). List every goal left open with its line and its reason (a prover limit, said which, or a real undefined behaviour confirmed with a C program under -fsanitize=undefined, pasted). Never weaken a contract to make a goal pass. If the wrappers have not landed when you start, report that and prove what you can with your own wrapper in your own directory. Proofs run on a bench only and nightly only: no per-commit CI, no CTest entry, no CI file touched. Where the repository proves sqrt with CBMC rather than Frama-C by then (card fixed-cbmc-int128-paths-agree), add the equivalence of the new body and the reference for the 64-bit-input branch as well, one translation unit only (ESBMC merges header statics across translation units; use CBMC for anything that is not one unit).
+
+DONE-WHEN: (1) `ctest -R isqrt_fast` passes on gcc and clang (paste both lines), the whole existing suite still passes, and every frozen hash is unchanged; (2) `ctest -R isqrt_fast_negative_control` is red as designed, with the failing line kept in the report; (3) the benchmark report lists ns per call old and new for branches A, B, C and the Virtual Go mix on two benches with load averages, and the new function is faster on branch A (the hot branch) without being slower on B or C beyond the measurement spread; if it is not faster on A, the verdict is HOLD with the numbers, not a claim; (4) the Frama-C goals for the new function are closed or each open goal is named in results.md; (5) git diff --stat shows only the files PATHS and NEW name; (6) the report states the share of each branch for the Virtual Go-shaped inputs, and says that vgLength32 itself (stone/ in Virtual Go) is untouched and that a vendored-copy sync is the follow-up."
+   :date "2026-10-19"
+   :release "after v1.4"
+   :origin "card moved out of the sprint (work record, 2026-10-19)")
+))

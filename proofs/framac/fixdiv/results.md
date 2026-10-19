@@ -1,5 +1,25 @@
 # fixDiv Frama-C WP results (attempt 4)
 
+## Helper-contract card, attempt 2: HOLD before the red run
+
+The helper-contract card was staged on `Glenns-Mac-Mini.local` (the studio
+Mac), not on the Linux bench amd-2 that its toolchain names. After
+`export PATH="$HOME/sdk/bin:$PATH"`, `command -v` reports `frama-c`,
+`why3`, `alt-ergo` and `z3` all missing; only `gcc`, `make` and `git` are
+present. Per the card rules this is a HOLD naming the absent tools, so no
+`make -C proofs/framac/fixdiv fixdiv` run was started and no helper contract
+was written: without WP there is no way to prove a body goal or classify a
+contract PROVED/ASSUMED, and writing unverified contracts would violate the
+"never state an ensures the code does not honour" rule. Nothing in this
+file below was changed by attempt 2.
+
+Work left for a bench run: list the fixDiv call tree under
+`-DFIX_FORCE_EMULATED_INT128`, add `proofs/framac/fixdiv/helpers_acsl.h`
+with `requires`/`assigns`/`terminates`/`ensures` for each helper, attach
+the contracts by declaration from `fixdiv_acsl.c`, add per-helper prove
+targets to the Makefile, then record the pre/post `Proved goals:` lines and
+each helper's PROVED/ASSUMED status here.
+
 Final guarded `make -C proofs/framac/fixdiv fixdiv` on amd-2, emulated arm,
 Frama-C 33.0, Alt-Ergo/Z3, CPU 2, nice 19, 8 GiB address-space cap and
 600 s outer wall cap:

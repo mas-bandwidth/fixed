@@ -119,4 +119,8 @@ DONE-WHEN: (1) `ctest -R isqrt_fast` passes on gcc and clang (paste both lines),
    :date "2026-10-19"
    :release "after v1.4"
    :origin "card moved out of the sprint (work record, 2026-10-19)")
+  (item "fixed-framac-fixdiv-full-proof" :group "sprint" :date "2026-10-19"
+   :title "With the helper contracts of helpers_acsl.h in place, finish the fixDiv proof in proofs/framac/fixdiv"
+   :text "Carried: branch sprint/fixed-framac-fixdiv-full-proof.w4.g1.e21 head 71fd23310f792a9171d96a226cfb65c858eaf960 (attempt 5, review). With the helper contracts of helpers_acsl.h in place, finish the fixDiv proof in proofs/framac/fixdiv."
+   :origin "sprint card fixed-framac-fixdiv-full-proof, moved out of the sprint 2026-10-19 (Glenn: not for the rocketnet v1.0.0 release)")
 ))

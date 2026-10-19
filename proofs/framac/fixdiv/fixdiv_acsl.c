@@ -4,16 +4,19 @@
 // Frama-C WP wrappers for the production fixDiv. No library header is edited.
 // The total-function contract below states only documented saturation and range.
 // Branch wrappers isolate the zero, fast and wide paths for bounded diagnostics.
-// Proofs inline fixDiv itself; helper functions remain separate proof obligations.
+// Proofs inline fixDiv itself; each helper it calls is summarised by its contract in
+// helpers_acsl.h (proved or ASSUMED there). FIX_PLANT(100) is the planted fault for this
+// proof: it tightens the range ensure past FIX_MIN, which fixDiv( -1, 0 ) returns.
 
 #include <stdint.h>
 #include "fixed/fixed.h"
+#include "helpers_acsl.h"
 
 /*@ assigns \nothing;
   @ ensures b == 0 && a > 0 ==> \result == 9223372036854775807;
   @ ensures b == 0 && a < 0 ==> \result == -9223372036854775807;
   @ ensures b == 0 && a == 0 ==> \result == 0;
-  @ ensures -9223372036854775807 <= \result <= 9223372036854775807;
+  @ ensures -9223372036854775807 + FIX_PLANT(100) <= \result <= 9223372036854775807;
 */
 fixed_t proveFixDiv( fixed_t a, fixed_t b )
 {

@@ -1,4 +1,8 @@
-# fixDiv WP goal-generation investigation (attempt 4)
+# fixDiv WP notes
+
+The goal-generation investigation comes first; the helper-contract notes are at the end.
+
+## Goal-generation investigation (attempt 4)
 
 The main Frama-C card is present in the carried tree. The prior pass spent more than
 15 minutes in VC generation for `proveFixDiv` with `-inline-calls @inline`.
@@ -76,3 +80,145 @@ timed out. The goal-generation hang is removed for this selected body path.
 The target is in `nightly` because it ended within 600 seconds; `nightly`
 running it does not imply all goals are proved. This card remains HOLD on
 the full-proof objective.
+
+## Helper contracts (card fixed-framac-fixdiv-helper-contracts)
+
+All runs on amd-2 (Frama-C 33.0, Alt-Ergo 2.6.4, Z3), nice 19, in a rowan slot, each under
+`timeout`. The order of work and what each run showed:
+
+| Run | What | Result |
+|---|---|---|
+| red | `make fixdiv` at base d77cbcc | `Proved goals: 5 / 7`, 127.49 s |
+| pass 1 | 28 of the 29 helper bodies (all but fixEmuUInt128DivMod, whose loop has no invariant), `-wp-timeout 30` | `233 / 240`, 419 s; 7 timeouts in 5 helpers |
+| fixdiv 1 | `make fixdiv` with the contracts | `10 / 10`, 3.11 s |
+| pass 2 | the 5 helpers with timeouts, `-wp-timeout 120` | `71 / 78`; the same 7 goals time out |
+| lemmas | 7 lemmas (lsr by 63; sign rules for truncating `/` and `%`; bounds) | signed DivMod proves with them (40 / 41), but `fix_div_neg_num`, `fix_div_neg_den` and `fix_lsr63` do not prove on Alt-Ergo or Z3 at 60 s, so the lemmas were dropped rather than kept as axioms |
+
+Three tries at the same seven goals made no progress, so the helpers behind them are ASSUMED
+(results.md has each reason). The tracer did show that the helper contracts are what fixDiv
+needed: with them, `ensures_4` and the signed-overflow check prove in about a second.
+
+The ASSUMED contracts are held by this boundary program (not committed; run from a scratch
+directory against this tree's `include/`):
+
+```c
+// Boundary check for the ASSUMED contracts in proofs/framac/fixdiv/helpers_acsl.h, against
+// native unsigned/signed __int128: fixEmuUInt128DivMod, fixEmuInt128DivMod and the divides
+// on it (every ordered pair of boundary values, divisor non-zero, INT128_MIN / -1 skipped
+// where the contract excludes it), fixEmuUInt128Shl / fixInt128ShiftLeft (every boundary
+// value x shift counts -1, 0, 1, 16, 63, 64, 65, 127, 128), fixShiftLeft (int64 boundaries x
+// counts 0, 1, 16, 47, 62, 63) and fixEmuInt128IsNegative. Build: gcc -O1 -fsanitize=undefined -fno-sanitize-recover=all
+//   -DFIX_FORCE_EMULATED_INT128 -I include helpers_check.c
+#include <stdio.h>
+#include "fixed/fixed.h"
+
+#ifndef CHECK_PLANT
+#define CHECK_PLANT 0 // -DCHECK_PLANT=1 plants an off-by-one expectation; the run must fail
+#endif
+
+typedef unsigned __int128 u128;
+typedef __int128 s128;
+
+static fixEmuUInt128 toEmuU( u128 v ) { return fixEmuUInt128Make( (uint64_t)( v >> 64 ), (uint64_t)v ); }
+static u128 fromEmuU( fixEmuUInt128 v ) { return ( (u128)v.hi << 64 ) | v.lo; }
+
+int main( void )
+{
+	const u128 one = 1;
+	const u128 vals[] = {
+		0, 1, 2, 3, 65536, (u128)INT64_MAX, (u128)INT64_MAX + 1, (u128)UINT64_MAX, ( one << 64 ),
+		( one << 64 ) + 1, ( one << 79 ), ( one << 127 ) - 1, ( one << 127 ), ( one << 127 ) + 1,
+		~(u128)0 - 1, ~(u128)0, (u128)(s128)INT64_MIN, (u128)(s128)-1, (u128)(s128)-2,
+		(u128)( (s128)INT64_MIN * 65536 ), (u128)( (s128)INT64_MAX * 65536 ),
+	};
+	const int n = (int)( sizeof( vals ) / sizeof( vals[0] ) );
+	long cases = 0, bad = 0;
+	for ( int i = 0; i < n; i++ )
+	{
+		for ( int j = 0; j < n; j++ )
+		{
+			u128 a = vals[i], b = vals[j];
+			if ( b == 0 )
+				continue;
+			fixEmuUInt128 q, r;
+			fixEmuUInt128DivMod( toEmuU( a ), toEmuU( b ), &q, &r );
+			cases++;
+			if ( fromEmuU( q ) != a / b + CHECK_PLANT || fromEmuU( r ) != a % b )
+				bad++;
+			s128 sa = (s128)a, sb = (s128)b;
+			if ( sa == (s128)( one << 127 ) && sb == -1 )
+				continue; // excluded by the contract: INT128_MIN / -1
+			fixEmuInt128 sq = fixEmuInt128Div( fixEmuToSigned( toEmuU( a ) ), fixEmuToSigned( toEmuU( b ) ) );
+			fixInt128 tq = fixInt128Div( fixEmuToSigned( toEmuU( a ) ), fixEmuToSigned( toEmuU( b ) ) );
+			cases++;
+			if ( (s128)fromEmuU( fixEmuToUnsigned( sq ) ) != sa / sb || (s128)fromEmuU( fixEmuToUnsigned( tq ) ) != sa / sb )
+				bad++;
+		}
+	}
+	const int shifts[] = { -1, 0, 1, 16, 63, 64, 65, 127, 128 };
+	for ( int i = 0; i < n; i++ )
+	{
+		u128 a = vals[i];
+		s128 sa = (s128)a;
+		cases++;
+		if ( ( fixEmuInt128IsNegative( fixEmuToSigned( toEmuU( a ) ) ) != 0 ) != ( sa < 0 ) + CHECK_PLANT )
+			bad++;
+		for ( int k = 0; k < (int)( sizeof( shifts ) / sizeof( shifts[0] ) ); k++ )
+		{
+			int sh = shifts[k];
+			u128 want = ( sh >= 0 && sh < 128 ) ? ( a << sh ) : 0; // (a * 2^sh) mod 2^128
+			cases++;
+			if ( fromEmuU( fixEmuUInt128Shl( toEmuU( a ), sh ) ) != want + CHECK_PLANT ||
+				 fromEmuU( fixUInt128Shl( toEmuU( a ), sh ) ) != want ||
+				 fromEmuU( fixEmuToUnsigned( fixInt128ShiftLeft( fixEmuToSigned( toEmuU( a ) ), sh ) ) ) != want )
+				bad++;
+		}
+		for ( int j = 0; j < n; j++ )
+		{
+			u128 b = vals[j];
+			s128 sb = (s128)b;
+			if ( sb == 0 || ( sa == (s128)( one << 127 ) && sb == -1 ) )
+				continue;
+			fixEmuInt128 q, r;
+			fixEmuInt128DivMod( fixEmuToSigned( toEmuU( a ) ), fixEmuToSigned( toEmuU( b ) ), &q, &r );
+			cases++;
+			if ( (s128)fromEmuU( fixEmuToUnsigned( q ) ) != (s128)( (u128)( sa / sb ) + CHECK_PLANT ) ||
+				 (s128)fromEmuU( fixEmuToUnsigned( r ) ) != sa % sb )
+				bad++;
+		}
+	}
+	const int64_t svals[] = { 0, 1, -1, 2, -2, INT64_MAX, INT64_MIN, INT64_MAX - 1, INT64_MIN + 1,
+							  ( (int64_t)1 << 47 ) - 1, -( ( (int64_t)1 << 47 ) - 1 ), (int64_t)1 << 47, -( (int64_t)1 << 47 ) };
+	const int sshifts[] = { 0, 1, 16, 47, 62, 63 };
+	for ( int i = 0; i < (int)( sizeof( svals ) / sizeof( svals[0] ) ); i++ )
+	{
+		for ( int k = 0; k < (int)( sizeof( sshifts ) / sizeof( sshifts[0] ) ); k++ )
+		{
+			int64_t a = svals[i];
+			int sh = sshifts[k];
+			int64_t got = fixShiftLeft( a, sh );
+			uint64_t low = (uint64_t)a << sh; // low 64 bits of a * 2^sh
+			int64_t want = low < ( (uint64_t)1 << 63 ) ? (int64_t)low : -(int64_t)( ~low ) - 1;
+			s128 exact = (s128)a * ( (s128)1 << sh );
+			cases++;
+			if ( got != (int64_t)( (uint64_t)want + CHECK_PLANT ) || ( exact >= INT64_MIN && exact <= INT64_MAX && got != (int64_t)exact ) )
+				bad++;
+		}
+	}
+	printf( "helpers_check: %ld cases, %ld mismatches\n", cases, bad );
+	return bad != 0;
+}
+```
+
+Output (GCC 15.2.0, `-O1 -g -fsanitize=undefined -fno-sanitize-recover=all -DFIX_FORCE_EMULATED_INT128`):
+
+```text
+== gcc -O1 -fsanitize=undefined -fno-sanitize-recover=all -DFIX_FORCE_EMULATED_INT128 -DCHECK_PLANT=0
+gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+helpers_check: 1544 cases, 0 mismatches
+rc=0
+== gcc -O1 -fsanitize=undefined -fno-sanitize-recover=all -DFIX_FORCE_EMULATED_INT128 -DCHECK_PLANT=1
+gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+helpers_check: 1544 cases, 1126 mismatches
+rc=1
+```

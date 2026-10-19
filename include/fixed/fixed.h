@@ -163,6 +163,10 @@ FIX_ALWAYS_INLINE fixInt128 fixInt128Div( fixInt128 a, fixInt128 b )
 		return ( a < 0 ) != ( b < 0 ) ? -(fixInt128)q : (fixInt128)q;
 	}
 #else
+	// Unsigned negation defines the two's-complement result for INT128_MIN / -1,
+	// matching the emulated arm without reaching signed-overflow division.
+	if ( b == -1 )
+		return (fixInt128)( 0 - (fixUInt128)a );
 	return a / b;
 #endif
 #endif

@@ -1002,6 +1002,44 @@ static void checkDocumentedEdges( void )
 	if ( !fixEmuInt128Eq( fixEmuInt128Mod( minimum, minusOne ), fixEmuInt128FromI64( 0 ) ) ) fails++;
 	if ( !fixEmuInt128Eq( fixEmuInt128Neg( minimum ), minimum ) ) fails++;
 
+	// Native division must match the emulated arm's documented two's-complement
+	// result for INT128_MIN / -1, and preserve ordinary neighboring quotients.
+	fixInt128 nativeMinimum = fixInt128Make( 0x8000000000000000ULL, 0 );
+	fixInt128 nativeMinusOne = fixInt128FromI64( -1 );
+	fixEmuInt128 emulatedMinusOne = fixEmuInt128FromI64( -1 );
+	fixInt128 nativeMinOverMinusOne = fixInt128Div( nativeMinimum, nativeMinusOne );
+	fixEmuInt128 emulatedMinOverMinusOne = fixEmuInt128Div( minimum, emulatedMinusOne );
+	if ( fixInt128Hi( nativeMinOverMinusOne ) != fixEmuInt128Hi( emulatedMinOverMinusOne ) ||
+		 fixInt128Lo( nativeMinOverMinusOne ) != fixEmuInt128Lo( emulatedMinOverMinusOne ) ||
+		 fixInt128Hi( nativeMinOverMinusOne ) != 0x8000000000000000ULL ||
+		 fixInt128Lo( nativeMinOverMinusOne ) != 0 )
+	{
+		printf( "FAIL INT128_MIN / -1 native and emulated quotient differ from INT128_MIN\n" );
+		fails++;
+	}
+
+	fixInt128 nativeMinusOneOverMinusOne = fixInt128Div( nativeMinusOne, nativeMinusOne );
+	fixEmuInt128 emulatedMinusOneOverMinusOne = fixEmuInt128Div( emulatedMinusOne, emulatedMinusOne );
+	if ( fixInt128Hi( nativeMinusOneOverMinusOne ) != fixEmuInt128Hi( emulatedMinusOneOverMinusOne ) ||
+		 fixInt128Lo( nativeMinusOneOverMinusOne ) != fixEmuInt128Lo( emulatedMinusOneOverMinusOne ) ||
+		 fixInt128Hi( nativeMinusOneOverMinusOne ) != 0 ||
+		 fixInt128Lo( nativeMinusOneOverMinusOne ) != 1 )
+	{
+		printf( "FAIL -1 / -1 native and emulated quotient differ from 1\n" );
+		fails++;
+	}
+
+	fixInt128 nativeMinOverOne = fixInt128Div( nativeMinimum, fixInt128FromI64( 1 ) );
+	fixEmuInt128 emulatedMinOverOne = fixEmuInt128Div( minimum, fixEmuInt128FromI64( 1 ) );
+	if ( fixInt128Hi( nativeMinOverOne ) != fixEmuInt128Hi( emulatedMinOverOne ) ||
+		 fixInt128Lo( nativeMinOverOne ) != fixEmuInt128Lo( emulatedMinOverOne ) ||
+		 fixInt128Hi( nativeMinOverOne ) != 0x8000000000000000ULL ||
+		 fixInt128Lo( nativeMinOverOne ) != 0 )
+	{
+		printf( "FAIL INT128_MIN / 1 native and emulated quotient differ from INT128_MIN\n" );
+		fails++;
+	}
+
 	// Division by zero is UNDEFINED and callers may not rely on this. What is guaranteed
 	// is only that it is total -- it returns rather than trapping, so a caller's mistake
 	// cannot kill a process. Checked so that "total" stays true, not as a contract.

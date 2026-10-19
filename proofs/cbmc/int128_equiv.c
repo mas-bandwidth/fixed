@@ -428,13 +428,23 @@ void harness_udivmod( void )
 	__CPROVER_assume( bh != 0 || bl != 0 );
 	NATIVE( udivmod )( ah, al, bh, bl, nat ); EMULATED( udivmod )( ah, al, bh, bl, emu ); SAME( nat, 4 );
 }
-/* Divisor zero and INT128_MIN / -1 are undefined natively and excluded. */
+/* Divisor zero is undefined natively and excluded. INT128_MIN / -1 is defined in both
+   arms (fixInt128Div negates through unsigned for b == -1) and is not excluded; it lies
+   outside sdiv's narrowed domain, so harness_sdiv_min checks it. */
 void harness_sdiv( void )
 {
 	uint64_t ah, al, bh, bl, nat[2], emu[2];
 	in128( &ah, &al ); in128( &bh, &bl );
 	__CPROVER_assume( bh != 0 || bl != 0 );
-	__CPROVER_assume( !( ah == UINT64_C( 0x8000000000000000 ) && al == 0 && bh == UINT64_MAX && bl == UINT64_MAX ) );
+	NATIVE( sdiv )( ah, al, bh, bl, nat ); EMULATED( sdiv )( ah, al, bh, bl, emu ); SAME( nat, 2 );
+}
+/* a = INT128_MIN against every narrowed nonzero divisor, -1 included (input 0 is b). */
+void harness_sdiv_min( void )
+{
+	uint64_t bh, bl, nat[2], emu[2];
+	in128( &bh, &bl );
+	__CPROVER_assume( bh != 0 || bl != 0 );
+	uint64_t ah = UINT64_C( 0x8000000000000000 ), al = 0;
 	NATIVE( sdiv )( ah, al, bh, bl, nat ); EMULATED( sdiv )( ah, al, bh, bl, emu ); SAME( nat, 2 );
 }
 /* fixUInt128DivRemBy64's documented precondition: hi < d (so d != 0). The two limbs and

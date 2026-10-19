@@ -23,7 +23,7 @@ FLAGS := --unwinding-assertions --bounds-check --signed-overflow-check --undefin
 
 PROPS := addsub compares shifts \
 	mul_u64 mul_u64_wide mul_i64 mul_i64_wide mul_128 mul_128_wide \
-	udivmod sdiv divrem64 fixmul fixmul_wide fixdiv fixdiv_wide fixdiv_big \
+	udivmod sdiv sdiv_min divrem64 fixmul fixmul_wide fixdiv fixdiv_wide fixdiv_big \
 	isqrt_low isqrt_mid isqrt_mid_top isqrt_high
 
 # Per property: WIDTH_ (every input, or the first when WIDTHB_ is set), WIDTHB_ (the
@@ -55,6 +55,8 @@ WIDTH_udivmod := 6
 SIGNS_udivmod := 0 1 2 3
 WIDTH_sdiv := 8
 SIGNS_sdiv := 0 1 2 3
+WIDTH_sdiv_min := 8
+SIGNS_sdiv_min := 0 1
 WIDTH_divrem64 := 4
 # hi < d: runs 1 and 3 (hi ones-extended, d zero-extended) leave no input; not run.
 SIGNS_divrem64 := 0 2 4 5 6 7
@@ -77,6 +79,7 @@ SIGNS_isqrt_high := 0 1 2 3
 UNWIND_DEFAULT := 12
 UNWIND_udivmod := 130
 UNWIND_sdiv := 130
+UNWIND_sdiv_min := 130
 UNWIND_divrem64 := 130
 UNWIND_fixdiv := 130
 UNWIND_fixdiv_wide := 130

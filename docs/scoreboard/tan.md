@@ -94,3 +94,12 @@ Command: `fixed_sweep --fn tan --threads 3`
 The hash column is FNV-1a over every output, little-endian bytes, in input order;
 it is thread-count independent. Regenerate with the command above; the nightly
 workflow runs every descriptor on Linux with MPFR.
+
+## Verification (fixed-tan-sweep.w3, attempt 3)
+
+On the Linux bench with `-DFIX_BUILD_SWEEPS=ON`: `ctest --test-dir build -L slow
+-R '^sweep_tan$'` passes, and its sweep lines report maxerr=0 and notcr=0 on
+every exhaustive and hard-case piece and on the saturated pieces, maxerr<=1 on
+every sampled piece. `tan_points` and `tan_points_emulated` pass bit for bit in
+both the gcc and clang builds. The other three sweep arms (gcc emulated, clang
+native, clang emulated) were not re-run in this attempt.

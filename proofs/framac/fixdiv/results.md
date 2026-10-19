@@ -62,3 +62,40 @@ diagnostics. They are not part of the seven-goal final target:
 | `typed_proveFixDivFast_assert_rte_signed_overflow` | include/fixed/fixed.h:235 | Z3 hit the same step bound on the fast-path quotient-overflow assertion; prover limit, not a confirmed UB. |
 | `typed_proveFixDivWide_ensures_part07` | fixdiv_acsl.c:47 | Z3 hit the step bound on a wide-path result-range split; opaque 128-bit helper behavior remains. |
 | `typed_proveFixDivWide_ensures_part10` | fixdiv_acsl.c:47 | Same step-bound and helper-abstraction limit on another wide-path range split. |
+
+## Helper-contract card, attempt 3: HOLD before the red run
+
+Same environment failure as attempt 2. The checkout was staged on
+`Glenns-Mac-Mini.local` (Darwin 27.0.0, arm64, the studio Mac), not on the
+Linux bench amd-2 named by the card (`GATE-NEEDS: linux`). After
+`export PATH="$HOME/sdk/bin:$PATH"`, `command -v` reports `frama-c`,
+`why3`, `alt-ergo` and `z3` all missing. `$HOME/sdk/bin` does not exist, and no `frama-c`
+executable is present at `/Users/glenn/sdk/bin/frama-c` or
+`/opt/homebrew/bin/frama-c`.
+The `timeout` utility is also absent, so the Makefile's `LIMIT = timeout
+600` cannot run at all.
+
+Red-first attempt, unmodified tree:
+
+```text
+$ nice -n 19 make -C proofs/framac/fixdiv fixdiv
+mkdir -p out
+NO SUMMARY: see out/fixdiv.emulated.log
+make: *** [fixdiv] Error 1
+$ cat out/fixdiv.emulated.log
+/bin/sh: timeout: command not found
+```
+
+No WP run, no helper contract and no PROVED/ASSUMED classification was
+produced. Per the card rules this is a HOLD naming the absent tools and the
+wrong host. No library header, Makefile, `fixdiv_acsl.c`, `notes.md`,
+CI or CTest file was changed by attempt 3; the `out/` directory from the
+red run was removed before committing.
+
+Work left for a bench run: list the fixDiv call tree under
+`-DFIX_FORCE_EMULATED_INT128`, add `proofs/framac/fixdiv/helpers_acsl.h`
+with `requires`/`assigns`/`terminates`/`ensures` for each helper (including
+the INT128_MIN / -1 exclusion), attach the contracts by declaration from
+`fixdiv_acsl.c`, add per-helper prove targets to the Makefile, then record
+the pre/post `Proved goals:` lines and each helper's PROVED/ASSUMED status
+here.

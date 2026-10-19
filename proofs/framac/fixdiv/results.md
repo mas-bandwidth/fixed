@@ -1,5 +1,83 @@
 # fixDiv Frama-C WP results (attempt 4)
 
+## Helper-contract card, attempt 3: HOLD on the bench's unexecutable toolchain
+
+This run is on a Linux bench (`hulk`, x86_64), not the studio Mac of attempt
+2, and `proofs/framac/fixdiv` is present at
+`8de09685fde743527101d0b78aa20a5ab061853c`. The named toolchain is installed
+but cannot be executed from this run's Landlock ruleset:
+
+```text
+$ command -v frama-c
+/home/nova/sdk/bin/frama-c
+$ ls -l /home/nova/sdk/bin/frama-c
+... /home/nova/sdk/bin/frama-c -> /home/nova/.opam/default/bin/frama-c
+$ /home/nova/.opam/default/bin/frama-c -version
+bash: /home/nova/.opam/default/bin/frama-c: Permission denied
+$ /home/nova/.opam/default/bin/alt-ergo --version
+bash: /home/nova/.opam/default/bin/alt-ergo: Permission denied
+```
+
+The harness starts this run as
+`nova-sandbox --read /home/nova/sdk ... --read-noexec /home/nova/go/pkg/mod
+--read-noexec /home/nova/nova-bench/mirror/fixed.git/objects`; the real
+Frama-C 33.0, Alt-Ergo 2.4.3 and Why3 1.8.2 binaries live in
+`/home/nova/.opam/default/bin`, outside every `--read` root, so the kernel
+returns `EACCES` on `execve` for each symlink. Only `/usr/bin/frama-c`
+25.0-beta runs, and its `-plugins` list has no WP plugin; `/usr/bin/why3` is
+1.6.0 and `/usr/bin/z3` is 4.8.12, not the named 1.8.2 and 4.13.3. There is
+no Frama-C 33 under `/home/nova/sdk`, and this card may not install packages
+or write outside its job directory, so the WP toolchain cannot be assembled
+here.
+
+Red run attempted as required, three times capped by `timeout 600` and
+`nice -n 19`, with `OUT` under `$TMPDIR`:
+
+```text
+$ make -C proofs/framac/fixdiv fixdiv
+NO SUMMARY: see .../fixdiv-out-red/fixdiv.emulated.log
+[kernel] User Error: option `-wp-fct' is unknown.
+[kernel] Frama-C aborted: invalid user input.
+```
+
+That is Frama-C 25 rejecting the WP option, not a `Proved goals:` line, so
+there is no valid before/after baseline and no helper body could be proved or
+classified PROVED/ASSUMED. No `helpers_acsl.h` and no Makefile edit were made:
+unverified contracts would violate the card's "never state an ensures the
+code does not honour" rule. No library header or production code changed.
+
+The fixDiv call tree that the next bench run must cover, under the Makefile's
+`-DFIX_FORCE_EMULATED_INT128`:
+
+```text
+fixDiv
+  fast path: fixShiftLeft
+  wide path:
+    fixInt128FromI64 -> fixEmuInt128FromI64 -> fixEmuInt128Make
+    fixInt128ShiftLeft -> fixInt128ToUnsigned (fixEmuToUnsigned)
+                       -> fixUInt128Shl (fixEmuUInt128Shl)
+                       -> fixInt128FromUnsigned (fixEmuToSigned -> fixEmuInt128Make)
+    fixInt128Div -> fixEmuInt128Div -> fixEmuInt128DivMod
+        -> fixEmuInt128IsNegative, fixEmuToUnsigned,
+           fixEmuUInt128Neg -> fixEmuUInt128Sub -> fixEmuUInt128Make,
+           fixEmuUInt128DivMod, fixEmuToSigned
+    fixInt128Gt -> fixEmuInt128Gt -> fixEmuInt128Lt
+    fixInt128Lt -> fixEmuInt128Lt
+    fixInt128ToI64 -> fixEmuInt128ToI64
+fixEmuUInt128DivMod
+    -> fixEmuUInt128Make, fixEmuUInt128FromU64, fixEmuUInt128Shl,
+       fixEmuUInt128Ge -> fixEmuUInt128Lt, fixEmuUInt128Sub,
+       fixEmuUInt128Or
+```
+
+Work left for a bench whose `--read`/exec rule includes
+`/home/nova/.opam/default/bin` (or whose `$HOME/sdk/bin` holds real binaries):
+list the tree, write `helpers_acsl.h` bottom-up with
+`requires`/`assigns`/`terminates`/`ensures`, attach the contracts by
+declaration from `fixdiv_acsl.c`, add capped per-helper prove targets to the
+Makefile, then record the pre/post `Proved goals:` lines and each helper's
+PROVED/ASSUMED status here.
+
 ## Helper-contract card, attempt 2: HOLD before the red run
 
 The helper-contract card was staged on `Glenns-Mac-Mini.local` (the studio

@@ -280,11 +280,15 @@ void harness_fixdiv_big( void )
    x is integer valued, x >= 1 on every path that calls the seed). Every seed the
    hardware can produce is in that set, so proving agreement for every r in it covers
    the production seed. The harness draws r = s + d with d in [-CBMC_SEED_WINDOW,
-   CBMC_SEED_WINDOW] (s the exact integer root, known here), assumes the integer
-   condition, and CHECKS that s - CBMC_SEED_WINDOW - 1 and s + CBMC_SEED_WINDOW + 1
-   both fail it: both sides of the condition are monotone in r, so the allowed set is an
-   interval, and those two checks put all of it inside the drawn window. It also CHECKS
-   the seed lemma |r - s| <= CBMC_SEED_BOUND for every allowed r. */
+   CBMC_SEED_WINDOW] (s the exact integer root, known here) and assumes the integer
+   condition. Write lo(r) = (2r - 1)^2 and hi(r) = (2r + 3)^2; both are nondecreasing in
+   r >= 0. It CHECKS, one-sidedly, that hi(s - W - 1) <= 4x when s - W - 1 >= 0 (so every
+   r <= s - W - 1 fails the upper bound) and that lo(s + W + 1) > 4x (so every
+   r >= s + W + 1 fails the lower bound), W = CBMC_SEED_WINDOW: no allowed r lies outside
+   the window. The allowed set is never empty: hi(r) = lo(r + 2) > lo(r + 1), so the
+   intervals [lo(r), hi(r)) cover [1, inf); the largest r with lo(r) <= 4x is allowed,
+   and by the checks it is in the window, so the assumption drops no input. It also
+   CHECKS the seed lemma |r - s| <= CBMC_SEED_BOUND for every allowed r. */
 #ifndef CBMC_SEED_WINDOW
 #define CBMC_SEED_WINDOW 4
 #endif
@@ -321,8 +325,11 @@ static void isqrt_on( uint64_t hi, uint64_t lo, uint64_t s )
 		u128 x4 = (u128)seed_arg * 4;
 		int64_t sd = (int64_t)s;
 		int64_t d = (int64_t)( nondet_ulonglong() % ( 2 * CBMC_SEED_WINDOW + 1 ) ) - CBMC_SEED_WINDOW;
-		__CPROVER_assert( !seed_allowed( sd - CBMC_SEED_WINDOW - 1, x4 ), "every allowed seed is above the window floor" );
-		__CPROVER_assert( !seed_allowed( sd + CBMC_SEED_WINDOW + 1, x4 ), "every allowed seed is below the window ceiling" );
+		int64_t below = sd - CBMC_SEED_WINDOW - 1, above = sd + CBMC_SEED_WINDOW + 1;
+		__CPROVER_assert( below < 0 || (u128)( 2 * below + 3 ) * (u128)( 2 * below + 3 ) <= x4,
+			"every allowed seed is above the window floor" );
+		__CPROVER_assert( (u128)( 2 * above - 1 ) * (u128)( 2 * above - 1 ) > x4,
+			"every allowed seed is below the window ceiling" );
 		__CPROVER_assume( seed_allowed( sd + d, x4 ) );
 		__CPROVER_assert( d <= CBMC_SEED_BOUND && -d <= CBMC_SEED_BOUND, "seed within CBMC_SEED_BOUND of the exact root" );
 		seed_value = (uint64_t)( sd + d );

@@ -167,3 +167,18 @@ assigns/terminates filter and emits a per-goal WP JSON report. No new WP run has
 yet established the resulting N/M, any newly open goal, or a Failed verdict for
 the planted zero-result wrapper. Those are owed to the allocated Linux gate;
 this checkpoint makes no claim that every generated obligation is proved.
+
+## Attempt 2 (this branch): toolchain unavailable
+
+The required toolchain is present on PATH but not usable in this run. Every open or exec of
+`/home/nova/sdk/bin/frama-c` (-> `/home/nova/.opam/default/bin/frama-c`), `.../why3` and
+`.../alt-ergo` returns `EACCES (Permission denied)`; the same files are unreadable, while
+other binaries under `/home/nova/sdk` are fine. `/bin/sh` therefore continues past them and
+runs `/usr/bin/frama-c`, which is Frama-C 25.0-beta with no WP plugin. Both make targets
+abort at option parsing (`-wp-report-json` and `-wp-help` are unknown), and
+`frama-c -plugins` on that binary lists no WP. The system install offers no WP either.
+
+The required Frama-C 33.0 gate was therefore not rerun on this attempt: neither the
+`41 / 41`, assigns/terminates count nor the planted-bug Failed/Timeout distinction is
+re-established here, and no verdict is claimed. Attempt 1's recorded gate at this exact
+head remains the only evidence, and its planted-bug result is still Timeout, not Failed.

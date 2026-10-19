@@ -226,4 +226,4 @@ rc=1
 The landed goal-generation run completed at 5/7 goals; the later helper-contract
 run reached 10/10 conditionally on six explicitly assumed helper summaries.
 The full-proof target now counts assigns and terminates and records per-goal
-verdicts separately; its new count and planted-bug verdict await the Linux run.
+verdicts separately. Attempt 1's gate recorded `Proved goals: 41 / 41` (`WP strict: 41/41 Valid`) and the planted-bug goal as Timeout, not Failed; attempt 2 could not rerun Frama-C here because the Frama-C 33.0 and Why3/Alt-Ergo binaries are not executable in this sandbox.

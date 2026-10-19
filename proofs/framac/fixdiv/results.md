@@ -158,3 +158,12 @@ diagnostics. They are not part of the seven-goal final target:
 | `typed_proveFixDivFast_assert_rte_signed_overflow` | include/fixed/fixed.h:235 | Z3 hit the same step bound on the fast-path quotient-overflow assertion; prover limit, not a confirmed UB. |
 | `typed_proveFixDivWide_ensures_part07` | fixdiv_acsl.c:47 | Z3 hit the step bound on a wide-path result-range split; opaque 128-bit helper behavior remains. |
 | `typed_proveFixDivWide_ensures_part10` | fixdiv_acsl.c:47 | Same step-bound and helper-abstraction limit on another wide-path range split. |
+
+## Full-proof follow-on, source checkpoint
+
+The helper-contract baseline above closed the two originally open fixDiv goals
+conditionally on six ASSUMED summaries. The full-proof target now removes the
+assigns/terminates filter and emits a per-goal WP JSON report. No new WP run has
+yet established the resulting N/M, any newly open goal, or a Failed verdict for
+the planted zero-result wrapper. Those are owed to the allocated Linux gate;
+this checkpoint makes no claim that every generated obligation is proved.

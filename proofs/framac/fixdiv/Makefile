@@ -6,8 +6,7 @@ CPP_BASE = -I../../../include
 # Selectively inline fixDiv, not every @inline helper. The latter pulls the
 # 128-iteration emulated divider into one VC and blocks goal generation.
 WPFLAGS ?= -inline-calls fixDiv -wp -wp-rte -wp-prover alt-ergo,z3 \
-           -wp-timeout 30 -wp-par 1 -wp-cache none \
-           -wp-prop=-@assigns,-@terminates
+           -wp-timeout 30 -wp-par 1 -wp-cache none
 
 # Helper contracts (helpers_acsl.h). PROVED_HELPERS lists every helper whose whole body WP
 # proves, as <plant id>:<name>; FIX_PLANT(id) in helpers_acsl.h falsifies that helper's main
@@ -26,15 +25,30 @@ EMPTY :=
 SPACE := $(EMPTY) $(EMPTY)
 COMMA := ,
 
-.PHONY: fixdiv helpers planted nightly clean
+.PHONY: fixdiv helpers planted planted-bug nightly clean
 
 fixdiv: | $(OUT)
 	@$(LIMIT) $(FRAMAC) -cpp-extra-args="$(CPP_BASE) -DFIX_FORCE_EMULATED_INT128" \
-		fixdiv_acsl.c $(WPFLAGS) -wp-fct proveFixDiv > $(OUT)/fixdiv.emulated.log 2>&1; \
+		fixdiv_acsl.c $(WPFLAGS) -wp-fct proveFixDiv \
+		-wp-report-json $(OUT)/fixdiv.json > $(OUT)/fixdiv.emulated.log 2>&1; \
 	status=$$?; \
 	summary=$$(grep 'Proved goals:' $(OUT)/fixdiv.emulated.log | tail -1); \
 	if test -n "$$summary"; then echo "$$summary"; \
 	else echo 'NO SUMMARY: see $(OUT)/fixdiv.emulated.log'; status=1; fi; \
+	./strict_check.sh $(OUT)/fixdiv.json || status=1; \
+	exit $$status
+
+# A single false wrapper ensures is a negative control. WP plus strict_check must
+# name its actual non-Valid verdict and this target deliberately exits nonzero.
+planted-bug: | $(OUT)
+	@$(LIMIT) $(FRAMAC) -cpp-extra-args="$(CPP_BASE) -DFIX_FORCE_EMULATED_INT128" \
+		planted_bug_acsl.c $(WPFLAGS) -wp-fct proveFixDiv \
+		-wp-report-json $(OUT)/planted-bug.json > $(OUT)/planted-bug.log 2>&1; \
+	status=$$?; \
+	summary=$$(grep 'Proved goals:' $(OUT)/planted-bug.log | tail -1); \
+	if test -n "$$summary"; then echo "$$summary"; \
+	else echo 'NO SUMMARY: see $(OUT)/planted-bug.log'; status=1; fi; \
+	./strict_check.sh $(OUT)/planted-bug.json || status=1; \
 	exit $$status
 
 # Prove every PROVED helper body against its contract (callees by their contracts). Frama-C

@@ -222,3 +222,8 @@ gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
 helpers_check: 1544 cases, 1126 mismatches
 rc=1
 ```
+
+The landed goal-generation run completed at 5/7 goals; the later helper-contract
+run reached 10/10 conditionally on six explicitly assumed helper summaries.
+The full-proof target now counts assigns and terminates and records per-goal
+verdicts separately; its new count and planted-bug verdict await the Linux run.

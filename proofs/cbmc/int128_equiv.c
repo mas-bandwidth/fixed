@@ -36,17 +36,19 @@
 #endif
 /* SQRT SEED: CBMC has no body for __builtin_sqrt; left alone it reports "no body for
    callee __builtin_sqrt" and returns a free value per call, a different one in each arm,
-   so the repair loops in fixISqrt128High never bound. Both arms' seed is routed here to
-   cbmc_isqrt_seed (defined in the harness TU), which returns ONE seed shared by both arms:
-   a free integer within CBMC_SEED_SLACK of the exact root. The macro is defined before
-   fixed.h is included, so FIX_SQRT_SEED expands through it; no header is edited. The
-   stub returns the seed as uint64_t, so the library's (uint64_t) cast of the seed is
-   the identity rather than a double-to-integer conversion the solver must bit-blast.
-   Ignoring the argument is sound for this equivalence because the seed's argument,
-   (double)lo or (double)hi * 2^64 + (double)lo, is the same expression in both arms
-   and contains no 128-bit operation: both arms pass the same double for the same
-   (hi, lo). That the real seed lies within the slack is an ASSUMPTION argued below,
-   not something CBMC checks. */
+   so the repair loops in fixISqrt128High never bound. Both arms' seed call is routed here
+   to cbmc_isqrt_seed (defined in the harness TU). The macro is defined before fixed.h is
+   included, so FIX_SQRT_SEED expands through it; no header is edited. The stub returns
+   uint64_t, so the library's (uint64_t) cast of the seed is the identity.
+   What the stub returns (see SEED MODEL in the harness TU): the harness rebuilds the
+   library's double argument x from (hi, lo) with the library's own expression, which
+   CBMC models bit-exactly (integer to double conversion, the exact scale by 2^64, the
+   rounded add); the stub ASSERTS that each arm passes exactly that x. The seed is then
+   ANY integer r that the IEEE 754 contract of sqrt allows for that x, one value shared
+   by both arms. Nothing ties r to the exact root by assumption: the window that
+   contains every allowed r is checked, and so is the bound on r. CBMC's own math.h
+   sqrt model is not used (it bounds the root through rounded squares, so it is not the
+   IEEE operation). */
 uint64_t cbmc_isqrt_seed( double x );
 #define __builtin_sqrt( x ) cbmc_isqrt_seed( x )
 #include "fixed/fixed.h"
@@ -59,26 +61,38 @@ uint64_t cbmc_isqrt_seed( double x );
 #define CAT_RAW( p, n ) p##n
 #define CAT( p, n ) CAT_RAW( p, n )
 #define API( n ) CAT( CBMC_PREFIX, n )
+/* CBMC_PLANT: a planted fault, emulated arm only. It flips bit 0 of the first output of
+   every emulated wrapper, so each property must then print VERIFICATION FAILED. A planted
+   run that still passes means that run's assertion is unreachable (its assumptions leave
+   no input), so `make plant` is also the vacuity check for every sign run. */
+#if defined( CBMC_EMULATED_ARM ) && defined( CBMC_PLANT )
+#define PLANT( v ) ( ( v ) ^ 1 )
+#else
+#define PLANT( v ) ( v )
+#endif
 
 static void out_u( fixUInt128 v, uint64_t* h, uint64_t* l ) { *h = fixUInt128Hi( v ); *l = fixUInt128Lo( v ); }
 static void out_s( fixInt128 v, uint64_t* h, uint64_t* l ) { *h = fixInt128Hi( v ); *l = fixInt128Lo( v ); }
 
-int64_t API( fix_mul )( int64_t a, int64_t b ) { return fixMul( a, b ); }
-int64_t API( fix_div )( int64_t a, int64_t b ) { return fixDiv( a, b ); }
-uint64_t API( isqrt )( uint64_t hi, uint64_t lo ) { return fixISqrt128High( hi, lo ); }
+int64_t API( fix_mul )( int64_t a, int64_t b ) { return PLANT( fixMul( a, b ) ); }
+int64_t API( fix_div )( int64_t a, int64_t b ) { return PLANT( fixDiv( a, b ) ); }
+uint64_t API( isqrt )( uint64_t hi, uint64_t lo ) { return PLANT( fixISqrt128High( hi, lo ) ); }
 
 void API( mul_u64 )( uint64_t a, uint64_t b, uint64_t* o )
 {
 	out_u( fixUInt128MulU64( a, b ), &o[0], &o[1] );
+	o[0] = PLANT( o[0] );
 }
 void API( mul_i64 )( int64_t a, int64_t b, uint64_t* o )
 {
 	out_s( fixInt128MulI64( a, b ), &o[0], &o[1] );
+	o[0] = PLANT( o[0] );
 }
 void API( mul_128 )( uint64_t ah, uint64_t al, uint64_t bh, uint64_t bl, uint64_t* o )
 {
 	out_u( fixUInt128Mul( fixUInt128Make( ah, al ), fixUInt128Make( bh, bl ) ), &o[0], &o[1] );
 	out_s( fixInt128Mul( fixInt128Make( ah, al ), fixInt128Make( bh, bl ) ), &o[2], &o[3] );
+	o[0] = PLANT( o[0] );
 }
 void API( addsub )( uint64_t ah, uint64_t al, uint64_t bh, uint64_t bl, uint64_t* o )
 {
@@ -90,6 +104,7 @@ void API( addsub )( uint64_t ah, uint64_t al, uint64_t bh, uint64_t bl, uint64_t
 	out_s( fixInt128Sub( sa, sb ), &o[6], &o[7] );
 	out_s( fixInt128FromI64( (int64_t)al ), &o[8], &o[9] );
 	o[10] = (uint64_t)fixInt128ToI64( sa );
+	o[0] = PLANT( o[0] );
 }
 void API( shifts )( uint64_t ah, uint64_t al, int n, uint64_t* o )
 {
@@ -99,6 +114,7 @@ void API( shifts )( uint64_t ah, uint64_t al, int n, uint64_t* o )
 	out_u( fixUInt128Shr( u, n ), &o[2], &o[3] );
 	out_s( fixInt128Shr( s, n ), &o[4], &o[5] );
 	out_s( fixInt128ShiftLeft( s, n ), &o[6], &o[7] );
+	o[0] = PLANT( o[0] );
 }
 void API( compares )( uint64_t ah, uint64_t al, uint64_t bh, uint64_t bl, bool* o )
 {
@@ -108,6 +124,7 @@ void API( compares )( uint64_t ah, uint64_t al, uint64_t bh, uint64_t bl, bool* 
 	o[3] = fixUInt128Le( ua, ub ); o[4] = fixUInt128Ge( ua, ub );
 	o[5] = fixInt128Eq( sa, sb ); o[6] = fixInt128Lt( sa, sb ); o[7] = fixInt128Gt( sa, sb );
 	o[8] = fixInt128Le( sa, sb ); o[9] = fixInt128Ge( sa, sb );
+	o[0] = PLANT( o[0] );
 }
 /* Unsigned 128/128 quotient and remainder: the native operators against the emulated
    shift-subtract divide (the native arm has no named seam function for these). */
@@ -121,16 +138,19 @@ void API( udivmod )( uint64_t ah, uint64_t al, uint64_t bh, uint64_t bl, uint64_
 #endif
 	out_u( q, &o[0], &o[1] );
 	out_u( r, &o[2], &o[3] );
+	o[0] = PLANT( o[0] );
 }
 void API( sdiv )( uint64_t ah, uint64_t al, uint64_t bh, uint64_t bl, uint64_t* o )
 {
 	out_s( fixInt128Div( fixInt128Make( ah, al ), fixInt128Make( bh, bl ) ), &o[0], &o[1] );
+	o[0] = PLANT( o[0] );
 }
 void API( divrem64 )( uint64_t ah, uint64_t al, uint64_t d, uint64_t* o )
 {
 	uint64_t rem = 0;
 	o[0] = fixUInt128DivRemBy64( fixUInt128Make( ah, al ), d, &rem );
 	o[1] = rem;
+	o[0] = PLANT( o[0] );
 }
 
 #else /* CBMC_HARNESS_TU */
@@ -220,19 +240,23 @@ static void in128( uint64_t* hi, uint64_t* lo )
 		*hi = negative ? UINT64_MAX : 0;
 	}
 }
-#define SAME( n, k ) do { for ( int i_ = 0; i_ < ( k ); ++i_ ) assert( nat[i_] == emu[i_] ); } while ( 0 )
+void __CPROVER_assert( _Bool, const char* );
+/* Every equivalence assertion carries the description "arms agree", which `make plant`
+   looks for. */
+#define EQUIV( c ) __CPROVER_assert( ( c ), "arms agree" )
+#define SAME( n, k ) do { for ( int i_ = 0; i_ < ( k ); ++i_ ) EQUIV( nat[i_] == emu[i_] ); } while ( 0 )
 
 /* fixMul over every (a, b) in the width. */
 void harness_fixmul( void )
 {
 	int64_t a = (int64_t)in64(), b = (int64_t)in64();
-	assert( NATIVE( fix_mul )( a, b ) == EMULATED( fix_mul )( a, b ) );
+	EQUIV( NATIVE( fix_mul )( a, b ) == EMULATED( fix_mul )( a, b ) );
 }
 /* fixDiv over every (a, b) in the width, b == 0 included. */
 void harness_fixdiv( void )
 {
 	int64_t a = (int64_t)in64(), b = (int64_t)in64();
-	assert( NATIVE( fix_div )( a, b ) == EMULATED( fix_div )( a, b ) );
+	EQUIV( NATIVE( fix_div )( a, b ) == EMULATED( fix_div )( a, b ) );
 }
 /* fixDiv's 128-bit path: |a| >= 2^47, where fixDiv leaves its 64-bit fast path. a is
    2^47 | x (sign bit 0 clear) or its complement ~(2^47 | x) = -(2^47 | x) - 1 (set), x a
@@ -244,31 +268,68 @@ void harness_fixdiv_big( void )
 	uint64_t m = ( UINT64_C( 1 ) << 47 ) | ext64( (uint64_t)nondet_ulonglong(), w < 47 ? w : 47, 0 );
 	int64_t a = negative ? (int64_t)~m : (int64_t)m;
 	int64_t b = (int64_t)in64();
-	assert( NATIVE( fix_div )( a, b ) == EMULATED( fix_div )( a, b ) );
+	EQUIV( NATIVE( fix_div )( a, b ) == EMULATED( fix_div )( a, b ) );
 }
 /* fixISqrt128High, split by the function's own three paths (hi == 0; 0 < hi < 2^40;
    hi >= 2^40); the three domains are disjoint and cover every (hi, lo). */
-static void isqrt_on( uint64_t hi, uint64_t lo )
-{
-	assert( NATIVE( isqrt )( hi, lo ) == EMULATED( isqrt )( hi, lo ) );
-}
-/* The seed both arms receive (see SQRT SEED above): floor(sqrt(n)) + delta, |delta| <=
-   CBMC_SEED_SLACK. The real seed is the correctly rounded double sqrt of n rounded to
-   double, then truncated; for n < 2^104 that is within 2 units of the exact root, and the
-   slack of 3 covers it with room. */
-#ifndef CBMC_SEED_SLACK
-#define CBMC_SEED_SLACK 3
+/* SEED MODEL. The production seed is r = (uint64_t)t, t = RN(sqrt(x)), x the double
+   argument. sqrt is correctly rounded (IEEE 754 requires it of sqrtsd and of every
+   conforming sqrt), so |t - sqrt(x)| <= ulp(t)/2; here x <= 2^104, so t <= 2^52 and
+   ulp(t) <= 1, hence |t - sqrt(x)| <= 1/2. With r = floor(t) <= t < r + 1:
+   r - 1/2 <= sqrt(x) < r + 3/2, i.e. (2r - 1)^2 <= 4x < (2r + 3)^2 (exact integers;
+   x is integer valued, x >= 1 on every path that calls the seed). Every seed the
+   hardware can produce is in that set, so proving agreement for every r in it covers
+   the production seed. The harness draws r = s + d with d in [-CBMC_SEED_WINDOW,
+   CBMC_SEED_WINDOW] (s the exact integer root, known here), assumes the integer
+   condition, and CHECKS that s - CBMC_SEED_WINDOW - 1 and s + CBMC_SEED_WINDOW + 1
+   both fail it: both sides of the condition are monotone in r, so the allowed set is an
+   interval, and those two checks put all of it inside the drawn window. It also CHECKS
+   the seed lemma |r - s| <= CBMC_SEED_BOUND for every allowed r. */
+#ifndef CBMC_SEED_WINDOW
+#define CBMC_SEED_WINDOW 4
 #endif
-static uint64_t seed_root;
+#ifndef CBMC_SEED_BOUND
+#define CBMC_SEED_BOUND 3
+#endif
+static double seed_arg;
+static uint64_t seed_value;
 uint64_t cbmc_isqrt_seed( double x )
 {
-	(void)x;
-	return seed_root;
+	__CPROVER_assert( x == seed_arg, "seed argument is the library's double expression" );
+	return seed_value;
 }
-/* n = s*s + e with e in [0, 2s] is exactly the set of n whose integer root is s. The
-   seed is drawn as base + y, y a zero-extended free value one bit wider than the root's
-   free part (so the solver sees its high bits as constants), and then held to within the
-   slack of s. */
+typedef unsigned __int128 u128;
+/* The IEEE condition for seed r against 4x: (2r - 1)^2 <= 4x < (2r + 3)^2. */
+static int seed_allowed( int64_t r, u128 x4 )
+{
+	if ( r < 0 ) return 0;
+	u128 m = r == 0 ? 1 : (u128)( 2 * r - 1 ); /* |2r - 1|; r == 0 gives 1 */
+	u128 lo = m * m;
+	u128 hi = (u128)( 2 * r + 3 ) * (u128)( 2 * r + 3 );
+	return lo <= x4 && x4 < hi;
+}
+static void isqrt_on( uint64_t hi, uint64_t lo, uint64_t s )
+{
+	seed_arg = hi != 0 ? (double)hi * 18446744073709551616.0 + (double)lo : (double)lo;
+	if ( hi == 0 && lo == 0 )
+	{
+		/* No seed call on this input (fixISqrt128High returns 0 first). */
+		seed_value = 0;
+	}
+	else
+	{
+		u128 x4 = (u128)seed_arg * 4;
+		int64_t sd = (int64_t)s;
+		int64_t d = (int64_t)( nondet_ulonglong() % ( 2 * CBMC_SEED_WINDOW + 1 ) ) - CBMC_SEED_WINDOW;
+		__CPROVER_assert( !seed_allowed( sd - CBMC_SEED_WINDOW - 1, x4 ), "every allowed seed is above the window floor" );
+		__CPROVER_assert( !seed_allowed( sd + CBMC_SEED_WINDOW + 1, x4 ), "every allowed seed is below the window ceiling" );
+		__CPROVER_assume( seed_allowed( sd + d, x4 ) );
+		__CPROVER_assert( d <= CBMC_SEED_BOUND && -d <= CBMC_SEED_BOUND, "seed within CBMC_SEED_BOUND of the exact root" );
+		seed_value = (uint64_t)( sd + d );
+	}
+	EQUIV( NATIVE( isqrt )( hi, lo ) == EMULATED( isqrt )( hi, lo ) );
+}
+/* n = s*s + e with e in [0, 2s] is exactly the set of n whose integer root is s. */
 static void isqrt_with_root( uint64_t s, uint64_t base, int w )
 {
 	/* e <= 2s < 2^(w+2) when s < 2^(w+1); for the mid path s < 2^52, so 54 bits hold e. */
@@ -276,15 +337,12 @@ static void isqrt_with_root( uint64_t s, uint64_t base, int w )
 	uint64_t e = ext64( (uint64_t)nondet_ulonglong(), we < 64 ? we : 64, 0 );
 	__CPROVER_assume( e <= 2 * s );
 	unsigned __int128 n = (unsigned __int128)s * s + e;
-	uint64_t r = base + ext64( (uint64_t)nondet_ulonglong(), w + 1 < 64 ? w + 1 : 64, 0 );
-	__CPROVER_assume( r <= s + CBMC_SEED_SLACK && s <= r + CBMC_SEED_SLACK );
-	seed_root = r;
 	/* On the hi == 0 path pass a literal 0, so CBMC prunes the other two paths instead of
 	   carrying them under a guard it would have to prove false through the multiply. */
 	if ( base == 0 )
-		isqrt_on( 0, (uint64_t)n );
+		isqrt_on( 0, (uint64_t)n, s );
 	else
-		isqrt_on( (uint64_t)( n >> 64 ), (uint64_t)n );
+		isqrt_on( (uint64_t)( n >> 64 ), (uint64_t)n, s );
 }
 /* hi == 0: the exact root s < 2^32. Narrowed, s is a zero-extended CBMC_WIDTH-bit value
    (CBMC_WIDTH=32 is the whole path). */
@@ -306,7 +364,7 @@ void harness_isqrt_mid( void )
 	uint64_t x = ext64( (uint64_t)nondet_ulonglong(), w, 0 );
 	uint64_t s = (uint64_t)( CBMC_SQRT_BASE ) + x;
 	__CPROVER_assume( s >= ( UINT64_C( 1 ) << 32 ) && s < ( UINT64_C( 1 ) << 52 ) );
-	isqrt_with_root( s, (uint64_t)( CBMC_SQRT_BASE ) - 2 * CBMC_SEED_SLACK, w );
+	isqrt_with_root( s, (uint64_t)( CBMC_SQRT_BASE ), w );
 }
 /* hi >= 2^40: the shift-subtract path; no seed. hi is input 0 and lo input 1. Narrowed
    (CBMC_WIDTH below 40), hi is 2^40 + x (sign bit clear) or the ones extension of x (set),
@@ -318,7 +376,8 @@ void harness_isqrt_high( void )
 	if ( w < 40 && !negative ) hi |= UINT64_C( 1 ) << 40;
 	uint64_t lo = in64();
 	__CPROVER_assume( hi >= ( UINT64_C( 1 ) << 40 ) );
-	isqrt_on( hi, lo );
+	/* This path makes no seed call; call the arms directly. */
+	EQUIV( NATIVE( isqrt )( hi, lo ) == EMULATED( isqrt )( hi, lo ) );
 }
 /* The 64x64 -> 128 products (unsigned and signed widening). */
 void harness_mul_u64( void )
@@ -381,7 +440,9 @@ void harness_sdiv( void )
 /* fixUInt128DivRemBy64's documented precondition: hi < d (so d != 0). The two limbs and
    the divisor are three separate 64-bit inputs (hi, lo, d), so a narrowed run still has
    nonzero high limbs below d; a sign-extended 128-bit input would make hi 0 or ~0, and
-   ~0 < d never holds. */
+   ~0 < d never holds. The sign runs with hi ones-extended and d zero-extended (CBMC_SIGNS
+   1 and 3) leave no input (hi >= 2^64 - 2^w > d) and are not run; `make plant` checks
+   that every run that is run reaches its assertion. */
 void harness_divrem64( void )
 {
 	uint64_t nat[2], emu[2];

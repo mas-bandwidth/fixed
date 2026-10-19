@@ -223,7 +223,18 @@ helpers_check: 1544 cases, 1126 mismatches
 rc=1
 ```
 
-The landed goal-generation run completed at 5/7 goals; the later helper-contract
-run reached 10/10 conditionally on six explicitly assumed helper summaries.
-The full-proof target now counts assigns and terminates and records per-goal
-verdicts separately. Attempt 1's gate recorded `Proved goals: 41 / 41` (`WP strict: 41/41 Valid`) and the planted-bug goal as Timeout, not Failed; attempt 2 could not rerun Frama-C here because the Frama-C 33.0 and Why3/Alt-Ergo binaries are not executable in this sandbox.
+## Full proof (card fixed-framac-fixdiv-full-proof)
+
+All runs on amd-2 (Frama-C 33.0, Alt-Ergo 2.6.4, Z3 4.13.3, Why3 1.8.2), nice 3, in a rowan slot,
+each Frama-C run under `timeout 600`. Results and pasted output are in results.md.
+
+| Job | Result |
+|---|---|
+| (1) ensures_4, rte_signed_overflow | Both Valid (Alt-Ergo) with the helper contracts in place; no further try was needed, and neither is real UB |
+| (2) assigns and terminates back on | `-wp-prop=-@assigns,-@terminates` removed: `Proved goals: 41 / 41` (30 assigns, 1 terminates, 10 others), 5.5 s |
+| (3) Failed told from Timeout | Alt-Ergo and Z3 each time out on the planted false ensures at 30 s (with `-wp-steps`: Stepout). Z3 with MBQI and auto-config off ("Z3qi") answers Unknown in under 1 s, five runs out of five. The Makefile reruns the wrapper under Z3qi when the first pass leaves a goal open, and strict_check.sh merges the two reports: planted-bug prints `Unknown (Z3qi; first pass Timeout)`, the recipe fails and make exits 2 |
+| (4) last line of notes.md | made true (below) |
+
+No prover on the bench reported Failed (a counterexample) for the planted goal: its VC is `false`
+under quantified axioms that neither prover can saturate, so the honest verdict is Unknown.
+The landed goal-generation run proved 5/7 goals, the helper-contract run 10/10 (conditional on six ASSUMED helpers), and this card's fixdiv target proves 41/41 including assigns and terminates, with the planted bug reported Unknown, not proved.

@@ -159,26 +159,59 @@ diagnostics. They are not part of the seven-goal final target:
 | `typed_proveFixDivWide_ensures_part07` | fixdiv_acsl.c:47 | Z3 hit the step bound on a wide-path result-range split; opaque 128-bit helper behavior remains. |
 | `typed_proveFixDivWide_ensures_part10` | fixdiv_acsl.c:47 | Same step-bound and helper-abstraction limit on another wide-path range split. |
 
-## Full-proof follow-on, source checkpoint
+## Full proof (card fixed-framac-fixdiv-full-proof)
 
-The helper-contract baseline above closed the two originally open fixDiv goals
-conditionally on six ASSUMED summaries. The full-proof target now removes the
-assigns/terminates filter and emits a per-goal WP JSON report. No new WP run has
-yet established the resulting N/M, any newly open goal, or a Failed verdict for
-the planted zero-result wrapper. Those are owed to the allocated Linux gate;
-this checkpoint makes no claim that every generated obligation is proved.
+amd-2, Frama-C 33.0, Alt-Ergo 2.6.4, Z3 4.13.3, Why3 1.8.2, nice 3, `timeout 600` per Frama-C run.
+The assigns/terminates filter is gone, so every goal WP generates for proveFixDiv is counted.
 
-## Attempt 2 (this branch): toolchain unavailable
+`make -C proofs/framac/fixdiv fixdiv` (exit 0, 5.5 s real):
 
-The required toolchain is present on PATH but not usable in this run. Every open or exec of
-`/home/nova/sdk/bin/frama-c` (-> `/home/nova/.opam/default/bin/frama-c`), `.../why3` and
-`.../alt-ergo` returns `EACCES (Permission denied)`; the same files are unreadable, while
-other binaries under `/home/nova/sdk` are fine. `/bin/sh` therefore continues past them and
-runs `/usr/bin/frama-c`, which is Frama-C 25.0-beta with no WP plugin. Both make targets
-abort at option parsing (`-wp-report-json` and `-wp-help` are unknown), and
-`frama-c -plugins` on that binary lists no WP. The system install offers no WP either.
+```text
+[wp] Proved goals:   41 / 41
+WP strict: 41/41 Valid
+```
 
-The required Frama-C 33.0 gate was therefore not rerun on this attempt: neither the
-`41 / 41`, assigns/terminates count nor the planted-bug Failed/Timeout distinction is
-re-established here, and no verdict is claimed. Attempt 1's recorded gate at this exact
-head remains the only evidence, and its planted-bug result is still Timeout, not Failed.
+The 41 are 30 assigns goals, `typed_proveFixDiv_terminates`, the four range/saturation ensures
+(`ensures_4` among them), `exits`, the two RTE goals at fixed.h (division by zero and
+`rte_signed_overflow`) and the three helper preconditions at fixDiv's call sites. No goal is
+open, so none is listed as PROVER-LIMIT or REAL-UB. The proof is still conditional on the six
+ASSUMED helper contracts above and covers the emulated int128 arm only.
+
+### Failed versus Timeout
+
+`strict_check.sh` reads the WP JSON report and exits non-zero naming each goal that is not Valid
+with its verdict. When the first pass (WPFLAGS, provers Alt-Ergo and Z3) leaves a goal open, the
+Makefile recipe reruns the wrapper under a second prover, Z3qi: Z3 4.13.3 with
+`smt.mbqi=false auto_config=false`, defined in `out/why3-z3qi.conf` by the Makefile. It uses E-matching only, so it stops with `unknown` instead
+of searching to the timeout; an unsat it finds is still sound. Both passes take the same WPCOMMON
+flags, so they generate the same goals. strict_check.sh merges the two reports and prints each
+open goal with both verdicts; a goal missing from the second report, or a second pass that fails,
+still fails the target.
+
+`planted_bug_acsl.c` claims `ensures planted_zero_result: \result == 1` under `requires a == 0 && b == 0`;
+fixDiv( 0, 0 ) returns 0. `make -C proofs/framac/fixdiv planted-bug` (make exit 2, 66.3 s real):
+
+```text
+[wp] Proved goals:   37 / 38
+typed_proveFixDiv_ensures_planted_zero_result: Unknown (Z3qi; first pass Timeout)
+WP strict: 37/38 Valid
+make: *** [Makefile:62: planted-bug] Error 1
+```
+
+No prover here reports Failed (a counterexample) for this goal. Qed reduces it to `false` (the Z3
+task ends `(assert (not false))`), and the rest of the task is quantified axioms (division,
+modulo, the memory model). Each try, on the planted goal alone (`-wp-prop planted_zero_result`):
+
+| Try | Result |
+|---|---|
+| Alt-Ergo, `-wp-timeout 30` | Timeout (31.3 s) |
+| Z3, `-wp-timeout 30` | Timeout (30.9 s) |
+| Z3, `-wp-steps 200000` | Stepout (0.8 s) |
+| Alt-Ergo, `-wp-steps 2000` | Stepout (0.9 s) |
+| Z3 and Alt-Ergo with `-wp-counter-examples`, `-wp-timeout 10` | Timeout, No Model (10.8 s, 13.2 s) |
+| Z3 on the WP task, `smt.qi.max_instances=100`, `=1000`, or `smt.mbqi=false` | timeout at `-T:20` |
+| Z3 on the WP task, `smt.mbqi=false auto_config=false` | unknown (0.12 s) |
+| Z3qi through WP, five runs | Unknown each time (0.7 to 0.8 s) |
+
+So the harness reports the planted goal honestly as Unknown, never as proved and never as Timeout
+dressed as Failed.

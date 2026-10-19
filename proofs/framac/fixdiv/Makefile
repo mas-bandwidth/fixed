@@ -5,8 +5,9 @@ LIMIT ?= timeout 600
 CPP_BASE = -I../../../include
 # Selectively inline fixDiv, not every @inline helper. The latter pulls the
 # 128-iteration emulated divider into one VC and blocks goal generation.
-WPFLAGS ?= -inline-calls fixDiv -wp -wp-rte -wp-prover alt-ergo,z3 \
-           -wp-timeout 30 -wp-par 1 -wp-cache none
+# WPCOMMON is shared with the Z3qi pass below, so both passes generate the same goals.
+WPCOMMON = -inline-calls fixDiv -wp -wp-rte -wp-timeout 30 -wp-par 1 -wp-cache none
+WPFLAGS ?= $(WPCOMMON) -wp-prover alt-ergo,z3
 
 # Helper contracts (helpers_acsl.h). PROVED_HELPERS lists every helper whose whole body WP
 # proves, as <plant id>:<name>; FIX_PLANT(id) in helpers_acsl.h falsifies that helper's main
@@ -27,29 +28,60 @@ COMMA := ,
 
 .PHONY: fixdiv helpers planted planted-bug nightly clean
 
-fixdiv: | $(OUT)
-	@$(LIMIT) $(FRAMAC) -cpp-extra-args="$(CPP_BASE) -DFIX_FORCE_EMULATED_INT128" \
+# Second pass for goals the first pass leaves open. Alt-Ergo and Z3 search a false goal
+# until -wp-timeout, so a wrong ensures shows as Timeout. Z3qi is Z3 with MBQI and
+# auto-config off (E-matching only): it gives up with "unknown" once no trigger fires, so
+# an open goal gets a prover verdict that is not a timeout (Unknown, or Valid if E-matching
+# closes it, which is sound). The recipe reruns the wrapper under Z3qi only when the first
+# pass leaves a goal open; strict_check.sh merges the two reports and prints each open goal
+# with both verdicts. LIMIT caps each Frama-C run, so a target with a second pass may take
+# two caps; the clean fixdiv target runs one pass.
+Z3QI_CONF = $(OUT)/why3-z3qi.conf
+Z3QI_WPFLAGS ?= -wp-why3-extra-config $(abspath $(Z3QI_CONF)) $(WPCOMMON) -wp-prover z3qi
+
+fixdiv: $(Z3QI_CONF)
+	@rm -f $(OUT)/fixdiv.json $(OUT)/fixdiv.z3qi.json; \
+	$(LIMIT) $(FRAMAC) -cpp-extra-args="$(CPP_BASE) -DFIX_FORCE_EMULATED_INT128" \
 		fixdiv_acsl.c $(WPFLAGS) -wp-fct proveFixDiv \
 		-wp-report-json $(OUT)/fixdiv.json > $(OUT)/fixdiv.emulated.log 2>&1; \
 	status=$$?; \
 	summary=$$(grep 'Proved goals:' $(OUT)/fixdiv.emulated.log | tail -1); \
 	if test -n "$$summary"; then echo "$$summary"; \
 	else echo 'NO SUMMARY: see $(OUT)/fixdiv.emulated.log'; status=1; fi; \
-	./strict_check.sh $(OUT)/fixdiv.json || status=1; \
+	second=; if ! ./strict_check.sh --quiet $(OUT)/fixdiv.json; then \
+		second=$(OUT)/fixdiv.z3qi.json; \
+		$(LIMIT) $(FRAMAC) -cpp-extra-args="$(CPP_BASE) -DFIX_FORCE_EMULATED_INT128" \
+			fixdiv_acsl.c $(Z3QI_WPFLAGS) -wp-fct proveFixDiv \
+			-wp-report-json $$second > $(OUT)/fixdiv.z3qi.log 2>&1 || status=1; fi; \
+	./strict_check.sh $(OUT)/fixdiv.json $$second || status=1; \
 	exit $$status
 
 # A single false wrapper ensures is a negative control. WP plus strict_check must
 # name its actual non-Valid verdict and this target deliberately exits nonzero.
-planted-bug: | $(OUT)
-	@$(LIMIT) $(FRAMAC) -cpp-extra-args="$(CPP_BASE) -DFIX_FORCE_EMULATED_INT128" \
+planted-bug: $(Z3QI_CONF)
+	@rm -f $(OUT)/planted-bug.json $(OUT)/planted-bug.z3qi.json; \
+	$(LIMIT) $(FRAMAC) -cpp-extra-args="$(CPP_BASE) -DFIX_FORCE_EMULATED_INT128" \
 		planted_bug_acsl.c $(WPFLAGS) -wp-fct proveFixDiv \
 		-wp-report-json $(OUT)/planted-bug.json > $(OUT)/planted-bug.log 2>&1; \
 	status=$$?; \
 	summary=$$(grep 'Proved goals:' $(OUT)/planted-bug.log | tail -1); \
 	if test -n "$$summary"; then echo "$$summary"; \
 	else echo 'NO SUMMARY: see $(OUT)/planted-bug.log'; status=1; fi; \
-	./strict_check.sh $(OUT)/planted-bug.json || status=1; \
+	second=; if ! ./strict_check.sh --quiet $(OUT)/planted-bug.json; then \
+		second=$(OUT)/planted-bug.z3qi.json; \
+		$(LIMIT) $(FRAMAC) -cpp-extra-args="$(CPP_BASE) -DFIX_FORCE_EMULATED_INT128" \
+			planted_bug_acsl.c $(Z3QI_WPFLAGS) -wp-fct proveFixDiv \
+			-wp-report-json $$second > $(OUT)/planted-bug.z3qi.log 2>&1 || status=1; fi; \
+	./strict_check.sh $(OUT)/planted-bug.json $$second || status=1; \
 	exit $$status
+
+# The Z3qi prover for Why3, written into OUT so no config outside this directory changes.
+# -wp-why3-extra-config must come before -wp-prover z3qi, or WP refuses z3qi as unknown.
+$(Z3QI_CONF): Makefile | $(OUT)
+	@printf '%s\n' '[prover]' 'name = "Z3qi"' 'version = "4.13.3"' 'driver = "z3_487"' \
+		'command = "z3 -smt2 -T:%t smt.mbqi=false auto_config=false sat.random_seed=42 smt.random_seed=42 -st %f"' \
+		'command_steps = "z3 -smt2 smt.mbqi=false auto_config=false sat.random_seed=42 smt.random_seed=42 -st rlimit=%S %f"' \
+		> $@
 
 # Prove every PROVED helper body against its contract (callees by their contracts). Frama-C
 # exits 0 with goals open, so the target fails unless every goal is proved.

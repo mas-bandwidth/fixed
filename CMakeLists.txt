@@ -10,6 +10,25 @@ if (MSVC)
     add_compile_options(/std:c11)
 endif()
 
+# ZERO WARNINGS, AS ERRORS, BY DEFAULT. Every target here -- the library, both 128-bit
+# arms, every test and the benchmark -- builds under the strict set, and any warning
+# fails the build. A consumer that vendors this file and needs its own policy turns
+# FIX_WARNINGS_AS_ERRORS off; it keeps the warnings and loses only the -Werror / /WX.
+# ClangCL takes the MSVC spelling (MSVC is true there) and maps /W4 to clang's own set.
+option(FIX_WARNINGS_AS_ERRORS "Fail the build on any compiler warning" ON)
+if (MSVC)
+    add_compile_options(/W4)
+    if (FIX_WARNINGS_AS_ERRORS)
+        add_compile_options(/WX)
+    endif()
+else()
+    add_compile_options(-Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion
+        -Wcast-qual -Wformat=2 -Wundef -Wdouble-promotion)
+    if (FIX_WARNINGS_AS_ERRORS)
+        add_compile_options(-Werror)
+    endif()
+endif()
+
 # Determinism: forbid fused multiply-add. Core ops are pure integer; this keeps
 # the few float conversion helpers from fusing across platforms.
 if (NOT MSVC)

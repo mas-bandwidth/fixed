@@ -32,10 +32,10 @@ jobs:
             configure: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DFIX_BUILD_BENCHMARKS=ON
           - name: windows-clangcl
             os: windows-latest
-            configure: cmake -S . -B build -T ClangCL -DFIX_BUILD_BENCHMARKS=ON
+            configure: cmake -S . -B build -T ClangCL -DFIX_BUILD_BENCHMARKS=ON -DFIX_WARNINGS_AS_ERRORS=OFF
           - name: windows-msvc
             os: windows-latest
-            configure: cmake -S . -B build -DFIX_BUILD_BENCHMARKS=ON
+            configure: cmake -S . -B build -DFIX_BUILD_BENCHMARKS=ON -DFIX_WARNINGS_AS_ERRORS=OFF
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

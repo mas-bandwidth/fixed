@@ -298,7 +298,7 @@ static uint64_t sweepQuantize( int perturb, uint64_t samples )
 		}
 	}
 
-	rngState = 0x51000000ULL + (uint64_t)perturb;
+	rngState = UINT64_C(0x51000000) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		int64_t scale = scales[nextRandom() % (uint64_t)SCALE_COUNT];
@@ -349,7 +349,7 @@ static uint64_t sweepDequantize( int perturb, uint64_t samples )
 		}
 	}
 
-	rngState = 0x52000000ULL + (uint64_t)perturb;
+	rngState = UINT64_C(0x52000000) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		int64_t raw = (int64_t)nextRandom() >> 12;
@@ -389,7 +389,7 @@ static uint64_t sweepQuantizeClamped( int perturb, uint64_t samples )
 		}
 	}
 
-	rngState = 0x53000000ULL + (uint64_t)perturb;
+	rngState = UINT64_C(0x53000000) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		int64_t scale = scales[nextRandom() % (uint64_t)SCALE_COUNT];
@@ -437,7 +437,7 @@ static uint64_t sweepFits( int perturb, uint64_t samples )
 	// value is already at the edge, so every sample sits exactly on a bound and is nudged
 	// off it: the upper bound moves up and out, the lower bound moves down and out. Both
 	// bounds get covered and the control fires on every single sample.
-	rngState = 0x54000000ULL + (uint64_t)perturb;
+	rngState = UINT64_C(0x54000000) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		int64_t minRaw = (int64_t)nextRandom() >> 20;
@@ -472,7 +472,7 @@ static uint64_t sweepNarrow( int perturb, uint64_t samples )
 		}
 	}
 
-	rngState = 0x55000000ULL + (uint64_t)perturb;
+	rngState = UINT64_C(0x55000000) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		int shift = (int)( nextRandom() % 63 );
@@ -524,7 +524,7 @@ static uint64_t sweepWiden( int perturb, uint64_t samples )
 		}
 	}
 
-	rngState = 0x56000000ULL + (uint64_t)perturb;
+	rngState = UINT64_C(0x56000000) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		int shift = (int)( nextRandom() % 63 );

@@ -376,6 +376,36 @@ FIX_ALWAYS_INLINE fixed_t fixSqrt( fixed_t a )
 	return (fixed_t)fixISqrt128High( hi, lo );
 }
 
+/// a + b, saturated to [FIX_MIN, FIX_MAX] instead of overflowing. The test runs before the
+/// add, so no input is undefined; a sum inside the range is the plain sum.
+FIX_ALWAYS_INLINE fixed_t fixAddSaturate( fixed_t a, fixed_t b )
+{
+	if ( b > 0 && a > FIX_MAX - b )
+	{
+		return FIX_MAX;
+	}
+	if ( b < 0 && a < FIX_MIN - b )
+	{
+		return FIX_MIN;
+	}
+	return a + b;
+}
+
+/// a - b, saturated to [FIX_MIN, FIX_MAX] instead of overflowing. The test runs before the
+/// subtract, so no input is undefined; a difference inside the range is the plain one.
+FIX_ALWAYS_INLINE fixed_t fixSubSaturate( fixed_t a, fixed_t b )
+{
+	if ( b < 0 && a > FIX_MAX + b )
+	{
+		return FIX_MAX;
+	}
+	if ( b > 0 && a < FIX_MIN + b )
+	{
+		return FIX_MIN;
+	}
+	return a - b;
+}
+
 /// Absolute value
 FIX_ALWAYS_INLINE fixed_t fixAbs( fixed_t a )
 {

@@ -127,16 +127,24 @@ FIX_INLINE int fixClampInt( int a, int lower, int upper )
 // lives with the rest of the scalar math, not in the vector header that happens to have
 // been its first caller.
 
-/// Vector addition.
+/// Vector addition. Under FIX_SATURATE each component saturates (fixAddSaturate).
 FIX_INLINE fixVec3 fixVecAdd( fixVec3 a, fixVec3 b )
 {
+#if defined( FIX_SATURATE )
+	return FIX_LITERAL( fixVec3 ){ fixAddSaturate( a.x, b.x ), fixAddSaturate( a.y, b.y ), fixAddSaturate( a.z, b.z ) };
+#else
 	return FIX_LITERAL( fixVec3 ){ a.x + b.x, a.y + b.y, a.z + b.z };
+#endif
 }
 
-/// Vector subtraction.
+/// Vector subtraction. Under FIX_SATURATE each component saturates (fixSubSaturate).
 FIX_INLINE fixVec3 fixVecSub( fixVec3 a, fixVec3 b )
 {
+#if defined( FIX_SATURATE )
+	return FIX_LITERAL( fixVec3 ){ fixSubSaturate( a.x, b.x ), fixSubSaturate( a.y, b.y ), fixSubSaturate( a.z, b.z ) };
+#else
 	return FIX_LITERAL( fixVec3 ){ a.x - b.x, a.y - b.y, a.z - b.z };
+#endif
 }
 
 /// Vector component-wise multiplication.
@@ -430,9 +438,16 @@ FIX_INLINE fixVec3 fixMulSV( fixed_t s, fixVec3 a )
 FIX_INLINE fixVec3 fixCross( fixVec3 a, fixVec3 b )
 {
 	fixVec3 c;
+#if defined( FIX_SATURATE )
+	// Two saturated products of opposite sign differ by more than int64 holds.
+	c.x = fixSubSaturate( fixMul( a.y , b.z ), fixMul( a.z , b.y ) );
+	c.y = fixSubSaturate( fixMul( a.z , b.x ), fixMul( a.x , b.z ) );
+	c.z = fixSubSaturate( fixMul( a.x , b.y ), fixMul( a.y , b.x ) );
+#else
 	c.x = fixMul( a.y , b.z ) - fixMul( a.z , b.y );
 	c.y = fixMul( a.z , b.x ) - fixMul( a.x , b.z );
 	c.z = fixMul( a.x , b.y ) - fixMul( a.y , b.x );
+#endif
 	return c;
 }
 

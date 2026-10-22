@@ -766,7 +766,7 @@ Build-time switches:
 
 | macro | effect |
 |---|---|
-| `FIX_SATURATE` | `fixMul` and `fixFromDotRaw` saturate on overflow instead of wrapping |
+| `FIX_SATURATE` | `fixMul`, `fixFromDotRaw`, `fixDot`, `fixLengthSquared` and `fixDistanceSquared` saturate on overflow instead of wrapping, with the sign of the exact result |
 | `FIX_FORCE_EMULATED_INT128` | use the emulated 128-bit pair even where `__int128` exists |
 | `NDEBUG` | as usual — **without it, `FIX_ASSERT` compiles into hot math**, including `fixVecLerp`, `fixMakeQuatFromAxisAngle`, `fixNarrow` and `fixWiden` |
 

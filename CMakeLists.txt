@@ -205,6 +205,16 @@ if (NOT WIN32)
 endif()
 add_test(NAME numerical_saturated COMMAND fixed_numerical_saturated_test)
 
+# THE SATURATING POLICY AT THE TOP OF THE RANGE: each saturating operation at the edge, and
+# densely below it against the code it replaced, kept in the test as the oracle.
+add_executable(fixed_saturate_test test/saturate_test.c src/fixed_math.c src/fixed_vec.c)
+target_include_directories(fixed_saturate_test PRIVATE include)
+target_compile_definitions(fixed_saturate_test PRIVATE FIX_SATURATE)
+if (NOT WIN32)
+    target_link_libraries(fixed_saturate_test PRIVATE m)
+endif()
+add_test(NAME saturate COMMAND fixed_saturate_test)
+
 option(FIX_BUILD_BENCHMARKS "Build the numerical public-API microbenchmarks" OFF)
 if (FIX_BUILD_BENCHMARKS)
     add_executable(fixed_numerical_bench benchmark/numerical_bench.c)
@@ -237,6 +247,14 @@ if (TARGET fixed_emulated)
         target_link_libraries(fixed_numerical_saturated_emulated_test PRIVATE m)
     endif()
     add_test(NAME numerical_saturated_emulated COMMAND fixed_numerical_saturated_emulated_test)
+
+    add_executable(fixed_saturate_emulated_test test/saturate_test.c src/fixed_math.c src/fixed_vec.c)
+    target_include_directories(fixed_saturate_emulated_test PRIVATE include)
+    target_compile_definitions(fixed_saturate_emulated_test PRIVATE FIX_SATURATE FIX_FORCE_EMULATED_INT128)
+    if (NOT WIN32)
+        target_link_libraries(fixed_saturate_emulated_test PRIVATE m)
+    endif()
+    add_test(NAME saturate_emulated COMMAND fixed_saturate_emulated_test)
 
     # And the control for the emulated arm: the exhaustive suite with the same deliberate
     # 1-ulp error, compiled against the emulated library. Without this, an emulated build

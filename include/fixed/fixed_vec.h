@@ -184,11 +184,16 @@ FIX_INLINE fixed_t fixFromDotRaw( fixInt128 raw )
 	fixInt128 r = (fixInt128)( (fixUInt128)raw + (fixUInt128)(fixInt128)FIX_HALF ) >> FIX_FRACTION_BITS;
 #endif
 #if defined( FIX_SATURATE )
-	if ( fixInt128Gt( r, fixInt128FromI64( INT64_MAX ) ) )
+	// Tested on raw, BEFORE the rounding add: raw + FIX_HALF wraps for raw within FIX_HALF
+	// of the top of int128, and a test on the shifted result then read a huge positive dot
+	// as FIX_MIN. These two bounds are exactly r > INT64_MAX and r < -INT64_MAX restated
+	// on raw ( r = ( raw + 2^15 ) >> 16 ), so every raw that does not wrap gives the bits
+	// it always gave.
+	if ( fixInt128Ge( raw, fixInt128Add( fixInt128ShiftLeft( fixInt128FromI64( INT64_MAX ), FIX_FRACTION_BITS ), fixInt128FromI64( FIX_HALF ) ) ) )
 	{
 		return FIX_MAX;
 	}
-	if ( fixInt128Lt( r, fixInt128FromI64( -INT64_MAX ) ) )
+	if ( fixInt128Lt( raw, fixInt128Sub( fixInt128ShiftLeft( fixInt128FromI64( -INT64_MAX ), FIX_FRACTION_BITS ), fixInt128FromI64( FIX_HALF ) ) ) )
 	{
 		return FIX_MIN;
 	}
@@ -196,10 +201,42 @@ FIX_INLINE fixed_t fixFromDotRaw( fixInt128 raw )
 	return (fixed_t)fixInt128ToI64( r );
 }
 
+#if defined( FIX_SATURATE )
+/// a + b at 128 bits, held at the int128 range instead of wrapping. Saturating policy only.
+FIX_INLINE fixInt128 fixInt128AddSaturate( fixInt128 a, fixInt128 b )
+{
+	fixInt128 sum = fixInt128Add( a, b );
+	bool negative = fixInt128IsNegative( a );
+	if ( negative == fixInt128IsNegative( b ) && negative != fixInt128IsNegative( sum ) )
+	{
+		return negative ? fixInt128Make( UINT64_C( 0x8000000000000000 ), 0 ) : fixInt128Make( UINT64_C( 0x7FFFFFFFFFFFFFFF ), UINT64_MAX );
+	}
+	return sum;
+}
+
+/// fixDotRaw with both of its adds held at the int128 range. Saturating policy only.
+///
+/// Three int64 products reach 3 * 2^126, past the top of int128, so fixDotRaw's sum wraps:
+/// dot( v, v ) with every component 2^47 - 1 came back as the most negative number. A held
+/// partial sum is at least 2^127 - 2^126 away from zero and the term still to come is at
+/// most 2^126, so the total stays on the right side of +/-2^79 and fixFromDotRaw saturates
+/// it with its true sign. A sum that does not overflow is the same sum fixDotRaw makes.
+FIX_INLINE fixInt128 fixDotRawSaturate( fixVec3 a, fixVec3 b )
+{
+	fixInt128 xy = fixInt128AddSaturate( fixInt128MulI64( a.x, b.x ), fixInt128MulI64( a.y, b.y ) );
+	return fixInt128AddSaturate( xy, fixInt128MulI64( a.z, b.z ) );
+}
+#endif
+
 /// Vector dot product. Accumulated at 128 bits with a single rounding (divide last).
+/// Under FIX_SATURATE a dot past the range saturates with its true sign.
 FIX_INLINE fixed_t fixDot( fixVec3 a, fixVec3 b )
 {
+#if defined( FIX_SATURATE )
+	return fixFromDotRaw( fixDotRawSaturate( a, b ) );
+#else
 	return fixFromDotRaw( fixDotRaw( a, b ) );
+#endif
 }
 
 /// Vector length. Computed from the exact unsigned 128-bit sum of squared
@@ -214,7 +251,11 @@ FIX_INLINE fixed_t fixLength( fixVec3 v )
 /// Vector length squared. One rounding on the exact 128-bit sum of squares.
 FIX_INLINE fixed_t fixLengthSquared( fixVec3 a )
 {
+#if defined( FIX_SATURATE )
+	return fixFromDotRaw( fixDotRawSaturate( a, a ) );
+#else
 	return fixFromDotRaw( fixDotRaw( a, a ) );
+#endif
 }
 
 /// Distance between two points.
@@ -228,7 +269,11 @@ FIX_INLINE fixed_t fixDistance( fixVec3 a, fixVec3 b )
 FIX_INLINE fixed_t fixDistanceSquared( fixVec3 a, fixVec3 b )
 {
 	fixVec3 dv = { b.x - a.x, b.y - a.y, b.z - a.z };
+#if defined( FIX_SATURATE )
+	return fixFromDotRaw( fixDotRawSaturate( dv, dv ) );
+#else
 	return fixFromDotRaw( fixDotRaw( dv, dv ) );
+#endif
 }
 
 /// The exponent fixNormalize lifts a short vector to before dividing. Chosen so

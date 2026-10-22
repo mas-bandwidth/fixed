@@ -73,4 +73,7 @@ jobs:
             clang -O2 -DFIX_SATURATE -fsanitize=undefined -fno-sanitize-recover=all $arm \
               -I include test/numerical_regression_test.c src/fixed_math.c src/fixed_vec.c -lm -o /tmp/numerical_saturated_test
             /tmp/numerical_saturated_test
+            clang -O2 -DFIX_SATURATE -fsanitize=undefined -fno-sanitize-recover=all $arm \
+              -I include test/saturate_test.c src/fixed_math.c src/fixed_vec.c -lm -o /tmp/saturate_test
+            /tmp/saturate_test
           done

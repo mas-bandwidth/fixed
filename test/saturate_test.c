@@ -314,12 +314,171 @@ static void crossDifferential(void)
 	printf( "cross_differential: compared %llu, saturated %llu\n", (unsigned long long)compared, (unsigned long long)saturated );
 }
 
+static fixQuat quaternion( int lowest )
+{
+	fixQuat q;
+	q.v = vector( lowest );
+	q.s = component( lowest );
+	return q;
+}
+
+// THE ORACLES for the quaternion reductions: the four-term sums as the default build makes
+// them, through the seam's wrapping int128 add and subtract (defined, never undefined).
+static fixed_t oldDotQuat( fixQuat a, fixQuat b )
+{
+	return oldFromDotRaw( fixInt128Add( fixDotRaw( a.v, b.v ), fixInt128MulI64( a.s, b.s ) ) );
+}
+
+static fixQuat oldMulQuat( fixQuat q1, fixQuat q2 )
+{
+	fixQuat q = {
+		{
+			oldFromDotRaw( fixInt128Add( fixInt128Add( fixInt128Sub( fixInt128MulI64( q1.v.y, q2.v.z ), fixInt128MulI64( q1.v.z, q2.v.y ) ),
+				fixInt128MulI64( q1.s, q2.v.x ) ), fixInt128MulI64( q2.s, q1.v.x ) ) ),
+			oldFromDotRaw( fixInt128Add( fixInt128Add( fixInt128Sub( fixInt128MulI64( q1.v.z, q2.v.x ), fixInt128MulI64( q1.v.x, q2.v.z ) ),
+				fixInt128MulI64( q1.s, q2.v.y ) ), fixInt128MulI64( q2.s, q1.v.y ) ) ),
+			oldFromDotRaw( fixInt128Add( fixInt128Add( fixInt128Sub( fixInt128MulI64( q1.v.x, q2.v.y ), fixInt128MulI64( q1.v.y, q2.v.x ) ),
+				fixInt128MulI64( q1.s, q2.v.z ) ), fixInt128MulI64( q2.s, q1.v.z ) ) ),
+		},
+		oldFromDotRaw( fixInt128Sub( fixInt128MulI64( q1.s, q2.s ), fixDotRaw( q1.v, q2.v ) ) ),
+	};
+	return q;
+}
+
+static fixQuat oldInvMulQuat( fixQuat q1, fixQuat q2 )
+{
+	fixQuat q = {
+		{
+			oldFromDotRaw( fixInt128Sub( fixInt128Add( fixInt128Sub( fixInt128MulI64( q2.v.y, q1.v.z ), fixInt128MulI64( q2.v.z, q1.v.y ) ),
+				fixInt128MulI64( q1.s, q2.v.x ) ), fixInt128MulI64( q2.s, q1.v.x ) ) ),
+			oldFromDotRaw( fixInt128Sub( fixInt128Add( fixInt128Sub( fixInt128MulI64( q2.v.z, q1.v.x ), fixInt128MulI64( q2.v.x, q1.v.z ) ),
+				fixInt128MulI64( q1.s, q2.v.y ) ), fixInt128MulI64( q2.s, q1.v.y ) ) ),
+			oldFromDotRaw( fixInt128Sub( fixInt128Add( fixInt128Sub( fixInt128MulI64( q2.v.x, q1.v.y ), fixInt128MulI64( q2.v.y, q1.v.x ) ),
+				fixInt128MulI64( q1.s, q2.v.z ) ), fixInt128MulI64( q2.s, q1.v.z ) ) ),
+		},
+		oldFromDotRaw( fixInt128Add( fixInt128MulI64( q1.s, q2.s ), fixDotRaw( q1.v, q2.v ) ) ),
+	};
+	return q;
+}
+
+static double p( fixed_t a, fixed_t b ) { return (double)a * (double)b; }
+
+// The exact four-term sums, estimated in double. Only the classification uses them: below
+// 2^126 the true sum fits int128 by a margin far past the estimate's error, so the default
+// build's wrapping sum is exact there; at or past it the true sum is far past the 2^79
+// that Q48.16 can hold, and the only right answer is the edge with its sign.
+static void quatComponents( fixQuat a, fixQuat b, double dot[1], double mul[4], double inv[4] )
+{
+	dot[0] = p( a.v.x, b.v.x ) + p( a.v.y, b.v.y ) + p( a.v.z, b.v.z ) + p( a.s, b.s );
+	mul[0] = p( a.v.y, b.v.z ) - p( a.v.z, b.v.y ) + p( a.s, b.v.x ) + p( b.s, a.v.x );
+	mul[1] = p( a.v.z, b.v.x ) - p( a.v.x, b.v.z ) + p( a.s, b.v.y ) + p( b.s, a.v.y );
+	mul[2] = p( a.v.x, b.v.y ) - p( a.v.y, b.v.x ) + p( a.s, b.v.z ) + p( b.s, a.v.z );
+	mul[3] = p( a.s, b.s ) - ( p( a.v.x, b.v.x ) + p( a.v.y, b.v.y ) + p( a.v.z, b.v.z ) );
+	inv[0] = p( b.v.y, a.v.z ) - p( b.v.z, a.v.y ) + p( a.s, b.v.x ) - p( b.s, a.v.x );
+	inv[1] = p( b.v.z, a.v.x ) - p( b.v.x, a.v.z ) + p( a.s, b.v.y ) - p( b.s, a.v.y );
+	inv[2] = p( b.v.x, a.v.y ) - p( b.v.y, a.v.x ) + p( a.s, b.v.z ) - p( b.s, a.v.z );
+	inv[3] = p( a.s, b.s ) + ( p( a.v.x, b.v.x ) + p( a.v.y, b.v.y ) + p( a.v.z, b.v.z ) );
+}
+
+static void quatAtTheTop(void)
+{
+	// Four squares of FIX_MAX sum to just under 2^128. The default build wrapped that to a
+	// small negative raw value: the dot of a quaternion with itself read as -1/65536.
+	fixQuat top = { { FIX_MAX, FIX_MAX, FIX_MAX }, FIX_MAX };
+	fixQuat bottom = { { FIX_MIN, FIX_MIN, FIX_MIN }, FIX_MIN };
+	CHECK( fixDotQuat( top, top ) == FIX_MAX );
+	CHECK( fixDotQuat( bottom, bottom ) == FIX_MAX );
+	CHECK( fixDotQuat( top, bottom ) == FIX_MIN );
+	CHECK( oldDotQuat( top, top ) != FIX_MAX );
+
+	// Every component 2^47 - 1 in value: three of the four product terms of each component
+	// carry the same sign and reach 3 * 2^126.
+	fixed_t big = fixShiftLeft( ( (fixed_t)1 << 47 ) - 1, FIX_FRACTION_BITS );
+	fixQuat a = { { big, big, big }, big };
+	fixQuat b = { { big, -big, big }, big };
+	// mul( a, b ).v.x = a.y b.z - a.z b.y + a.s b.x + b.s a.x = +4 big^2
+	fixQuat m = fixMulQuat( a, b );
+	CHECK( m.v.x == FIX_MAX );
+	// mul( a, b ).s = a.s b.s - dot( a.v, b.v ) = big^2 - big^2 = 0: an exact cancellation.
+	CHECK( m.s == 0 );
+	fixQuat n = { { -big, -big, -big }, big };
+	m = fixMulQuat( n, a );
+	// s = big^2 - ( -3 big^2 ) = +4 big^2
+	CHECK( m.s == FIX_MAX );
+	m = fixInvMulQuat( a, a );
+	// s = big^2 + 3 big^2
+	CHECK( m.s == FIX_MAX );
+	m = fixInvMulQuat( n, a );
+	// v.x = a.y n.z - a.z n.y + n.s a.x - a.s n.x = 2 big^2: inside int128, past Q48.16
+	CHECK( m.v.x == FIX_MAX );
+	fixQuat c = { { -big, big, -big }, -big };
+	m = fixInvMulQuat( a, c );
+	// s = a.s c.s + dot( a.v, c.v ) = -big^2 - big^2
+	CHECK( m.s == FIX_MIN );
+}
+
+static void quatCheck( fixed_t got, fixed_t old, double exact, uint64_t* compared, uint64_t* saturated )
+{
+	if ( fabs( exact ) < 0x1p126 )
+	{
+		CHECK( got == old );
+		( *compared )++;
+	}
+	else
+	{
+		CHECK( got == ( exact > 0.0 ? FIX_MAX : FIX_MIN ) );
+		( *saturated )++;
+	}
+}
+
+static void quatDifferential(void)
+{
+	// Dense over every magnitude, then at the top (62 and 63 bit components), then at the
+	// top with every component one sign, which drives the four-term sums off int128.
+	uint64_t compared = 0;
+	uint64_t saturated = 0;
+	for ( int pass = 0; pass < 3; ++pass )
+	{
+		for ( int i = 0; i < ( 1 << 20 ); ++i )
+		{
+			fixQuat a = quaternion( pass == 0 ? 0 : 62 );
+			fixQuat b = quaternion( pass == 0 ? 0 : 62 );
+			if ( pass == 2 )
+			{
+				bool flip = ( next() & 1 ) != 0;
+				a.v.x = fixAbs( a.v.x ); a.v.y = fixAbs( a.v.y ); a.v.z = fixAbs( a.v.z ); a.s = fixAbs( a.s );
+				b.v.x = flip ? -fixAbs( b.v.x ) : fixAbs( b.v.x ); b.v.y = flip ? -fixAbs( b.v.y ) : fixAbs( b.v.y );
+				b.v.z = flip ? -fixAbs( b.v.z ) : fixAbs( b.v.z ); b.s = flip ? -fixAbs( b.s ) : fixAbs( b.s );
+			}
+			double dot[1], mul[4], inv[4];
+			quatComponents( a, b, dot, mul, inv );
+			quatCheck( fixDotQuat( a, b ), oldDotQuat( a, b ), dot[0], &compared, &saturated );
+			fixQuat m = fixMulQuat( a, b );
+			fixQuat om = oldMulQuat( a, b );
+			quatCheck( m.v.x, om.v.x, mul[0], &compared, &saturated );
+			quatCheck( m.v.y, om.v.y, mul[1], &compared, &saturated );
+			quatCheck( m.v.z, om.v.z, mul[2], &compared, &saturated );
+			quatCheck( m.s, om.s, mul[3], &compared, &saturated );
+			fixQuat v = fixInvMulQuat( a, b );
+			fixQuat ov = oldInvMulQuat( a, b );
+			quatCheck( v.v.x, ov.v.x, inv[0], &compared, &saturated );
+			quatCheck( v.v.y, ov.v.y, inv[1], &compared, &saturated );
+			quatCheck( v.v.z, ov.v.z, inv[2], &compared, &saturated );
+			quatCheck( v.s, ov.s, inv[3], &compared, &saturated );
+		}
+	}
+	CHECK( compared > ( 1u << 22 ) );
+	CHECK( saturated > ( 1u << 20 ) );
+	printf( "quat_differential: compared %llu, saturated %llu\n", (unsigned long long)compared, (unsigned long long)saturated );
+}
+
 int main(int argc, char** argv)
 {
 	struct { const char* name; void (*run)(void); } tests[] = {
 		{ "dot_at_the_top", dotAtTheTop }, { "dot_differential", dotDifferential },
 		{ "vec_add_at_the_top", vecAddAtTheTop }, { "vec_add_differential", vecAddDifferential },
-		{ "cross_at_the_top", crossAtTheTop }, { "cross_differential", crossDifferential }
+		{ "cross_at_the_top", crossAtTheTop }, { "cross_differential", crossDifferential },
+		{ "quat_at_the_top", quatAtTheTop }, { "quat_differential", quatDifferential }
 	};
 	for (size_t i = 0; i < sizeof(tests)/sizeof(tests[0]); ++i)
 	{

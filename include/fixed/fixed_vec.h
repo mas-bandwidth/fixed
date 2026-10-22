@@ -222,6 +222,18 @@ FIX_INLINE fixInt128 fixInt128AddSaturate( fixInt128 a, fixInt128 b )
 	return sum;
 }
 
+/// a - b at 128 bits, held at the int128 range instead of wrapping. Saturating policy only.
+FIX_INLINE fixInt128 fixInt128SubSaturate( fixInt128 a, fixInt128 b )
+{
+	fixInt128 difference = fixInt128Sub( a, b );
+	bool negative = fixInt128IsNegative( a );
+	if ( negative != fixInt128IsNegative( b ) && negative != fixInt128IsNegative( difference ) )
+	{
+		return negative ? fixInt128Make( UINT64_C( 0x8000000000000000 ), 0 ) : fixInt128Make( UINT64_C( 0x7FFFFFFFFFFFFFFF ), UINT64_MAX );
+	}
+	return difference;
+}
+
 /// fixDotRaw with both of its adds held at the int128 range. Saturating policy only.
 ///
 /// Three int64 products reach 3 * 2^126, past the top of int128, so fixDotRaw's sum wraps:
@@ -573,10 +585,17 @@ FIX_INLINE fixVec3 fixInvRotateVector( fixQuat q, fixVec3 v )
 /// One rounding on the exact 128-bit sum.
 FIX_INLINE fixed_t fixDotQuat( fixQuat a, fixQuat b )
 {
+#if defined( FIX_SATURATE )
+	// Four products reach 2^128. Each held partial sum keeps its true sign and stays past
+	// +/-2^126 whatever the terms still to come, so fixFromDotRaw saturates it correctly;
+	// a sum that does not overflow is the same sum the default build makes.
+	return fixFromDotRaw( fixInt128AddSaturate( fixDotRawSaturate( a.v, b.v ), fixInt128MulI64( a.s, b.s ) ) );
+#else
 #if FIX_INT128_EMULATED
 	return fixFromDotRaw( fixInt128Add( fixDotRaw( a.v, b.v ), fixInt128MulI64( a.s, b.s ) ) );
 #else
 	return fixFromDotRaw( (fixInt128)( (fixUInt128)fixDotRaw( a.v, b.v ) + (fixUInt128)( (fixInt128)a.s * b.s ) ) );
+#endif
 #endif
 }
 
@@ -586,6 +605,26 @@ FIX_INLINE fixQuat fixMulQuat( fixQuat q1, fixQuat q2 )
 {
 	// v = cross(q1.v, q2.v) + q1.s * q2.v + q2.s * q1.v
 	// s = q1.s * q2.s - dot(q1.v, q2.v)
+#if defined( FIX_SATURATE )
+	// Four products reach 2^128: each partial sum is held at the int128 range (see fixDotQuat).
+	fixQuat q = {
+		{
+			fixFromDotRaw( fixInt128AddSaturate(
+				fixInt128AddSaturate( fixInt128SubSaturate( fixInt128MulI64( q1.v.y, q2.v.z ), fixInt128MulI64( q1.v.z, q2.v.y ) ),
+									  fixInt128MulI64( q1.s, q2.v.x ) ),
+				fixInt128MulI64( q2.s, q1.v.x ) ) ),
+			fixFromDotRaw( fixInt128AddSaturate(
+				fixInt128AddSaturate( fixInt128SubSaturate( fixInt128MulI64( q1.v.z, q2.v.x ), fixInt128MulI64( q1.v.x, q2.v.z ) ),
+									  fixInt128MulI64( q1.s, q2.v.y ) ),
+				fixInt128MulI64( q2.s, q1.v.y ) ) ),
+			fixFromDotRaw( fixInt128AddSaturate(
+				fixInt128AddSaturate( fixInt128SubSaturate( fixInt128MulI64( q1.v.x, q2.v.y ), fixInt128MulI64( q1.v.y, q2.v.x ) ),
+									  fixInt128MulI64( q1.s, q2.v.z ) ),
+				fixInt128MulI64( q2.s, q1.v.z ) ) ),
+		},
+		fixFromDotRaw( fixInt128SubSaturate( fixInt128MulI64( q1.s, q2.s ), fixDotRawSaturate( q1.v, q2.v ) ) ),
+	};
+#else
 #if FIX_INT128_EMULATED
 	fixQuat q = {
 		{
@@ -617,6 +656,7 @@ FIX_INLINE fixQuat fixMulQuat( fixQuat q1, fixQuat q2 )
 		fixFromDotRaw( (fixInt128)( (fixUInt128)( (fixInt128)q1.s * q2.s ) - (fixUInt128)fixDotRaw( q1.v, q2.v ) ) ),
 	};
 #endif
+#endif
 	return q;
 }
 
@@ -626,6 +666,26 @@ FIX_INLINE fixQuat fixInvMulQuat( fixQuat q1, fixQuat q2 )
 {
 	// v = cross(q2.v, q1.v) + q1.s * q2.v - q2.s * q1.v
 	// s = q1.s * q2.s + dot(q1.v, q2.v)
+#if defined( FIX_SATURATE )
+	// Four products reach 2^128: each partial sum is held at the int128 range (see fixDotQuat).
+	fixQuat q = {
+		{
+			fixFromDotRaw( fixInt128SubSaturate(
+				fixInt128AddSaturate( fixInt128SubSaturate( fixInt128MulI64( q2.v.y, q1.v.z ), fixInt128MulI64( q2.v.z, q1.v.y ) ),
+									  fixInt128MulI64( q1.s, q2.v.x ) ),
+				fixInt128MulI64( q2.s, q1.v.x ) ) ),
+			fixFromDotRaw( fixInt128SubSaturate(
+				fixInt128AddSaturate( fixInt128SubSaturate( fixInt128MulI64( q2.v.z, q1.v.x ), fixInt128MulI64( q2.v.x, q1.v.z ) ),
+									  fixInt128MulI64( q1.s, q2.v.y ) ),
+				fixInt128MulI64( q2.s, q1.v.y ) ) ),
+			fixFromDotRaw( fixInt128SubSaturate(
+				fixInt128AddSaturate( fixInt128SubSaturate( fixInt128MulI64( q2.v.x, q1.v.y ), fixInt128MulI64( q2.v.y, q1.v.x ) ),
+									  fixInt128MulI64( q1.s, q2.v.z ) ),
+				fixInt128MulI64( q2.s, q1.v.z ) ) ),
+		},
+		fixFromDotRaw( fixInt128AddSaturate( fixInt128MulI64( q1.s, q2.s ), fixDotRawSaturate( q1.v, q2.v ) ) ),
+	};
+#else
 #if FIX_INT128_EMULATED
 	fixQuat q = {
 		{
@@ -656,6 +716,7 @@ FIX_INLINE fixQuat fixInvMulQuat( fixQuat q1, fixQuat q2 )
 		},
 		fixFromDotRaw( (fixInt128)( (fixUInt128)( (fixInt128)q1.s * q2.s ) + (fixUInt128)fixDotRaw( q1.v, q2.v ) ) ),
 	};
+#endif
 #endif
 	return q;
 }

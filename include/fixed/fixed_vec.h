@@ -438,9 +438,16 @@ FIX_INLINE fixVec3 fixMulSV( fixed_t s, fixVec3 a )
 FIX_INLINE fixVec3 fixCross( fixVec3 a, fixVec3 b )
 {
 	fixVec3 c;
+#if defined( FIX_SATURATE )
+	// Two saturated products of opposite sign differ by more than int64 holds.
+	c.x = fixSubSaturate( fixMul( a.y , b.z ), fixMul( a.z , b.y ) );
+	c.y = fixSubSaturate( fixMul( a.z , b.x ), fixMul( a.x , b.z ) );
+	c.z = fixSubSaturate( fixMul( a.x , b.y ), fixMul( a.y , b.x ) );
+#else
 	c.x = fixMul( a.y , b.z ) - fixMul( a.z , b.y );
 	c.y = fixMul( a.z , b.x ) - fixMul( a.x , b.z );
 	c.z = fixMul( a.x , b.y ) - fixMul( a.y , b.x );
+#endif
 	return c;
 }
 

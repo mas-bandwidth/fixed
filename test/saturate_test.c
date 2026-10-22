@@ -264,11 +264,62 @@ static void vecAddDifferential(void)
 	printf( "vec_add_differential: compared %llu, saturated %llu\n", (unsigned long long)compared, (unsigned long long)saturated );
 }
 
+static fixed_t oldMul( fixed_t a, fixed_t b ) { return fixMul( a, b ); }
+
+static void crossAtTheTop(void)
+{
+	// cross( ( 0, M, M ), ( 0, -M, M ) ).x = M * M - M * -M: FIX_MAX less FIX_MIN.
+	fixVec3 a = { 0, FIX_MAX, FIX_MAX };
+	fixVec3 b = { 0, FIX_MIN, FIX_MAX };
+	fixVec3 c = fixCross( a, b );
+	CHECK( c.x == FIX_MAX && c.y == 0 && c.z == 0 );
+	c = fixCross( b, a );
+	CHECK( c.x == FIX_MIN && c.y == 0 && c.z == 0 );
+}
+
+static void crossDifferential(void)
+{
+	// Each component is the difference of two fixMul products. Where that exact difference
+	// is inside the range it is the old plain subtract's bits; outside, the edge.
+	uint64_t compared = 0;
+	uint64_t saturated = 0;
+	for ( int pass = 0; pass < 2; ++pass )
+	{
+		for ( int i = 0; i < ( 1 << 21 ); ++i )
+		{
+			fixVec3 a = vector( pass == 0 ? 0 : 40 );
+			fixVec3 b = vector( pass == 0 ? 0 : 40 );
+			fixVec3 c = fixCross( a, b );
+			fixed_t left[3] = { oldMul( a.y, b.z ), oldMul( a.z, b.x ), oldMul( a.x, b.y ) };
+			fixed_t right[3] = { oldMul( a.z, b.y ), oldMul( a.x, b.z ), oldMul( a.y, b.x ) };
+			fixed_t cs[3] = { c.x, c.y, c.z };
+			for ( int k = 0; k < 3; ++k )
+			{
+				fixInt128 exact = fixInt128Sub( fixInt128FromI64( left[k] ), fixInt128FromI64( right[k] ) );
+				if ( inRange( exact ) )
+				{
+					CHECK( cs[k] == oldSub( left[k], right[k] ) );
+					compared++;
+				}
+				else
+				{
+					CHECK( cs[k] == ( fixInt128IsNegative( exact ) ? FIX_MIN : FIX_MAX ) );
+					saturated++;
+				}
+			}
+		}
+	}
+	CHECK( compared > ( 1u << 22 ) );
+	CHECK( saturated > ( 1u << 16 ) );
+	printf( "cross_differential: compared %llu, saturated %llu\n", (unsigned long long)compared, (unsigned long long)saturated );
+}
+
 int main(int argc, char** argv)
 {
 	struct { const char* name; void (*run)(void); } tests[] = {
 		{ "dot_at_the_top", dotAtTheTop }, { "dot_differential", dotDifferential },
-		{ "vec_add_at_the_top", vecAddAtTheTop }, { "vec_add_differential", vecAddDifferential }
+		{ "vec_add_at_the_top", vecAddAtTheTop }, { "vec_add_differential", vecAddDifferential },
+		{ "cross_at_the_top", crossAtTheTop }, { "cross_differential", crossDifferential }
 	};
 	for (size_t i = 0; i < sizeof(tests)/sizeof(tests[0]); ++i)
 	{

@@ -466,6 +466,14 @@ FIX_ALWAYS_INLINE fixed_t fixFloor( fixed_t a )
 /// Smallest integral fixed-point value not less than a (like ceilf)
 FIX_ALWAYS_INLINE fixed_t fixCeil( fixed_t a )
 {
+#if defined( FIX_SATURATE )
+	// Above the largest whole value the ceiling is 2^47, past the range: hold it at the
+	// edge instead of wrapping to the bottom of the range.
+	if ( a > ( FIX_MAX & ~( FIX_ONE - 1 ) ) )
+	{
+		return FIX_MAX;
+	}
+#endif
 	// Unsigned add: defined wrap at the extreme edge (see fixRoundToInt)
 	return (fixed_t)( (uint64_t)a + FIX_ONE - 1 ) & ~( FIX_ONE - 1 );
 }

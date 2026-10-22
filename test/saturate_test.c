@@ -7,6 +7,7 @@
 // here as the oracle, which it must match bit for bit wherever that code did not overflow.
 // No time, no I/O beyond the report: inputs come from a fixed-seed generator.
 #include "fixed/fixed_vec.h"
+#include "fixed/fixed_wide.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -472,13 +473,410 @@ static void quatDifferential(void)
 	printf( "quat_differential: compared %llu, saturated %llu\n", (unsigned long long)compared, (unsigned long long)saturated );
 }
 
+// ---------------------------------------------------------------------------------------
+// The fixed_t lanes: every remaining plain add and subtract that consumes a fixed_t.
+// ---------------------------------------------------------------------------------------
+
+// THE ORACLE for composite operations: the default build's formula spelled with these,
+// which wrap (defined, through unsigned) exactly as the default build does, and record
+// whether any step's exact result left the range. Where none did, the saturating build
+// must give the default build's bits.
+static bool wrapped;
+static fixed_t wAdd( fixed_t a, fixed_t b )
+{
+	if ( !inRange( fixInt128Add( fixInt128FromI64( a ), fixInt128FromI64( b ) ) ) ) wrapped = true;
+	return oldAdd( a, b );
+}
+static fixed_t wSub( fixed_t a, fixed_t b )
+{
+	if ( !inRange( fixInt128Sub( fixInt128FromI64( a ), fixInt128FromI64( b ) ) ) ) wrapped = true;
+	return oldSub( a, b );
+}
+
+static fixed_t edgeOf( fixInt128 exact ) { return fixInt128IsNegative( exact ) ? FIX_MIN : FIX_MAX; }
+
+static uint64_t laneCompared;
+static uint64_t laneSaturated;
+
+// One result that is a single exact sum of terms: the old bits inside, the edge outside.
+static void checkExact( fixed_t got, fixed_t old, fixInt128 exact )
+{
+	if ( inRange( exact ) )
+	{
+		CHECK( got == old );
+		laneCompared++;
+	}
+	else
+	{
+		CHECK( got == edgeOf( exact ) );
+		laneSaturated++;
+	}
+}
+
+static fixInt128 e2( fixed_t a, fixed_t b ) { return fixInt128Add( fixInt128FromI64( a ), fixInt128FromI64( b ) ); }
+static fixInt128 e2s( fixed_t a, fixed_t b ) { return fixInt128Sub( fixInt128FromI64( a ), fixInt128FromI64( b ) ); }
+static fixInt128 e3( fixed_t a, fixed_t b, fixed_t c ) { return fixInt128Add( e2( a, b ), fixInt128FromI64( c ) ); }
+static void checkAdd( fixed_t got, fixed_t a, fixed_t b ) { checkExact( got, oldAdd( a, b ), e2( a, b ) ); }
+static void checkSub( fixed_t got, fixed_t a, fixed_t b ) { checkExact( got, oldSub( a, b ), e2s( a, b ) ); }
+static void checkSum3( fixed_t got, fixed_t a, fixed_t b, fixed_t c ) { checkExact( got, oldAdd( oldAdd( a, b ), c ), e3( a, b, c ) ); }
+
+// A composite: the old bits when no step of the default build's formula left the range.
+static void checkComposite( bool equal )
+{
+	if ( !wrapped )
+	{
+		CHECK( equal );
+		laneCompared++;
+	}
+	else
+	{
+		laneSaturated++;
+	}
+}
+
+static bool vecEqual( fixVec3 a, fixVec3 b ) { return a.x == b.x && a.y == b.y && a.z == b.z; }
+static bool quatEqual( fixQuat a, fixQuat b ) { return vecEqual( a.v, b.v ) && a.s == b.s; }
+
+static fixVec3 oldCross( fixVec3 a, fixVec3 b )
+{
+	fixVec3 c = { wSub( fixMul( a.y, b.z ), fixMul( a.z, b.y ) ), wSub( fixMul( a.z, b.x ), fixMul( a.x, b.z ) ),
+				  wSub( fixMul( a.x, b.y ), fixMul( a.y, b.x ) ) };
+	return c;
+}
+static fixVec3 oldMulAdd( fixVec3 a, fixed_t s, fixVec3 b )
+{
+	fixVec3 c = { wAdd( a.x, fixMul( s, b.x ) ), wAdd( a.y, fixMul( s, b.y ) ), wAdd( a.z, fixMul( s, b.z ) ) };
+	return c;
+}
+static fixVec3 oldMulSub( fixVec3 a, fixed_t s, fixVec3 b )
+{
+	fixVec3 c = { wSub( a.x, fixMul( s, b.x ) ), wSub( a.y, fixMul( s, b.y ) ), wSub( a.z, fixMul( s, b.z ) ) };
+	return c;
+}
+static fixVec3 oldRotate( fixQuat q, fixVec3 v )
+{
+	return oldMulAdd( v, FIX( 2.0f ), oldCross( q.v, oldMulAdd( oldCross( q.v, v ), q.s, v ) ) );
+}
+static fixVec3 oldInvRotate( fixQuat q, fixVec3 v )
+{
+	return oldMulAdd( v, FIX( 2.0f ), oldCross( q.v, oldMulSub( oldCross( q.v, v ), q.s, v ) ) );
+}
+static fixVec3 oldVecSub( fixVec3 a, fixVec3 b )
+{
+	fixVec3 c = { wSub( a.x, b.x ), wSub( a.y, b.y ), wSub( a.z, b.z ) };
+	return c;
+}
+static fixVec3 oldVecAdd( fixVec3 a, fixVec3 b )
+{
+	fixVec3 c = { wAdd( a.x, b.x ), wAdd( a.y, b.y ), wAdd( a.z, b.z ) };
+	return c;
+}
+
+static fixQuat oldMakeQuatFromMatrix( const fixMatrix3* m )
+{
+	fixVec3 c1 = m->cx, c2 = m->cy, c3 = m->cz;
+	fixQuat q;
+	fixed_t trace = wAdd( wAdd( m->cx.x, m->cy.y ), m->cz.z );
+	if ( trace >= FIX( 0.0f ) )
+	{
+		q.v.x = wSub( c2.z, c3.y ); q.v.y = wSub( c3.x, c1.z ); q.v.z = wSub( c1.y, c2.x ); q.s = wAdd( trace, FIX( 1.0f ) );
+	}
+	else if ( c1.x > c2.y && c1.x > c3.z )
+	{
+		q.v.x = wAdd( wSub( wSub( c1.x, c2.y ), c3.z ), FIX( 1.0f ) ); q.v.y = wAdd( c2.x, c1.y ); q.v.z = wAdd( c3.x, c1.z ); q.s = wSub( c2.z, c3.y );
+	}
+	else if ( c2.y > c3.z )
+	{
+		q.v.x = wAdd( c1.y, c2.x ); q.v.y = wAdd( wSub( wSub( c2.y, c3.z ), c1.x ), FIX( 1.0f ) ); q.v.z = wAdd( c3.y, c2.z ); q.s = wSub( c3.x, c1.z );
+	}
+	else
+	{
+		q.v.x = wAdd( c1.z, c3.x ); q.v.y = wAdd( c2.z, c3.y ); q.v.z = wAdd( wSub( wSub( c3.z, c1.x ), c2.y ), FIX( 1.0f ) ); q.s = wSub( c1.y, c2.x );
+	}
+	return fixNormalizeQuat( q );
+}
+
+static fixed_t oldSmooth( fixed_t current, fixed_t target, fixed_t* velocity, fixed_t smoothTime, fixed_t deltaTime )
+{
+	fixed_t omega = fixDiv( 2 * FIX_PI, smoothTime );
+	fixed_t onePlus = wAdd( FIX_ONE, fixMul( omega, deltaTime ) );
+	fixed_t denominator = fixMul( onePlus, onePlus );
+	fixed_t spring = fixMul( fixMul( fixMul( omega, omega ), deltaTime ), wSub( current, target ) );
+	*velocity = fixDiv( wSub( *velocity, spring ), denominator );
+	return wAdd( current, fixMul( *velocity, deltaTime ) );
+}
+
+// An interpolation weight: most in [0, 1], some anywhere a 1 - t cannot leave the range.
+static fixed_t weight( void )
+{
+	if ( ( next() & 3 ) != 0 )
+	{
+		return (fixed_t)( next() % (uint64_t)( FIX_ONE + 1 ) );
+	}
+	return component( 0 ) / 2;
+}
+
+static void lanesAtTheTop(void)
+{
+	fixVec3 top = { FIX_MAX, FIX_MAX, FIX_MAX };
+	fixVec3 bottom = { FIX_MIN, FIX_MIN, FIX_MIN };
+	fixVec3 one = { FIX_ONE, -FIX_ONE, FIX_ONE };
+
+	fixVec3 r = fixMulAdd( top, FIX_ONE, one );
+	CHECK( r.x == FIX_MAX && r.y == FIX_MAX - FIX_ONE && r.z == FIX_MAX );
+	r = fixMulSub( bottom, FIX_ONE, one );
+	CHECK( r.x == FIX_MIN && r.y == FIX_MIN + FIX_ONE && r.z == FIX_MIN );
+
+	// Halfway between two points near the top: each half product is in range, their sum is not.
+	fixed_t half = FIX( 0.5f );
+	r = fixVecLerp( top, top, half );
+	CHECK( vecEqual( r, top ) );
+	r = fixBlend2( FIX_ONE, top, FIX_ONE, top );
+	CHECK( vecEqual( r, top ) );
+	r = fixBlend2( FIX_ONE, bottom, FIX_ONE, bottom );
+	CHECK( vecEqual( r, bottom ) );
+	// Half of FIX_MAX rounds up to 2^62, and two of those are 2^63: the default build
+	// wrapped the midpoint of the top of the range to its bottom.
+	CHECK( fixLerp( FIX_MAX, FIX_MAX, half ) == FIX_MAX );
+	fixPos lp = fixLerpPosition( top, top, half );
+	CHECK( vecEqual( lp, top ) );
+	// Extrapolation with both products in range and their sum past the bottom.
+	CHECK( fixLerp( INT64_C( 4600000000000000000 ), -INT64_C( 6000000000000000000 ), FIX( 1.5f ) ) == FIX_MIN );
+
+	// Matrix times vector: the first two terms leave the range and the third brings the
+	// total back. Exact at 128 bits that is 5; two chained saturating adds would say 0.
+	fixMatrix3 m = { { FIX_MAX, 0, 0 }, { FIX_ONE * 5, 0, 0 }, { FIX_MIN, 0, 0 } };
+	fixVec3 a = { FIX_ONE, FIX_ONE, FIX_ONE };
+	r = fixMulMV( m, a );
+	CHECK( r.x == FIX_ONE * 5 && r.y == 0 && r.z == 0 );
+	fixMatrix3 big = { top, top, top };
+	r = fixMulMV( big, a );
+	CHECK( vecEqual( r, top ) );
+	fixMatrix3 mm = fixAddMM( big, big );
+	CHECK( vecEqual( mm.cx, top ) && vecEqual( mm.cz, top ) );
+	fixMatrix3 negative = { bottom, bottom, bottom };
+	mm = fixSubMM( negative, big );
+	CHECK( vecEqual( mm.cy, bottom ) );
+
+	fixAABB box = { { -( (fixed_t)1 << 40 ), -( (fixed_t)1 << 40 ), -( (fixed_t)1 << 40 ) }, { (fixed_t)1 << 40, (fixed_t)1 << 40, (fixed_t)1 << 40 } };
+	CHECK( fixAABB_Area( box ) == FIX_MAX );
+	fixAABBWide wideBox = { fixPosWideFromVec3( box.lowerBound ), fixPosWideFromVec3( box.upperBound ) };
+	CHECK( fixAABBWide_Area( wideBox ) == FIX_MAX );
+
+	fixVec3 zero = { 0, 0, 0 };
+	CHECK( fixDistance( bottom, top ) == FIX_MAX );
+	CHECK( fixDistanceSquared( bottom, top ) == FIX_MAX );
+	CHECK( fixDistance( top, zero ) == FIX_MAX );
+
+	fixVec3 d = fixSubPos( top, bottom );
+	CHECK( vecEqual( d, top ) );
+	d = fixSubPos( bottom, top );
+	CHECK( vecEqual( d, bottom ) );
+	fixPos p = fixOffsetPos( top, one );
+	CHECK( p.x == FIX_MAX && p.y == FIX_MAX - FIX_ONE );
+
+	// A quarter turn about z of ( M, M, 0 ) is ( -M, M, 0 ), past the range. The inner sum
+	// t1 + s * v leaves the range and the default build wrapped it (signed overflow, and
+	// UBSan says so). Saturated step by step the turn is held at ( 0, M ), the inverse turn
+	// at ( M, 0 ).
+	fixed_t c = FIX( 0.70710678f );
+	fixQuat quarter = { { 0, 0, c }, c };
+	fixVec3 v = { FIX_MAX, FIX_MAX, 0 };
+	r = fixRotateVector( quarter, v );
+	CHECK( r.x == 0 && r.y == FIX_MAX && r.z == 0 );
+	wrapped = false;
+	fixVec3 oldTurn = oldRotate( quarter, v );
+	CHECK( wrapped && !vecEqual( oldTurn, r ) );
+	r = fixInvRotateVector( quarter, v );
+	CHECK( r.x == FIX_MAX && r.y == 0 && r.z == 0 );
+
+	fixTransform t = { top, quarter };
+	fixVec3 local = { FIX_ONE, FIX_ONE, 0 };
+	fixPos world = fixTransformWorldPoint( t, local );
+	CHECK( world.y == FIX_MAX );
+	fixVec3 back = fixInvTransformWorldPoint( t, bottom );
+	CHECK( back.z == FIX_MIN );
+	fixTransform rel = fixToRelativeTransform( t, bottom );
+	CHECK( vecEqual( rel.p, top ) );
+	fixTransform composed = fixMulWorldTransforms( t, t );
+	CHECK( composed.p.y == FIX_MAX );
+	fixTransform inverse = fixInvMulWorldTransforms( t, FIX_LITERAL( fixTransform ){ bottom, quarter } );
+	CHECK( inverse.p.z == FIX_MIN );
+
+	// A quaternion far from unit: the squares sum past the range on the diagonal.
+	fixQuat huge = { { (fixed_t)1 << 50, (fixed_t)1 << 50, (fixed_t)1 << 50 }, (fixed_t)1 << 50 };
+	fixMatrix3 rot = fixMakeMatrixFromQuat( huge );
+	CHECK( rot.cx.x == FIX_MIN && rot.cy.y == FIX_MIN && rot.cz.z == FIX_MIN );
+	CHECK( rot.cx.y == FIX_MAX && rot.cy.z == FIX_MAX && rot.cx.z == 0 );
+
+	fixMatrix3 trace = { { FIX_MAX, 0, 0 }, { 0, FIX_MAX, 0 }, { 0, 0, FIX_MAX } };
+	fixQuat fromTrace = fixMakeQuatFromMatrix( &trace );
+	CHECK( fromTrace.s == FIX_ONE && fromTrace.v.x == 0 );
+
+	fixed_t topWhole = FIX_MAX & ~( FIX_ONE - 1 );
+	CHECK( fixCeil( FIX_MAX ) == FIX_MAX );
+	CHECK( fixCeil( topWhole + 1 ) == FIX_MAX );
+	CHECK( fixCeil( topWhole ) == topWhole );
+	CHECK( fixCeil( topWhole - 1 ) == topWhole );
+
+	fixed_t velocity = FIX_MAX;
+	fixed_t smoothed = fixSmoothCriticallyDamped( FIX_MAX, FIX_MIN, &velocity, FIX_ONE, FIX_ONE );
+	CHECK( smoothed > 0 );
+}
+
+static void lanesDifferential(void)
+{
+	laneCompared = 0;
+	laneSaturated = 0;
+	for ( int pass = 0; pass < 2; ++pass )
+	{
+		int lowest = pass == 0 ? 0 : 62;
+		for ( int i = 0; i < ( 1 << 18 ); ++i )
+		{
+			fixVec3 a = vector( lowest );
+			fixVec3 b = vector( lowest );
+			fixed_t s = component( lowest == 0 ? 0 : 40 );
+			fixed_t t = component( lowest == 0 ? 0 : 40 );
+			fixed_t alpha = weight();
+
+			fixVec3 r = fixMulAdd( a, s, b );
+			checkAdd( r.x, a.x, fixMul( s, b.x ) ); checkAdd( r.y, a.y, fixMul( s, b.y ) ); checkAdd( r.z, a.z, fixMul( s, b.z ) );
+			r = fixMulSub( a, s, b );
+			checkSub( r.x, a.x, fixMul( s, b.x ) ); checkSub( r.y, a.y, fixMul( s, b.y ) ); checkSub( r.z, a.z, fixMul( s, b.z ) );
+
+			fixed_t unitAlpha = (fixed_t)( next() % (uint64_t)( FIX_ONE + 1 ) );
+			r = fixVecLerp( a, b, unitAlpha );
+			fixed_t beta = FIX_ONE - unitAlpha;
+			checkAdd( r.x, fixMul( beta, a.x ), fixMul( unitAlpha, b.x ) );
+			checkAdd( r.y, fixMul( beta, a.y ), fixMul( unitAlpha, b.y ) );
+			checkAdd( r.z, fixMul( beta, a.z ), fixMul( unitAlpha, b.z ) );
+			r = fixBlend2( s, a, t, b );
+			checkAdd( r.x, fixMul( s, a.x ), fixMul( t, b.x ) );
+			checkAdd( r.y, fixMul( s, a.y ), fixMul( t, b.y ) );
+			checkAdd( r.z, fixMul( s, a.z ), fixMul( t, b.z ) );
+			checkAdd( fixLerp( a.x, b.x, alpha ), fixMul( FIX_ONE - alpha, a.x ), fixMul( alpha, b.x ) );
+			fixPos lp = fixLerpPosition( a, b, alpha );
+			checkAdd( lp.y, fixMul( FIX_ONE - alpha, a.y ), fixMul( alpha, b.y ) );
+
+			fixMatrix3 m = { vector( lowest ), vector( lowest ), vector( lowest ) };
+			fixVec3 v = vector( lowest == 0 ? 0 : 40 );
+			r = fixMulMV( m, v );
+			checkSum3( r.x, fixMul( m.cx.x, v.x ), fixMul( m.cy.x, v.y ), fixMul( m.cz.x, v.z ) );
+			checkSum3( r.y, fixMul( m.cx.y, v.x ), fixMul( m.cy.y, v.y ), fixMul( m.cz.y, v.z ) );
+			checkSum3( r.z, fixMul( m.cx.z, v.x ), fixMul( m.cy.z, v.y ), fixMul( m.cz.z, v.z ) );
+			fixMatrix3 n = { vector( lowest ), vector( lowest ), vector( lowest ) };
+			fixMatrix3 sum = fixAddMM( m, n );
+			fixMatrix3 difference = fixSubMM( m, n );
+			checkAdd( sum.cx.x, m.cx.x, n.cx.x ); checkAdd( sum.cy.z, m.cy.z, n.cy.z ); checkAdd( sum.cz.y, m.cz.y, n.cz.y );
+			checkSub( difference.cx.y, m.cx.y, n.cx.y ); checkSub( difference.cy.x, m.cy.x, n.cy.x ); checkSub( difference.cz.z, m.cz.z, n.cz.z );
+
+			// Area: the three products summed exactly, then doubled by the saturating fixMul.
+			fixAABB box = { fixVecMin( a, b ), fixVecMax( a, b ) };
+			fixVec3 delta = fixVecSub( box.upperBound, box.lowerBound );
+			fixed_t pxy = fixMul( delta.x, delta.y ), pyz = fixMul( delta.y, delta.z ), pzx = fixMul( delta.z, delta.x );
+			fixInt128 exactArea = e3( pxy, pyz, pzx );
+			fixed_t area = fixAABB_Area( box );
+			if ( inRange( exactArea ) ) { CHECK( area == fixMul( FIX( 2.0f ), oldAdd( oldAdd( pxy, pyz ), pzx ) ) ); laneCompared++; }
+			else { CHECK( area == edgeOf( exactArea ) ); laneSaturated++; }
+			fixAABBWide wideBox = { fixPosWideFromVec3( box.lowerBound ), fixPosWideFromVec3( box.upperBound ) };
+			CHECK( fixAABBWide_Area( wideBox ) == ( inRange( exactArea ) ? area : FIX_MAX ) || !inRange( e2s( box.upperBound.x, box.lowerBound.x ) ) ||
+				   !inRange( e2s( box.upperBound.y, box.lowerBound.y ) ) || !inRange( e2s( box.upperBound.z, box.lowerBound.z ) ) );
+
+			// Distances: a saturated difference is past 2^63 already, so its square and its
+			// length are past the range too.
+			wrapped = false;
+			fixVec3 dv = oldVecSub( b, a );
+			if ( !wrapped )
+			{
+				// The squares of an in-range difference can still leave int128: that is fixDot's
+				// saturation, checked above, and here it must read the same.
+				CHECK( fixDistanceSquared( a, b ) == ( doubleDot( dv, dv ) < 0x1p126 ? oldDot( dv, dv ) : FIX_MAX ) );
+				CHECK( fixDistance( a, b ) == fixLength( dv ) );
+				laneCompared++;
+			}
+			else
+			{
+				CHECK( fixDistanceSquared( a, b ) == FIX_MAX );
+				CHECK( fixDistance( a, b ) == FIX_MAX );
+				laneSaturated++;
+			}
+			fixVec3 sp = fixSubPos( a, b );
+			checkSub( sp.x, a.x, b.x ); checkSub( sp.z, a.z, b.z );
+			fixPos op = fixOffsetPos( a, b );
+			checkAdd( op.y, a.y, b.y );
+
+			// Rotations and the transforms built on them: a normalized quaternion, or any.
+			fixQuat q = fixNormalizeQuat( quaternion( 0 ) );
+			if ( pass == 1 && ( next() & 1 ) ) q = quaternion( 40 );
+			wrapped = false;
+			fixVec3 old = oldRotate( q, a );
+			checkComposite( vecEqual( fixRotateVector( q, a ), old ) );
+			wrapped = false;
+			old = oldInvRotate( q, a );
+			checkComposite( vecEqual( fixInvRotateVector( q, a ), old ) );
+
+			fixTransform tr = { b, q };
+			wrapped = false;
+			old = oldVecAdd( b, oldRotate( q, a ) );
+			checkComposite( vecEqual( fixTransformWorldPoint( tr, a ), old ) );
+			wrapped = false;
+			old = oldInvRotate( q, oldVecSub( a, b ) );
+			checkComposite( vecEqual( fixInvTransformWorldPoint( tr, a ), old ) );
+			fixTransform other = { a, fixNormalizeQuat( quaternion( 0 ) ) };
+			wrapped = false;
+			old = oldInvRotate( q, oldVecSub( other.p, tr.p ) );
+			checkComposite( vecEqual( fixInvMulWorldTransforms( tr, other ).p, old ) );
+			wrapped = false;
+			old = oldVecAdd( tr.p, oldRotate( q, other.p ) );
+			checkComposite( vecEqual( fixMulWorldTransforms( tr, other ).p, old ) );
+			fixTransform relative = fixToRelativeTransform( tr, a );
+			checkSub( relative.p.x, b.x, a.x ); checkSub( relative.p.y, b.y, a.y );
+
+			// The rotation matrix: each entry one exact sum, doubled.
+			fixQuat mq = quaternion( lowest == 0 ? 0 : 40 );
+			fixed_t xx = fixMul( mq.v.x, mq.v.x ), yy = fixMul( mq.v.y, mq.v.y ), zz = fixMul( mq.v.z, mq.v.z );
+			fixed_t xy = fixMul( mq.v.x, mq.v.y ), zw = fixMul( mq.v.z, mq.s ), yz = fixMul( mq.v.y, mq.v.z ), xw = fixMul( mq.v.x, mq.s );
+			fixMatrix3 rot = fixMakeMatrixFromQuat( mq );
+			fixInt128 one128 = fixInt128FromI64( FIX_ONE );
+			fixInt128 exact = fixInt128Sub( one128, fixInt128Add( e2( yy, zz ), e2( yy, zz ) ) );
+			checkExact( rot.cx.x, oldSub( FIX_ONE, fixMul( FIX( 2.0f ), oldAdd( yy, zz ) ) ), exact );
+			exact = fixInt128Sub( one128, fixInt128Add( e2( xx, yy ), e2( xx, yy ) ) );
+			checkExact( rot.cz.z, oldSub( FIX_ONE, fixMul( FIX( 2.0f ), oldAdd( xx, yy ) ) ), exact );
+			exact = fixInt128Add( e2( xy, zw ), e2( xy, zw ) );
+			checkExact( rot.cx.y, fixMul( FIX( 2.0f ), oldAdd( xy, zw ) ), exact );
+			exact = fixInt128Add( e2s( yz, xw ), e2s( yz, xw ) );
+			checkExact( rot.cz.y, fixMul( FIX( 2.0f ), oldSub( yz, xw ) ), exact );
+
+			wrapped = false;
+			fixQuat oq = oldMakeQuatFromMatrix( &m );
+			checkComposite( quatEqual( fixMakeQuatFromMatrix( &m ), oq ) );
+
+			fixed_t ceilInput = component( lowest );
+			fixed_t topWhole = FIX_MAX & ~( FIX_ONE - 1 );
+			if ( ceilInput <= topWhole ) { CHECK( fixCeil( ceilInput ) == ( (fixed_t)( (uint64_t)ceilInput + FIX_ONE - 1 ) & ~( FIX_ONE - 1 ) ) ); laneCompared++; }
+			else { CHECK( fixCeil( ceilInput ) == FIX_MAX ); laneSaturated++; }
+
+			fixed_t velocity = component( lowest ), oldVelocity = velocity;
+			fixed_t smoothTime = fixAbs( component( 0 ) ) + 1, dt = fixAbs( component( 0 ) ) + 1;
+			wrapped = false;
+			fixed_t oldResult = oldSmooth( a.x, b.x, &oldVelocity, smoothTime, dt );
+			fixed_t result = fixSmoothCriticallyDamped( a.x, b.x, &velocity, smoothTime, dt );
+			checkComposite( result == oldResult && velocity == oldVelocity );
+		}
+	}
+	CHECK( laneCompared > ( 1u << 22 ) );
+	CHECK( laneSaturated > ( 1u << 19 ) );
+	printf( "lanes_differential: compared %llu, saturated %llu\n", (unsigned long long)laneCompared, (unsigned long long)laneSaturated );
+}
+
 int main(int argc, char** argv)
 {
 	struct { const char* name; void (*run)(void); } tests[] = {
 		{ "dot_at_the_top", dotAtTheTop }, { "dot_differential", dotDifferential },
 		{ "vec_add_at_the_top", vecAddAtTheTop }, { "vec_add_differential", vecAddDifferential },
 		{ "cross_at_the_top", crossAtTheTop }, { "cross_differential", crossDifferential },
-		{ "quat_at_the_top", quatAtTheTop }, { "quat_differential", quatDifferential }
+		{ "quat_at_the_top", quatAtTheTop }, { "quat_differential", quatDifferential },
+		{ "lanes_at_the_top", lanesAtTheTop }, { "lanes_differential", lanesDifferential }
 	};
 	for (size_t i = 0; i < sizeof(tests)/sizeof(tests[0]); ++i)
 	{

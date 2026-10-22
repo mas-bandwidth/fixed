@@ -234,6 +234,29 @@ FIX_INLINE fixInt128 fixInt128SubSaturate( fixInt128 a, fixInt128 b )
 	return difference;
 }
 
+/// A 128-bit value held at [FIX_MIN, FIX_MAX]. Saturating policy only.
+FIX_INLINE fixed_t fixFromInt128Saturate( fixInt128 a )
+{
+	if ( fixInt128Gt( a, fixInt128FromI64( FIX_MAX ) ) )
+	{
+		return FIX_MAX;
+	}
+	if ( fixInt128Lt( a, fixInt128FromI64( FIX_MIN ) ) )
+	{
+		return FIX_MIN;
+	}
+	return (fixed_t)fixInt128ToI64( a );
+}
+
+/// a + b + c, exact at 128 bits and saturated once. Saturating policy only. Two chained
+/// fixAddSaturate calls are not the same thing: a first sum held at the edge and a third
+/// term pulling the other way lands back inside the range on a wrong value, where the
+/// default build's wrapping sum is exact whenever the total fits.
+FIX_INLINE fixed_t fixSum3Saturate( fixed_t a, fixed_t b, fixed_t c )
+{
+	return fixFromInt128Saturate( fixInt128Add( fixInt128Add( fixInt128FromI64( a ), fixInt128FromI64( b ) ), fixInt128FromI64( c ) ) );
+}
+
 /// fixDotRaw with both of its adds held at the int128 range. Saturating policy only.
 ///
 /// Three int64 products reach 3 * 2^126, past the top of int128, so fixDotRaw's sum wraps:
@@ -281,14 +304,22 @@ FIX_INLINE fixed_t fixLengthSquared( fixVec3 a )
 /// Distance between two points.
 FIX_INLINE fixed_t fixDistance( fixVec3 a, fixVec3 b )
 {
+#if defined( FIX_SATURATE )
+	fixVec3 dv = fixVecSub( b, a );
+#else
 	fixVec3 dv = { b.x - a.x, b.y - a.y, b.z - a.z };
+#endif
 	return fixLength( dv );
 }
 
 /// Squared distance between two points. One rounding on the exact 128-bit sum.
 FIX_INLINE fixed_t fixDistanceSquared( fixVec3 a, fixVec3 b )
 {
+#if defined( FIX_SATURATE )
+	fixVec3 dv = fixVecSub( b, a );
+#else
 	fixVec3 dv = { b.x - a.x, b.y - a.y, b.z - a.z };
+#endif
 #if defined( FIX_SATURATE )
 	return fixFromDotRaw( fixDotRawSaturate( dv, dv ) );
 #else
@@ -428,16 +459,24 @@ FIX_INLINE bool fixIsNormalized( fixVec3 a )
 	return fixAbs( FIX( 1.0f ) - aa ) < 100 * FIX_EPSILON;
 }
 
-/// a + s * b
+/// a + s * b. Under FIX_SATURATE the add saturates.
 FIX_INLINE fixVec3 fixMulAdd( fixVec3 a, fixed_t s, fixVec3 b )
 {
+#if defined( FIX_SATURATE )
+	return FIX_LITERAL( fixVec3 ){ fixAddSaturate( a.x, fixMul( s , b.x ) ), fixAddSaturate( a.y, fixMul( s , b.y ) ), fixAddSaturate( a.z, fixMul( s , b.z ) ) };
+#else
 	return FIX_LITERAL( fixVec3 ){ a.x + fixMul( s , b.x ), a.y + fixMul( s , b.y ), a.z + fixMul( s , b.z ) };
+#endif
 }
 
-/// a - s * b
+/// a - s * b. Under FIX_SATURATE the subtract saturates.
 FIX_INLINE fixVec3 fixMulSub( fixVec3 a, fixed_t s, fixVec3 b )
 {
+#if defined( FIX_SATURATE )
+	return FIX_LITERAL( fixVec3 ){ fixSubSaturate( a.x, fixMul( s , b.x ) ), fixSubSaturate( a.y, fixMul( s , b.y ) ), fixSubSaturate( a.z, fixMul( s , b.z ) ) };
+#else
 	return FIX_LITERAL( fixVec3 ){ a.x - fixMul( s , b.x ), a.y - fixMul( s , b.y ), a.z - fixMul( s , b.z ) };
+#endif
 }
 
 /// s * a
@@ -468,22 +507,39 @@ FIX_INLINE fixVec3 fixVecLerp( fixVec3 a, fixVec3 b, fixed_t alpha )
 {
 	FIX_ASSERT( FIX( 0.0f ) <= alpha && alpha <= FIX( 1.0f ) );
 
+#if defined( FIX_SATURATE )
+	fixed_t beta = fixSubSaturate( FIX( 1.0f ), alpha );
+	fixVec3 c = {
+		fixAddSaturate( fixMul( beta, a.x ), fixMul( alpha, b.x ) ),
+		fixAddSaturate( fixMul( beta, a.y ), fixMul( alpha, b.y ) ),
+		fixAddSaturate( fixMul( beta, a.z ), fixMul( alpha, b.z ) ),
+	};
+#else
 	fixVec3 c = {
 		fixMul( ( FIX( 1.0f ) - alpha ) , a.x ) + fixMul( alpha , b.x ),
 		fixMul( ( FIX( 1.0f ) - alpha ) , a.y ) + fixMul( alpha , b.y ),
 		fixMul( ( FIX( 1.0f ) - alpha ) , a.z ) + fixMul( alpha , b.z ),
 	};
+#endif
 	return c;
 }
 
 /// Blend two vectors: s * a + t * b
 FIX_INLINE fixVec3 fixBlend2( fixed_t s, fixVec3 a, fixed_t t, fixVec3 b )
 {
+#if defined( FIX_SATURATE )
+	fixVec3 d = {
+		fixAddSaturate( fixMul( s , a.x ), fixMul( t , b.x ) ),
+		fixAddSaturate( fixMul( s , a.y ), fixMul( t , b.y ) ),
+		fixAddSaturate( fixMul( s , a.z ), fixMul( t , b.z ) ),
+	};
+#else
 	fixVec3 d = {
 		fixMul( s , a.x ) + fixMul( t , b.x ),
 		fixMul( s , a.y ) + fixMul( t , b.y ),
 		fixMul( s , a.z ) + fixMul( t , b.z ),
 	};
+#endif
 	return d;
 }
 
@@ -847,7 +903,11 @@ FIX_INLINE fixQuat fixNLerp( fixQuat q1, fixQuat q2, fixed_t alpha )
 
 	fixQuat q;
 	q.v = fixVecLerp( q1.v, q2.v, alpha );
+#if defined( FIX_SATURATE )
+	q.s = fixAddSaturate( fixMul( fixSubSaturate( FIX( 1.0f ), alpha ), q1.s ), fixMul( alpha, q2.s ) );
+#else
 	q.s = fixMul( ( FIX( 1.0f ) - alpha ) , q1.s ) + fixMul( alpha , q2.s );
+#endif
 
 	return fixNormalizeQuat( q );
 }
@@ -925,36 +985,61 @@ FIX_INLINE fixed_t fixRoundUpFloat( fixed_t x )
 /// a - b, demoted to fixed_t. The primary precision boundary operation.
 FIX_INLINE fixVec3 fixSubPos( fixPos a, fixPos b )
 {
+#if defined( FIX_SATURATE )
+	return fixVecSub( a, b );
+#else
 	return FIX_LITERAL( fixVec3 ){ (fixed_t)( a.x - b.x ), (fixed_t)( a.y - b.y ), (fixed_t)( a.z - b.z ) };
+#endif
 }
 
 /// p + d
 FIX_INLINE fixPos fixOffsetPos( fixPos p, fixVec3 d )
 {
+#if defined( FIX_SATURATE )
+	return fixVecAdd( p, d );
+#else
 	return FIX_LITERAL( fixPos ){ p.x + d.x, p.y + d.y, p.z + d.z };
+#endif
 }
 
 /// World position interpolation for sweeps and sampling.
 FIX_INLINE fixPos fixLerpPosition( fixPos a, fixPos b, fixed_t t )
 {
+#if defined( FIX_SATURATE )
+	fixed_t u = fixSubSaturate( FIX( 1.0f ), t );
+	return FIX_LITERAL( fixPos ){
+		fixAddSaturate( fixMul( u, a.x ), fixMul( t, b.x ) ),
+		fixAddSaturate( fixMul( u, a.y ), fixMul( t, b.y ) ),
+		fixAddSaturate( fixMul( u, a.z ), fixMul( t, b.z ) ),
+	};
+#else
 	return FIX_LITERAL( fixPos ){
 		fixMul( ( FIX( 1.0f ) - t ) , a.x ) + fixMul( t , b.x ),
 		fixMul( ( FIX( 1.0f ) - t ) , a.y ) + fixMul( t , b.y ),
 		fixMul( ( FIX( 1.0f ) - t ) , a.z ) + fixMul( t , b.z ),
 	};
+#endif
 }
 
 /// Transform a local point to a world position. Rotation in fixed_t, translation in double.
 FIX_INLINE fixPos fixTransformWorldPoint( fixWorldTransform t, fixVec3 p )
 {
 	fixVec3 r = fixRotateVector( t.q, p );
+#if defined( FIX_SATURATE )
+	return fixVecAdd( t.p, r );
+#else
 	return FIX_LITERAL( fixPos ){ t.p.x + r.x, t.p.y + r.y, t.p.z + r.z };
+#endif
 }
 
 /// Transform a world position to a local point. One double subtraction, then fixed_t.
 FIX_INLINE fixVec3 fixInvTransformWorldPoint( fixWorldTransform t, fixPos p )
 {
+#if defined( FIX_SATURATE )
+	fixVec3 d = fixVecSub( p, t.p );
+#else
 	fixVec3 d = { (fixed_t)( p.x - t.p.x ), (fixed_t)( p.y - t.p.y ), (fixed_t)( p.z - t.p.z ) };
+#endif
 	return fixInvRotateVector( t.q, d );
 }
 
@@ -963,7 +1048,11 @@ FIX_INLINE fixTransform fixInvMulWorldTransforms( fixWorldTransform A, fixWorldT
 {
 	fixTransform C;
 	C.q = fixInvMulQuat( A.q, B.q );
+#if defined( FIX_SATURATE )
+	fixVec3 d = fixVecSub( B.p, A.p );
+#else
 	fixVec3 d = { (fixed_t)( B.p.x - A.p.x ), (fixed_t)( B.p.y - A.p.y ), (fixed_t)( B.p.z - A.p.z ) };
+#endif
 	C.p = fixInvRotateVector( A.q, d );
 	return C;
 }
@@ -974,7 +1063,11 @@ FIX_INLINE fixWorldTransform fixMulWorldTransforms( fixWorldTransform A, fixTran
 	fixWorldTransform C;
 	C.q = fixMulQuat( A.q, B.q );
 	fixVec3 r = fixRotateVector( A.q, B.p );
+#if defined( FIX_SATURATE )
+	C.p = fixVecAdd( A.p, r );
+#else
 	C.p = FIX_LITERAL( fixPos ){ A.p.x + r.x, A.p.y + r.y, A.p.z + r.z };
+#endif
 	return C;
 }
 
@@ -983,7 +1076,11 @@ FIX_INLINE fixTransform fixToRelativeTransform( fixWorldTransform t, fixPos base
 {
 	fixTransform r;
 	r.q = t.q;
+#if defined( FIX_SATURATE )
+	r.p = fixVecSub( t.p, base );
+#else
 	r.p = FIX_LITERAL( fixVec3 ){ (fixed_t)( t.p.x - base.x ), (fixed_t)( t.p.y - base.y ), (fixed_t)( t.p.z - base.z ) };
+#endif
 	return r;
 }
 
@@ -1177,7 +1274,11 @@ FIX_INLINE bool fixAABB_Contains( fixAABB a, fixAABB b )
 FIX_INLINE fixed_t fixAABB_Area( fixAABB a )
 {
 	fixVec3 delta = fixVecSub( a.upperBound, a.lowerBound );
+#if defined( FIX_SATURATE )
+	return fixMul( FIX( 2.0f ) , fixSum3Saturate( fixMul( delta.x , delta.y ), fixMul( delta.y , delta.z ), fixMul( delta.z , delta.x ) ) );
+#else
 	return fixMul( FIX( 2.0f ) , ( fixMul( delta.x , delta.y ) + fixMul( delta.y , delta.z ) + fixMul( delta.z , delta.x ) ) );
+#endif
 }
 
 // Internal half-up arithmetic. Splitting before adding/subtracting keeps
@@ -1278,11 +1379,19 @@ FIX_INLINE fixVec3 fixMulMV( fixMatrix3 m, fixVec3 a )
 	// Kept as per-product rounding: the single-rounding form shifted the SAT
 	// edge-query geometry by an ulp and put convex hull piles into a persistent
 	// cache-miss regime (convex_pile +40%).
+#if defined( FIX_SATURATE )
+	fixVec3 b = {
+		fixSum3Saturate( fixMul( m.cx.x , a.x ), fixMul( m.cy.x , a.y ), fixMul( m.cz.x , a.z ) ),
+		fixSum3Saturate( fixMul( m.cx.y , a.x ), fixMul( m.cy.y , a.y ), fixMul( m.cz.y , a.z ) ),
+		fixSum3Saturate( fixMul( m.cx.z , a.x ), fixMul( m.cy.z , a.y ), fixMul( m.cz.z , a.z ) ),
+	};
+#else
 	fixVec3 b = {
 		fixMul( m.cx.x , a.x ) + fixMul( m.cy.x , a.y ) + fixMul( m.cz.x , a.z ),
 		fixMul( m.cx.y , a.x ) + fixMul( m.cy.y , a.y ) + fixMul( m.cz.y , a.z ),
 		fixMul( m.cx.z , a.x ) + fixMul( m.cy.z , a.y ) + fixMul( m.cz.z , a.z ),
 	};
+#endif
 	return b;
 }
 
@@ -1300,22 +1409,30 @@ FIX_INLINE fixMatrix3 fixNegateMat3( fixMatrix3 a )
 /// @return a + b
 FIX_INLINE fixMatrix3 fixAddMM( fixMatrix3 a, fixMatrix3 b )
 {
+#if defined( FIX_SATURATE )
+	return FIX_LITERAL( fixMatrix3 ){ fixVecAdd( a.cx, b.cx ), fixVecAdd( a.cy, b.cy ), fixVecAdd( a.cz, b.cz ) };
+#else
 	return FIX_LITERAL( fixMatrix3 ){
 		{ a.cx.x + b.cx.x, a.cx.y + b.cx.y, a.cx.z + b.cx.z },
 		{ a.cy.x + b.cy.x, a.cy.y + b.cy.y, a.cy.z + b.cy.z },
 		{ a.cz.x + b.cz.x, a.cz.y + b.cz.y, a.cz.z + b.cz.z },
 	};
+#endif
 }
 
 /// Matrix subtraction.
 /// @return a - b
 FIX_INLINE fixMatrix3 fixSubMM( fixMatrix3 a, fixMatrix3 b )
 {
+#if defined( FIX_SATURATE )
+	return FIX_LITERAL( fixMatrix3 ){ fixVecSub( a.cx, b.cx ), fixVecSub( a.cy, b.cy ), fixVecSub( a.cz, b.cz ) };
+#else
 	return FIX_LITERAL( fixMatrix3 ){
 		{ a.cx.x - b.cx.x, a.cx.y - b.cx.y, a.cx.z - b.cx.z },
 		{ a.cy.x - b.cy.x, a.cy.y - b.cy.y, a.cy.z - b.cy.z },
 		{ a.cz.x - b.cz.x, a.cz.y - b.cz.y, a.cz.z - b.cz.z },
 	};
+#endif
 }
 
 /// Multiply a matrix by a scalar, component-wise.
@@ -1649,6 +1766,16 @@ FIX_INLINE fixMatrix3 fixAbsMatrix3( fixMatrix3 m )
 	return out;
 }
 
+#if defined( FIX_SATURATE )
+// Internal: 2 * ( a + b ), exact at 128 bits. Saturating policy only. Negating a valid
+// fixed_t (never INT64_MIN) cannot overflow, so callers pass -b for a difference.
+FIX_INLINE fixInt128 fixTwiceSum128( fixed_t a, fixed_t b )
+{
+	fixInt128 sum = fixInt128Add( fixInt128FromI64( a ), fixInt128FromI64( b ) );
+	return fixInt128Add( sum, sum );
+}
+#endif
+
 /// Make a matrix from a quaternion. This is useful if you need to
 /// rotate many vectors.
 /// The force inline improves the performance of b3ShapeDistance (box3d).
@@ -1664,11 +1791,25 @@ FIX_FORCE_INLINE fixMatrix3 fixMakeMatrixFromQuat( fixQuat q )
 	fixed_t yw = fixMul( q.v.y , q.s );
 	fixed_t zw = fixMul( q.v.z , q.s );
 
+#if defined( FIX_SATURATE )
+	// Each entry exact at 128 bits and saturated once. fixMul( FIX( 2.0f ), x ) is exactly
+	// 2 * x wherever 2 * x is in range, so an entry inside the range is the default build's.
+	fixInt128 one = fixInt128FromI64( FIX( 1.0f ) );
+	return FIX_LITERAL( fixMatrix3 ){
+		{ fixFromInt128Saturate( fixInt128Sub( one, fixTwiceSum128( yy, zz ) ) ), fixFromInt128Saturate( fixTwiceSum128( xy, zw ) ),
+		  fixFromInt128Saturate( fixTwiceSum128( xz, -yw ) ) },
+		{ fixFromInt128Saturate( fixTwiceSum128( xy, -zw ) ), fixFromInt128Saturate( fixInt128Sub( one, fixTwiceSum128( xx, zz ) ) ),
+		  fixFromInt128Saturate( fixTwiceSum128( yz, xw ) ) },
+		{ fixFromInt128Saturate( fixTwiceSum128( xz, yw ) ), fixFromInt128Saturate( fixTwiceSum128( yz, -xw ) ),
+		  fixFromInt128Saturate( fixInt128Sub( one, fixTwiceSum128( xx, yy ) ) ) },
+	};
+#else
 	return FIX_LITERAL( fixMatrix3 ){
 		{ FIX( 1.0f ) - fixMul( FIX( 2.0f ) , ( yy + zz ) ), fixMul( FIX( 2.0f ) , ( xy + zw ) ), fixMul( FIX( 2.0f ) , ( xz - yw ) ) },
 		{ fixMul( FIX( 2.0f ) , ( xy - zw ) ), FIX( 1.0f ) - fixMul( FIX( 2.0f ) , ( xx + zz ) ), fixMul( FIX( 2.0f ) , ( yz + xw ) ) },
 		{ fixMul( FIX( 2.0f ) , ( xz + yw ) ), fixMul( FIX( 2.0f ) , ( yz - xw ) ), FIX( 1.0f ) - fixMul( FIX( 2.0f ) , ( xx + yy ) ) },
 	};
+#endif
 }
 
 // Internal: saturate a bound only after the full calculation, reserving INT64_MIN.

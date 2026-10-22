@@ -169,10 +169,106 @@ static void dotDifferential(void)
 	printf( "dot_differential: compared %llu, saturated %llu\n", (unsigned long long)compared, (unsigned long long)saturated );
 }
 
+// THE ORACLE for the vector adds: the plain int64 add, spelled through unsigned so the
+// wrap the old code was undefined on is a defined value here.
+static fixed_t oldAdd( fixed_t a, fixed_t b ) { return (fixed_t)( (uint64_t)a + (uint64_t)b ); }
+static fixed_t oldSub( fixed_t a, fixed_t b ) { return (fixed_t)( (uint64_t)a - (uint64_t)b ); }
+
+// The exact sum or difference, at 128 bits, inside [FIX_MIN, FIX_MAX].
+static bool inRange( fixInt128 exact )
+{
+	return fixInt128Le( exact, fixInt128FromI64( FIX_MAX ) ) && fixInt128Ge( exact, fixInt128FromI64( FIX_MIN ) );
+}
+
+static void vecAddAtTheTop(void)
+{
+	CHECK( fixAddSaturate( FIX_MAX, 1 ) == FIX_MAX );
+	CHECK( fixAddSaturate( FIX_MAX, FIX_MAX ) == FIX_MAX );
+	CHECK( fixAddSaturate( FIX_MIN, -1 ) == FIX_MIN );
+	CHECK( fixAddSaturate( FIX_MIN, FIX_MIN ) == FIX_MIN );
+	CHECK( fixAddSaturate( FIX_MAX - 1, 1 ) == FIX_MAX );
+	CHECK( fixAddSaturate( FIX_MIN + 1, -1 ) == FIX_MIN );
+	CHECK( fixAddSaturate( FIX_MAX, FIX_MIN ) == 0 );
+	CHECK( fixSubSaturate( FIX_MAX, -1 ) == FIX_MAX );
+	CHECK( fixSubSaturate( FIX_MIN, 1 ) == FIX_MIN );
+	CHECK( fixSubSaturate( FIX_MAX, FIX_MIN ) == FIX_MAX );
+	CHECK( fixSubSaturate( FIX_MIN, FIX_MAX ) == FIX_MIN );
+	CHECK( fixSubSaturate( FIX_MIN + 1, 1 ) == FIX_MIN );
+	CHECK( fixSubSaturate( FIX_MAX, FIX_MAX ) == 0 );
+
+	// -INT64_MAX - 1 fits int64 but is outside the domain: it saturates to FIX_MIN.
+	CHECK( fixAddSaturate( FIX_MIN, -1 ) == -INT64_MAX );
+
+	fixVec3 top = { FIX_MAX, FIX_MAX - 5, 1 };
+	fixVec3 bottom = { FIX_MIN, FIX_MIN + 5, -1 };
+	fixVec3 ten = { 10, 10, 10 };
+	fixVec3 sum = fixVecAdd( top, ten );
+	CHECK( sum.x == FIX_MAX && sum.y == FIX_MAX && sum.z == 11 );
+	sum = fixVecAdd( bottom, fixVecNeg( ten ) );
+	CHECK( sum.x == FIX_MIN && sum.y == FIX_MIN && sum.z == -11 );
+	fixVec3 difference = fixVecSub( top, fixVecNeg( ten ) );
+	CHECK( difference.x == FIX_MAX && difference.y == FIX_MAX && difference.z == 11 );
+	difference = fixVecSub( bottom, ten );
+	CHECK( difference.x == FIX_MIN && difference.y == FIX_MIN && difference.z == -11 );
+	difference = fixVecSub( top, bottom );
+	CHECK( difference.x == FIX_MAX && difference.y == FIX_MAX && difference.z == 2 );
+}
+
+static void vecAddDifferential(void)
+{
+	// Dense over every magnitude. An exact result inside the range is the old plain add's
+	// bits; outside it, the edge with the sign of the exact result.
+	uint64_t compared = 0;
+	uint64_t saturated = 0;
+	for ( int pass = 0; pass < 2; ++pass )
+	{
+		for ( int i = 0; i < ( 1 << 21 ); ++i )
+		{
+			fixVec3 a = vector( pass == 0 ? 0 : 62 );
+			fixVec3 b = vector( pass == 0 ? 0 : 62 );
+			fixVec3 sum = fixVecAdd( a, b );
+			fixVec3 difference = fixVecSub( a, b );
+			fixed_t as[3] = { a.x, a.y, a.z };
+			fixed_t bs[3] = { b.x, b.y, b.z };
+			fixed_t sums[3] = { sum.x, sum.y, sum.z };
+			fixed_t differences[3] = { difference.x, difference.y, difference.z };
+			for ( int k = 0; k < 3; ++k )
+			{
+				fixInt128 exactSum = fixInt128Add( fixInt128FromI64( as[k] ), fixInt128FromI64( bs[k] ) );
+				fixInt128 exactDifference = fixInt128Sub( fixInt128FromI64( as[k] ), fixInt128FromI64( bs[k] ) );
+				if ( inRange( exactSum ) )
+				{
+					CHECK( sums[k] == oldAdd( as[k], bs[k] ) );
+					compared++;
+				}
+				else
+				{
+					CHECK( sums[k] == ( fixInt128IsNegative( exactSum ) ? FIX_MIN : FIX_MAX ) );
+					saturated++;
+				}
+				if ( inRange( exactDifference ) )
+				{
+					CHECK( differences[k] == oldSub( as[k], bs[k] ) );
+					compared++;
+				}
+				else
+				{
+					CHECK( differences[k] == ( fixInt128IsNegative( exactDifference ) ? FIX_MIN : FIX_MAX ) );
+					saturated++;
+				}
+			}
+		}
+	}
+	CHECK( compared > ( 1u << 22 ) );
+	CHECK( saturated > ( 1u << 20 ) );
+	printf( "vec_add_differential: compared %llu, saturated %llu\n", (unsigned long long)compared, (unsigned long long)saturated );
+}
+
 int main(int argc, char** argv)
 {
 	struct { const char* name; void (*run)(void); } tests[] = {
-		{ "dot_at_the_top", dotAtTheTop }, { "dot_differential", dotDifferential }
+		{ "dot_at_the_top", dotAtTheTop }, { "dot_differential", dotDifferential },
+		{ "vec_add_at_the_top", vecAddAtTheTop }, { "vec_add_differential", vecAddDifferential }
 	};
 	for (size_t i = 0; i < sizeof(tests)/sizeof(tests[0]); ++i)
 	{

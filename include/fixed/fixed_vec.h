@@ -127,16 +127,24 @@ FIX_INLINE int fixClampInt( int a, int lower, int upper )
 // lives with the rest of the scalar math, not in the vector header that happens to have
 // been its first caller.
 
-/// Vector addition.
+/// Vector addition. Under FIX_SATURATE each component saturates (fixAddSaturate).
 FIX_INLINE fixVec3 fixVecAdd( fixVec3 a, fixVec3 b )
 {
+#if defined( FIX_SATURATE )
+	return FIX_LITERAL( fixVec3 ){ fixAddSaturate( a.x, b.x ), fixAddSaturate( a.y, b.y ), fixAddSaturate( a.z, b.z ) };
+#else
 	return FIX_LITERAL( fixVec3 ){ a.x + b.x, a.y + b.y, a.z + b.z };
+#endif
 }
 
-/// Vector subtraction.
+/// Vector subtraction. Under FIX_SATURATE each component saturates (fixSubSaturate).
 FIX_INLINE fixVec3 fixVecSub( fixVec3 a, fixVec3 b )
 {
+#if defined( FIX_SATURATE )
+	return FIX_LITERAL( fixVec3 ){ fixSubSaturate( a.x, b.x ), fixSubSaturate( a.y, b.y ), fixSubSaturate( a.z, b.z ) };
+#else
 	return FIX_LITERAL( fixVec3 ){ a.x - b.x, a.y - b.y, a.z - b.z };
+#endif
 }
 
 /// Vector component-wise multiplication.

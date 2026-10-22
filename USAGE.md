@@ -319,6 +319,8 @@ fixMulDiv( a, b, c )                   // a * b / c, exact 128-bit product, one 
 fixFloor( FIX( 1.5 ) )                 // 1.0
 fixCeil( FIX( 1.5 ) )                  // 2.0
 fixShiftLeft( a, n )                   // << that is defined for negative values
+fixAddSaturate( a, b )                 // a + b held at [FIX_MIN, FIX_MAX]
+fixSubSaturate( a, b )                 // a - b held at [FIX_MIN, FIX_MAX]
 ```
 
 `fixMul` does not check for overflow by default: simulation quantities sit far below the
@@ -766,7 +768,7 @@ Build-time switches:
 
 | macro | effect |
 |---|---|
-| `FIX_SATURATE` | `fixMul`, `fixFromDotRaw`, `fixDot`, `fixLengthSquared` and `fixDistanceSquared` saturate on overflow instead of wrapping, with the sign of the exact result |
+| `FIX_SATURATE` | `fixMul`, `fixFromDotRaw`, `fixDot`, `fixLengthSquared`, `fixDistanceSquared`, `fixVecAdd` and `fixVecSub` saturate on overflow instead of wrapping, with the sign of the exact result |
 | `FIX_FORCE_EMULATED_INT128` | use the emulated 128-bit pair even where `__int128` exists |
 | `NDEBUG` | as usual — **without it, `FIX_ASSERT` compiles into hot math**, including `fixVecLerp`, `fixMakeQuatFromAxisAngle`, `fixNarrow` and `fixWiden` |
 

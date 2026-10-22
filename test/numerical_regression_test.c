@@ -234,7 +234,7 @@ static void squareRoots64(void)
 	for (int bit = 1; bit <= 32; ++bit)
 		for (int offset = -2; offset <= 2; ++offset)
 		{
-			uint64_t root = (UINT64_C(1) << bit) + offset;
+			uint64_t root = (UINT64_C(1) << bit) + (uint64_t)offset;
 			if (root == 0 || root > UINT32_MAX) continue;
 			uint64_t sq = root * root;
 			CHECK(fixISqrt128High(0, sq-1) == root-1);

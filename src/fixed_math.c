@@ -401,6 +401,16 @@ fixed_t fixSmoothCriticallyDamped( fixed_t current, fixed_t target, fixed_t* vel
 	}
 
 	fixed_t omega = fixDiv( 2 * FIX_PI, smoothTime );
+#if defined( FIX_SATURATE )
+	fixed_t onePlus = fixAddSaturate( FIX_ONE, fixMul( omega, deltaTime ) );
+	fixed_t denominator = fixMul( onePlus, onePlus );
+
+	fixed_t spring = fixMul( fixMul( fixMul( omega, omega ), deltaTime ), fixSubSaturate( current, target ) );
+
+	*velocity = fixDiv( fixSubSaturate( *velocity, spring ), denominator );
+
+	return fixAddSaturate( current, fixMul( *velocity, deltaTime ) );
+#else
 	fixed_t onePlus = FIX_ONE + fixMul( omega, deltaTime );
 	fixed_t denominator = fixMul( onePlus, onePlus );
 
@@ -409,6 +419,7 @@ fixed_t fixSmoothCriticallyDamped( fixed_t current, fixed_t target, fixed_t* vel
 	*velocity = fixDiv( *velocity - spring, denominator );
 
 	return current + fixMul( *velocity, deltaTime );
+#endif
 }
 
 fixed_t fixSmoothCriticallyDampedUpDown( fixed_t current, fixed_t target, fixed_t* velocity, fixed_t smoothTimeUp,

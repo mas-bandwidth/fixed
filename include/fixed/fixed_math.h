@@ -43,9 +43,14 @@ FIX_INLINE fixed_t fixUnwindAngle( fixed_t radians )
 }
 
 /// Interpolate a scalar.
+/// Under FIX_SATURATE the subtract and the add saturate.
 FIX_INLINE fixed_t fixLerp( fixed_t a, fixed_t b, fixed_t alpha )
 {
+#if defined( FIX_SATURATE )
+	return fixAddSaturate( fixMul( fixSubSaturate( FIX( 1.0f ), alpha ), a ), fixMul( alpha, b ) );
+#else
 	return fixMul( ( FIX( 1.0f ) - alpha ) , a ) + fixMul( alpha , b );
+#endif
 }
 
 // ---------------------------------------------------------------------------------------------

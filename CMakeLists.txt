@@ -10,6 +10,14 @@ if (MSVC)
     add_compile_options(/std:c11)
 endif()
 
+# Zero warnings on plain MSVC, enforced: the plain-MSVC arm of the CI matrix turns this on.
+# Consumers compile these headers at /W4 /WX, and a warning here (C4146, unary minus on an
+# unsigned value) reached them before CI held the line.
+option(FIX_MSVC_WARNINGS_AS_ERRORS "Compile everything at /W4 /WX on plain MSVC" OFF)
+if (FIX_MSVC_WARNINGS_AS_ERRORS AND CMAKE_C_COMPILER_ID STREQUAL "MSVC")
+    add_compile_options(/W4 /WX)
+endif()
+
 # Determinism: forbid fused multiply-add. Core ops are pure integer; this keeps
 # the few float conversion helpers from fusing across platforms.
 if (NOT MSVC)
@@ -192,6 +200,12 @@ add_executable(fixed_usage_test test/usage_test.c)
 target_link_libraries(fixed_usage_test PRIVATE fixed)
 add_test(NAME usage COMMAND fixed_usage_test)
 
+# Unsigned negation at INT64_MIN, INT64_MAX and their neighbours: hand vectors and hashes
+# frozen from the unary minus spelling the library replaced with 0 - x.
+add_executable(fixed_unsigned_negation_test test/unsigned_negation_test.c)
+target_link_libraries(fixed_unsigned_negation_test PRIVATE fixed)
+add_test(NAME unsigned_negation COMMAND fixed_unsigned_negation_test)
+
 add_executable(fixed_numerical_regression_test test/numerical_regression_test.c)
 target_link_libraries(fixed_numerical_regression_test PRIVATE fixed)
 add_test(NAME numerical_regression COMMAND fixed_numerical_regression_test)
@@ -231,7 +245,7 @@ if (TARGET fixed_emulated)
     # inverse_envelope is in this list for a specific reason: the 256-bit layer the wide
     # arm runs on is written entirely in the fixUInt128 vocabulary, so an emulated build
     # is the only thing that checks the emulated 256-bit arithmetic at all.
-    foreach(suite determinism transcendental wide_time exhaustive aabb port_equality int128 geometry inverse_envelope int256_division numerical_regression)
+    foreach(suite determinism transcendental wide_time exhaustive aabb port_equality int128 geometry inverse_envelope int256_division numerical_regression unsigned_negation)
         add_executable(fixed_${suite}_emulated_test test/${suite}_test.c)
         target_link_libraries(fixed_${suite}_emulated_test PRIVATE fixed_emulated)
         if (NOT WIN32)

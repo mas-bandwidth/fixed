@@ -145,7 +145,7 @@ static REF_NOINLINE nativeInt128 nativeMakeS( uint64_t hi, uint64_t lo )
 static REF_NOINLINE nativeUInt128 refUAdd( nativeUInt128 a, nativeUInt128 b ) { return a + b; }
 static REF_NOINLINE nativeUInt128 refUSub( nativeUInt128 a, nativeUInt128 b ) { return a - b; }
 static REF_NOINLINE nativeUInt128 refUMul( nativeUInt128 a, nativeUInt128 b ) { return a * b; }
-static REF_NOINLINE nativeUInt128 refUNeg( nativeUInt128 a ) { return -a; }
+static REF_NOINLINE nativeUInt128 refUNeg( nativeUInt128 a ) { return (nativeUInt128)0 - a; }
 static REF_NOINLINE nativeUInt128 refUMulU64( uint64_t a, uint64_t b ) { return (nativeUInt128)a * b; }
 static REF_NOINLINE nativeUInt128 refUShl( nativeUInt128 a, int s ) { return a << s; }
 static REF_NOINLINE nativeUInt128 refUShr( nativeUInt128 a, int s ) { return a >> s; }
@@ -206,7 +206,7 @@ static REF_NOINLINE nativeInt128 refSMul( nativeInt128 a, nativeInt128 b )
 {
 	return (nativeInt128)( (nativeUInt128)a * (nativeUInt128)b );
 }
-static REF_NOINLINE nativeInt128 refSNeg( nativeInt128 a ) { return (nativeInt128)( -(nativeUInt128)a ); }
+static REF_NOINLINE nativeInt128 refSNeg( nativeInt128 a ) { return (nativeInt128)( (nativeUInt128)0 - (nativeUInt128)a ); }
 static REF_NOINLINE nativeInt128 refSMulI64( int64_t a, int64_t b ) { return (nativeInt128)a * b; }
 static REF_NOINLINE nativeInt128 refSShl( nativeInt128 a, int s ) { return (nativeInt128)( (nativeUInt128)a << s ); }
 static REF_NOINLINE nativeInt128 refSShr( nativeInt128 a, int s ) { return a >> s; }

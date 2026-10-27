@@ -217,15 +217,15 @@ static REF_NOINLINE nativeInt128 refSDivMod( nativeInt128 a, nativeInt128 b, boo
 {
 	bool negativeA = a < 0;
 	bool negativeB = b < 0;
-	nativeUInt128 ua = negativeA ? -(nativeUInt128)a : (nativeUInt128)a;
-	nativeUInt128 ub = negativeB ? -(nativeUInt128)b : (nativeUInt128)b;
+	nativeUInt128 ua = negativeA ? (nativeUInt128)0 - (nativeUInt128)a : (nativeUInt128)a;
+	nativeUInt128 ub = negativeB ? (nativeUInt128)0 - (nativeUInt128)b : (nativeUInt128)b;
 	if ( wantRemainder )
 	{
 		nativeUInt128 r = refUDivMod( ua, ub, true );
-		return (nativeInt128)( negativeA ? -r : r );
+		return (nativeInt128)( negativeA ? (nativeUInt128)0 - r : r );
 	}
 	nativeUInt128 q = refUDivMod( ua, ub, false );
-	return (nativeInt128)( ( negativeA != negativeB ) ? -q : q );
+	return (nativeInt128)( ( negativeA != negativeB ) ? (nativeUInt128)0 - q : q );
 }
 static REF_NOINLINE nativeInt128 refSDiv( nativeInt128 a, nativeInt128 b ) { return refSDivMod( a, b, false ); }
 static REF_NOINLINE nativeInt128 refSMod( nativeInt128 a, nativeInt128 b ) { return refSDivMod( a, b, true ); }

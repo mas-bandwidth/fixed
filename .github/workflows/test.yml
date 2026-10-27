@@ -65,13 +65,13 @@ jobs:
       - name: Build and run under UBSan
         run: |
           for t in determinism_test transcendental_test exhaustive_test wide_time_test port_equality_test int128_test quantize_test geometry_test aabb_test usage_test inverse_envelope_test int256_division_test numerical_regression_test unsigned_negation_test; do
-            for arm in "" "-DFIX_FORCE_EMULATED_INT128"; do
+            for arm in "" "-DFIX_FORCE_EMULATED_INT128" "-D_WIN32"; do
               clang -O2 -fsanitize=undefined -fno-sanitize-recover=all $arm \
                 -I include "test/$t.c" src/fixed_math.c src/fixed_vec.c -lm -o "/tmp/$t"
               "/tmp/$t"
             done
           done
-          for arm in "" "-DFIX_FORCE_EMULATED_INT128"; do
+          for arm in "" "-DFIX_FORCE_EMULATED_INT128" "-D_WIN32"; do
             clang -O2 -DFIX_SATURATE -fsanitize=undefined -fno-sanitize-recover=all $arm \
               -I include test/numerical_regression_test.c src/fixed_math.c src/fixed_vec.c -lm -o /tmp/numerical_saturated_test
             /tmp/numerical_saturated_test

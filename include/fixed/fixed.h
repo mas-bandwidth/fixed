@@ -160,7 +160,9 @@ FIX_ALWAYS_INLINE fixInt128 fixInt128Div( fixInt128 a, fixInt128 b )
 				q |= (fixUInt128)1 << i;
 			}
 		}
-		return ( a < 0 ) != ( b < 0 ) ? -(fixInt128)q : (fixInt128)q;
+		// 0 - q, not -(fixInt128)q: q is 2^127 for INT128_MIN / 1, whose signed negation
+		// overflows. The unsigned form wraps to INT128_MIN, the same bits a / b gives.
+		return ( a < 0 ) != ( b < 0 ) ? (fixInt128)( (fixUInt128)0 - q ) : (fixInt128)q;
 	}
 #else
 	return a / b;

@@ -258,9 +258,9 @@ static bool sameS( fixEmuInt128 emu, nativeInt128 nat )
 	#define CHECK_S( emuValue, nativeValue ) ( sameS( ( emuValue ), ( nativeValue ) ) ? 0 : 1 )
 	#define CHECK_64( emuValue, nativeValue ) ( ( emuValue ) == ( nativeValue ) ? 0 : 1 )
 #else
-	#define CHECK_U( emuValue, nativeValue ) ( 0 )
-	#define CHECK_S( emuValue, nativeValue ) ( 0 )
-	#define CHECK_64( emuValue, nativeValue ) ( 0 )
+	#define CHECK_U( emuValue, nativeValue ) ( (void)( emuValue ), 0 )
+	#define CHECK_S( emuValue, nativeValue ) ( (void)( emuValue ), 0 )
+	#define CHECK_64( emuValue, nativeValue ) ( (void)( emuValue ), 0 )
 #endif
 
 // ================================================================================
@@ -318,6 +318,9 @@ static uint64_t sweepUnsignedArith( int perturb, uint64_t samples )
 		bad += CHECK_U( sum, refUAdd( na, nb ) );
 		bad += CHECK_U( product, refUMul( na, nb ) );
 		bad += CHECK_U( bumpU( fixEmuUInt128Sub( a, b ), perturb ), refUSub( na, nb ) );
+#else
+		(void)sum;
+		(void)product;
 #endif
 	}
 
@@ -397,6 +400,9 @@ static uint64_t sweepUnsignedShifts( int perturb, uint64_t samples )
 		nativeUInt128 na = nativeMakeU( ah, al );
 		bad += CHECK_U( left, refUShl( na, shift ) );
 		bad += CHECK_U( right, refUShr( na, shift ) );
+#else
+		(void)left;
+		(void)right;
 #endif
 	}
 
@@ -456,6 +462,9 @@ static uint64_t sweepUnsignedBitwise( int perturb, uint64_t samples )
 		bad += CHECK_U( complement, refUNot( na ) );
 		bad += CHECK_U( bumpU( fixEmuUInt128And( a, b ), perturb ), refUAnd( na, nb ) );
 		bad += CHECK_U( bumpU( fixEmuUInt128Or( a, b ), perturb ), refUOr( na, nb ) );
+#else
+		(void)exclusive;
+		(void)complement;
 #endif
 	}
 
@@ -516,6 +525,8 @@ static uint64_t sweepUnsignedCompare( int perturb, uint64_t samples )
 				  ( fixEmuUInt128Ge( a, seen ) ? 16 : 0 );
 #if HAS_NATIVE
 		bad += CHECK_64( emu, refUCmp( nativeMakeU( a.hi, a.lo ), nativeMakeU( b.hi, b.lo ) ) );
+#else
+		(void)emu;
 #endif
 	}
 
@@ -582,6 +593,9 @@ static uint64_t sweepUnsignedDivMod( int perturb, uint64_t samples )
 		nativeUInt128 nb = nativeMakeU( bh, bl );
 		bad += CHECK_U( quotient, refUDiv( na, nb ) );
 		bad += CHECK_U( remainder, refUMod( na, nb ) );
+#else
+		(void)quotient;
+		(void)remainder;
 #endif
 		// The reconstruction identity, checked everywhere because it needs no oracle:
 		// quotient * divisor + remainder must be the dividend, and the remainder must be
@@ -644,6 +658,9 @@ static uint64_t sweepSignedArith( int perturb, uint64_t samples )
 		bad += CHECK_S( product, refSMul( na, nb ) );
 		bad += CHECK_S( bumpS( fixEmuInt128Sub( a, b ), perturb ), refSSub( na, nb ) );
 		bad += CHECK_S( bumpS( fixEmuInt128Neg( a ), perturb ), refSNeg( na ) );
+#else
+		(void)sum;
+		(void)product;
 #endif
 	}
 
@@ -734,6 +751,9 @@ static uint64_t sweepSignedShifts( int perturb, uint64_t samples )
 		nativeInt128 na = nativeMakeS( ah, al );
 		bad += CHECK_S( left, refSShl( na, shift ) );
 		bad += CHECK_S( right, refSShr( na, shift ) );
+#else
+		(void)left;
+		(void)right;
 #endif
 		// Oracle-free and true on every platform: an arithmetic right shift can never
 		// turn a negative value non-negative, at any count.
@@ -786,6 +806,8 @@ static uint64_t sweepSignedCompare( int perturb, uint64_t samples )
 				  ( fixEmuInt128Ge( a, seen ) ? 16 : 0 );
 #if HAS_NATIVE
 		bad += CHECK_64( emu, refSCmp( nativeMakeS( a.hi, a.lo ), nativeMakeS( b.hi, b.lo ) ) );
+#else
+		(void)emu;
 #endif
 	}
 
@@ -860,6 +882,9 @@ static uint64_t sweepSignedDivMod( int perturb, uint64_t samples )
 		nativeInt128 nb = nativeMakeS( bh, bl );
 		bad += CHECK_S( quotient, refSDiv( na, nb ) );
 		bad += CHECK_S( remainder, refSMod( na, nb ) );
+#else
+		(void)quotient;
+		(void)remainder;
 #endif
 		// Reconstruction, oracle-free: quotient * divisor + remainder is the dividend.
 		fixEmuInt128 rebuilt =

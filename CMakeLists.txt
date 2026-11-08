@@ -229,6 +229,33 @@ if (NOT WIN32)
 endif()
 add_test(NAME saturate COMMAND fixed_saturate_test)
 
+# THE WIDE AND TIME OVERFLOW RULE against an exact 256-bit reference written on 64-bit limbs:
+# the default build wraps add, subtract, negate and multiply and saturates division and
+# narrowing; FIX_SATURATE saturates all of them. One frozen hash per policy, and the
+# emulated arm of each (below) is held to the same hash.
+add_executable(fixed_wide_arith_test test/wide_arith_test.c)
+target_link_libraries(fixed_wide_arith_test PRIVATE fixed)
+add_test(NAME wide_arith COMMAND fixed_wide_arith_test)
+
+add_executable(fixed_wide_arith_saturated_test test/wide_arith_test.c src/fixed_math.c src/fixed_vec.c)
+target_include_directories(fixed_wide_arith_saturated_test PRIVATE include)
+target_compile_definitions(fixed_wide_arith_saturated_test PRIVATE FIX_SATURATE)
+if (NOT WIN32)
+    target_link_libraries(fixed_wide_arith_saturated_test PRIVATE m)
+endif()
+add_test(NAME wide_arith_saturated COMMAND fixed_wide_arith_saturated_test)
+
+# Its control plants the wrap fixWideAddSaturate removes (FIX_WIDE_NEGATIVE_CONTROL). MUST
+# fail: if it passes, no case reaches a wide sum past the edge.
+add_executable(fixed_wide_arith_negative_control test/wide_arith_test.c src/fixed_math.c src/fixed_vec.c)
+target_include_directories(fixed_wide_arith_negative_control PRIVATE include)
+target_compile_definitions(fixed_wide_arith_negative_control PRIVATE FIX_SATURATE FIX_WIDE_NEGATIVE_CONTROL)
+if (NOT WIN32)
+    target_link_libraries(fixed_wide_arith_negative_control PRIVATE m)
+endif()
+add_test(NAME wide_arith_negative_control COMMAND fixed_wide_arith_negative_control)
+set_tests_properties(wide_arith_negative_control PROPERTIES WILL_FAIL TRUE)
+
 option(FIX_BUILD_BENCHMARKS "Build the numerical public-API microbenchmarks" OFF)
 if (FIX_BUILD_BENCHMARKS)
     add_executable(fixed_numerical_bench benchmark/numerical_bench.c)
@@ -245,7 +272,7 @@ if (TARGET fixed_emulated)
     # inverse_envelope is in this list for a specific reason: the 256-bit layer the wide
     # arm runs on is written entirely in the fixUInt128 vocabulary, so an emulated build
     # is the only thing that checks the emulated 256-bit arithmetic at all.
-    foreach(suite determinism transcendental wide_time exhaustive aabb port_equality int128 geometry inverse_envelope int256_division numerical_regression unsigned_negation)
+    foreach(suite determinism transcendental wide_time wide_arith exhaustive aabb port_equality int128 geometry inverse_envelope int256_division numerical_regression unsigned_negation)
         add_executable(fixed_${suite}_emulated_test test/${suite}_test.c)
         target_link_libraries(fixed_${suite}_emulated_test PRIVATE fixed_emulated)
         if (NOT WIN32)
@@ -269,6 +296,14 @@ if (TARGET fixed_emulated)
         target_link_libraries(fixed_saturate_emulated_test PRIVATE m)
     endif()
     add_test(NAME saturate_emulated COMMAND fixed_saturate_emulated_test)
+
+    add_executable(fixed_wide_arith_saturated_emulated_test test/wide_arith_test.c src/fixed_math.c src/fixed_vec.c)
+    target_include_directories(fixed_wide_arith_saturated_emulated_test PRIVATE include)
+    target_compile_definitions(fixed_wide_arith_saturated_emulated_test PRIVATE FIX_SATURATE FIX_FORCE_EMULATED_INT128)
+    if (NOT WIN32)
+        target_link_libraries(fixed_wide_arith_saturated_emulated_test PRIVATE m)
+    endif()
+    add_test(NAME wide_arith_saturated_emulated COMMAND fixed_wide_arith_saturated_emulated_test)
 
     # And the control for the emulated arm: the exhaustive suite with the same deliberate
     # 1-ulp error, compiled against the emulated library. Without this, an emulated build

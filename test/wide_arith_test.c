@@ -279,12 +279,14 @@ static fixedWide_t saturateWide( ref256 exact )
 	return wideFromRef( exact );
 }
 
+#if !defined( FIX_SATURATE )
 // An exact result under the default build's rule for add, subtract, negate and multiply:
 // the low 128 bits, as the implementation's unsigned arithmetic leaves them.
 static fixedWide_t wrapWide( ref256 exact )
 {
 	return wideFromRef( exact );
 }
+#endif
 
 static fixedWide_t policyWide( ref256 exact )
 {

@@ -278,7 +278,7 @@ static void testVectors( void )
 	// fixSign is 1 at zero, not 0. That is the documented behaviour and fixSafeScale
 	// depends on it: a zero scale must come out positive, not vanish.
 	CHECK( VecEq( fixSign( V( 3.0f, -3.0f, 0.0f ) ), V( 1.0f, -1.0f, 1.0f ) ) );
-	CHECK( VecEq( fixSafeScale( V( 2.0f, -2.0f, 0.0f ) ), V( 2.0f, -2.0f, FIX_MIN_SCALE / 65536.0f ) ) );
+	CHECK( VecEq( fixSafeScale( V( 2.0f, -2.0f, 0.0f ) ), V( 2.0f, -2.0f, (float)FIX_MIN_SCALE / 65536.0f ) ) );
 	CHECK( fixSafeScale( V( 0.0f, 0.0f, 0.0f ) ).x == FIX_MIN_SCALE );
 	CHECK( fixSafeScale( V( -0.001f, 0.0f, 0.0f ) ).x == -FIX_MIN_SCALE );
 

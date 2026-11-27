@@ -10,12 +10,27 @@ if (MSVC)
     add_compile_options(/std:c11)
 endif()
 
-# Zero warnings on plain MSVC, enforced: the plain-MSVC arm of the CI matrix turns this on.
-# Consumers compile these headers at /W4 /WX, and a warning here (C4146, unary minus on an
-# unsigned value) reached them before CI held the line.
+# ZERO WARNINGS, AS ERRORS, BY DEFAULT. Every target here -- the library, both 128-bit
+# arms, every test and the benchmark -- builds under the strict set, and any warning
+# fails the build. A consumer that vendors this file and needs its own policy turns
+# FIX_WARNINGS_AS_ERRORS off; it keeps the warnings and loses only the -Werror / /WX.
+# ClangCL takes the MSVC spelling (MSVC is true there) and maps /W4 to clang's own set.
+# FIX_MSVC_WARNINGS_AS_ERRORS, the earlier plain-MSVC switch, still forces /WX on plain
+# MSVC when FIX_WARNINGS_AS_ERRORS is off: consumers compile these headers at /W4 /WX, and
+# a warning here (C4146, unary minus on an unsigned value) reached them before CI held the line.
+option(FIX_WARNINGS_AS_ERRORS "Fail the build on any compiler warning" ON)
 option(FIX_MSVC_WARNINGS_AS_ERRORS "Compile everything at /W4 /WX on plain MSVC" OFF)
-if (FIX_MSVC_WARNINGS_AS_ERRORS AND CMAKE_C_COMPILER_ID STREQUAL "MSVC")
-    add_compile_options(/W4 /WX)
+if (MSVC)
+    add_compile_options(/W4)
+    if (FIX_WARNINGS_AS_ERRORS OR (FIX_MSVC_WARNINGS_AS_ERRORS AND CMAKE_C_COMPILER_ID STREQUAL "MSVC"))
+        add_compile_options(/WX)
+    endif()
+else()
+    add_compile_options(-Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion
+        -Wcast-qual -Wformat=2 -Wundef -Wdouble-promotion)
+    if (FIX_WARNINGS_AS_ERRORS)
+        add_compile_options(-Werror)
+    endif()
 endif()
 
 # Determinism: forbid fused multiply-add. Core ops are pure integer; this keeps

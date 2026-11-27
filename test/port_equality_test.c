@@ -494,7 +494,7 @@ static uint64_t sweepLog2( int perturb, uint64_t samples )
 		if ( got != want ) bad++;
 	}
 
-	rngState = 0x1234567800000001ULL + (uint64_t)perturb;
+	rngState = UINT64_C(0x1234567800000001) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		fixed_t a = randomFixed();
@@ -526,7 +526,7 @@ static uint64_t sweepExp2( int perturb, uint64_t samples )
 		if ( got != want ) bad++;
 	}
 
-	rngState = 0x2234567800000002ULL + (uint64_t)perturb;
+	rngState = UINT64_C(0x2234567800000002) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		fixed_t a = randomFixed();
@@ -556,7 +556,7 @@ static uint64_t sweepPow( int perturb, uint64_t samples )
 		}
 	}
 
-	rngState = 0x3234567800000003ULL + (uint64_t)perturb;
+	rngState = UINT64_C(0x3234567800000003) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		fixed_t base = randomFixed();
@@ -606,7 +606,7 @@ static uint64_t sweepAtan2( int perturb, uint64_t samples )
 		}
 	}
 
-	rngState = 0x4234567800000004ULL + (uint64_t)perturb;
+	rngState = UINT64_C(0x4234567800000004) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		fixed_t y = randomFixed();
@@ -645,7 +645,7 @@ static uint64_t sweepLerp( int perturb, uint64_t samples )
 		}
 	}
 
-	rngState = 0x5234567800000005ULL + (uint64_t)perturb;
+	rngState = UINT64_C(0x5234567800000005) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		fixed_t a = lerpOperand();
@@ -679,7 +679,7 @@ static uint64_t sweepFix30FromFix( int perturb, uint64_t samples )
 		if ( got.raw != want ) bad++;
 	}
 
-	rngState = 0x6234567800000006ULL + (uint64_t)perturb;
+	rngState = UINT64_C(0x6234567800000006) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		// half inside the domain where the shift is exact, half anywhere at all
@@ -717,7 +717,7 @@ static uint64_t sweepFixFromFix30( int perturb, uint64_t samples )
 		if ( got != want ) bad++;
 	}
 
-	rngState = 0x7234567800000007ULL + (uint64_t)perturb;
+	rngState = UINT64_C(0x7234567800000007) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		int32_t raw = (int32_t)nextRandom();
@@ -744,7 +744,7 @@ static uint64_t sweepFix30ToDouble( int perturb, uint64_t samples )
 		if ( memcmp( &got, &want, sizeof( double ) ) != 0 ) bad++;
 	}
 
-	rngState = 0x8234567800000008ULL + (uint64_t)perturb;
+	rngState = UINT64_C(0x8234567800000008) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		int32_t raw = (int32_t)nextRandom();
@@ -788,7 +788,7 @@ static uint64_t sweepFix30FromDouble( int perturb, uint64_t samples )
 		if ( got.raw != want ) bad++;
 	}
 
-	rngState = 0x9234567800000009ULL + (uint64_t)perturb;
+	rngState = UINT64_C(0x9234567800000009) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		// deterministic finite doubles spanning well past both saturation edges
@@ -830,7 +830,7 @@ static uint64_t sweepNormalize30( int perturb, uint64_t samples )
 		if ( got != want ) bad++;
 	}
 
-	rngState = 0xA23456780000000AULL + (uint64_t)perturb;
+	rngState = UINT64_C(0xA23456780000000A) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		int64_t raw = (int64_t)(int32_t)nextRandom();
@@ -902,7 +902,7 @@ static uint64_t sweepSmooth( int perturb, uint64_t samples )
 		}
 	}
 
-	rngState = 0xB23456780000000BULL + (uint64_t)perturb;
+	rngState = UINT64_C(0xB23456780000000B) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		fixed_t current = (fixed_t)( (int64_t)nextRandom() >> 35 );
@@ -961,7 +961,7 @@ static uint64_t sweepSmoothUpDown( int perturb, uint64_t samples )
 		}
 	}
 
-	rngState = 0xC23456780000000CULL + (uint64_t)perturb;
+	rngState = UINT64_C(0xC23456780000000C) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		fixed_t current = (fixed_t)( (int64_t)nextRandom() >> 35 );
@@ -1036,7 +1036,7 @@ static uint64_t sweepInt128MinMax( int perturb, uint64_t samples )
 		}
 	}
 
-	rngState = 0xD23456780000000DULL + (uint64_t)perturb;
+	rngState = UINT64_C(0xD23456780000000D) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		// keep one below the top so the +1 perturbation cannot itself overflow

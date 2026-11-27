@@ -302,7 +302,7 @@ static uint64_t sweepUnsignedArith( int perturb, uint64_t samples )
 		}
 	}
 
-	rngState = 0xA1000000ULL + (uint64_t)perturb;
+	rngState = UINT64_C(0xA1000000) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		uint64_t ah = nextRandom(), al = nextRandom(), bh = nextRandom(), bl = nextRandom();
@@ -348,7 +348,7 @@ static uint64_t sweepUnsignedMul64( int perturb, uint64_t samples )
 		}
 	}
 
-	rngState = 0xA2000000ULL + (uint64_t)perturb;
+	rngState = UINT64_C(0xA2000000) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		uint64_t a = nextRandom(), b = nextRandom();
@@ -387,7 +387,7 @@ static uint64_t sweepUnsignedShifts( int perturb, uint64_t samples )
 		}
 	}
 
-	rngState = 0xA3000000ULL + (uint64_t)perturb;
+	rngState = UINT64_C(0xA3000000) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		uint64_t ah = nextRandom(), al = nextRandom();
@@ -446,7 +446,7 @@ static uint64_t sweepUnsignedBitwise( int perturb, uint64_t samples )
 		}
 	}
 
-	rngState = 0xA4000000ULL + (uint64_t)perturb;
+	rngState = UINT64_C(0xA4000000) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		uint64_t ah = nextRandom(), al = nextRandom(), bh = nextRandom(), bl = nextRandom();
@@ -513,7 +513,7 @@ static uint64_t sweepUnsignedCompare( int perturb, uint64_t samples )
 	// uses b == a or b == a - 1, the two arrangements a +1 on b always moves. (b == a + 1
 	// would NOT move: a < a + 1 and a < a + 2 read the same.) Adjacency is also where
 	// comparison bugs actually live: the high lanes tie and the low lanes decide.
-	rngState = 0xA5000000ULL + (uint64_t)perturb;
+	rngState = UINT64_C(0xA5000000) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		fixEmuUInt128 a = fixEmuUInt128Make( nextRandom(), nextRandom() );
@@ -571,7 +571,7 @@ static uint64_t sweepUnsignedDivMod( int perturb, uint64_t samples )
 		}
 	}
 
-	rngState = 0xA6000000ULL + (uint64_t)perturb;
+	rngState = UINT64_C(0xA6000000) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		uint64_t ah = nextRandom(), al = nextRandom();
@@ -642,7 +642,7 @@ static uint64_t sweepSignedArith( int perturb, uint64_t samples )
 		}
 	}
 
-	rngState = 0xB1000000ULL + (uint64_t)perturb;
+	rngState = UINT64_C(0xB1000000) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		uint64_t ah = nextRandom(), al = nextRandom(), bh = nextRandom(), bl = nextRandom();
@@ -688,7 +688,7 @@ static uint64_t sweepSignedMul64( int perturb, uint64_t samples )
 		}
 	}
 
-	rngState = 0xB2000000ULL + (uint64_t)perturb;
+	rngState = UINT64_C(0xB2000000) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		int64_t a = (int64_t)nextRandom();
@@ -738,7 +738,7 @@ static uint64_t sweepSignedShifts( int perturb, uint64_t samples )
 		}
 	}
 
-	rngState = 0xB3000000ULL + (uint64_t)perturb;
+	rngState = UINT64_C(0xB3000000) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		uint64_t ah = nextRandom(), al = nextRandom();
@@ -794,7 +794,7 @@ static uint64_t sweepSignedCompare( int perturb, uint64_t samples )
 	}
 
 	// Adjacent operands, for the reason spelled out in sweepUnsignedCompare above.
-	rngState = 0xB4000000ULL + (uint64_t)perturb;
+	rngState = UINT64_C(0xB4000000) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		fixEmuInt128 a = fixEmuInt128Make( nextRandom(), nextRandom() );
@@ -863,7 +863,7 @@ static uint64_t sweepSignedDivMod( int perturb, uint64_t samples )
 		}
 	}
 
-	rngState = 0xB5000000ULL + (uint64_t)perturb;
+	rngState = UINT64_C(0xB5000000) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		uint64_t ah = nextRandom(), al = nextRandom();
@@ -937,7 +937,7 @@ static uint64_t sweepConversions( int perturb, uint64_t samples )
 		}
 	}
 
-	rngState = 0xC1000000ULL + (uint64_t)perturb;
+	rngState = UINT64_C(0xC1000000) + (uint64_t)perturb;
 	for ( uint64_t i = 0; i < samples; i++ )
 	{
 		int64_t v = (int64_t)nextRandom();

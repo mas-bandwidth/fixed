@@ -292,7 +292,9 @@ int main( void )
 			fixVec3 rt = fixInvRotateVector( q, fixRotateVector( q, p ) );
 			{
 				fixed_t dx = rt.x - p.x, dy = rt.y - p.y, dz = rt.z - p.z;
-				if ( dx < 0 ) dx = -dx; if ( dy < 0 ) dy = -dy; if ( dz < 0 ) dz = -dz;
+				if ( dx < 0 ) dx = -dx;
+				if ( dy < 0 ) dy = -dy;
+				if ( dz < 0 ) dz = -dz;
 				CHECK( dx <= 96 && dy <= 96 && dz <= 96 ); // rotation roundtrip within sub-milliunit
 			}
 			// transform roundtrip
@@ -300,7 +302,9 @@ int main( void )
 			fixVec3 tp = fixInvTransformPoint( t, fixTransformPoint( t, p ) );
 			{
 				fixed_t dx = tp.x - p.x, dy = tp.y - p.y, dz = tp.z - p.z;
-				if ( dx < 0 ) dx = -dx; if ( dy < 0 ) dy = -dy; if ( dz < 0 ) dz = -dz;
+				if ( dx < 0 ) dx = -dx;
+				if ( dy < 0 ) dy = -dy;
+				if ( dz < 0 ) dz = -dz;
 				CHECK( dx <= 96 && dy <= 96 && dz <= 96 );
 			}
 		}

@@ -25,7 +25,13 @@ static int fails = 0;
 	} while ( 0 )
 
 // Frozen: captured on arm64 clang, must match on every platform forever.
-#define EXPECTED_WIDE_HASH 0xeedc16ea642ffb5fULL
+//
+// Re-frozen once, deliberately, from 0xeedc16ea642ffb5f when narrowing moved its lower edge
+// from INT64_MIN to FIX_MIN (-INT64_MAX): INT64_MIN is not a fixed_t quantity
+// (fixIsValidFixed rejects it) and fixDiv's clamp never produced it, so a wide value
+// narrowing to it was a correctness bug, not a contract. The probes below at W( INT64_MIN )
+// and one past it are the inputs that moved; everything else in the sweep is bit-identical.
+#define EXPECTED_WIDE_HASH 0xaecf380e0907b933ULL
 
 // 128-bit values, comparisons and shifts spelled through the seam rather than with bare
 // operators, so this suite compiles on the emulated arm as well as the native one. That
@@ -69,13 +75,13 @@ int main( void )
 	CHECK( fixWideToFixed( fixWideFromFixed( 0 ) ) == 0 );
 	CHECK( fixWideToFixed( fixWideFromFixed( FIX_ONE ) ) == FIX_ONE );
 	CHECK( fixWideToFixed( fixWideFromFixed( INT64_MAX ) ) == INT64_MAX );
-	CHECK( fixWideToFixed( fixWideFromFixed( INT64_MIN ) ) == INT64_MIN );
+	CHECK( fixWideToFixed( fixWideFromFixed( INT64_MIN ) ) == FIX_MIN );
 
 	// saturation: one past local range in each direction
 	CHECK( fixWideToFixed( fixWideAdd( W( INT64_MAX ), W( 1 ) ) ) == INT64_MAX );
-	CHECK( fixWideToFixed( fixWideSub( W( INT64_MIN ), W( 1 ) ) ) == INT64_MIN );
+	CHECK( fixWideToFixed( fixWideSub( W( INT64_MIN ), W( 1 ) ) ) == FIX_MIN );
 	CHECK( fixWideToFixed( WSHL( 1, 100 ) ) == INT64_MAX );
-	CHECK( fixWideToFixed( fixWideNeg( WSHL( 1, 100 ) ) ) == INT64_MIN );
+	CHECK( fixWideToFixed( fixWideNeg( WSHL( 1, 100 ) ) ) == FIX_MIN );
 
 	// the boundary subtract: nearby pair at a ludicrous base is exact
 	{
@@ -86,6 +92,11 @@ int main( void )
 		CHECK( fixWideSubToFixed( b, a ) == -FIX( 2.25 ) );
 		// a pair separated by more than local range saturates, loudly defined
 		CHECK( fixWideSubToFixed( fixWideAdd( base, WSHL( 1, 70 ) ), base ) == INT64_MAX );
+		CHECK( fixWideSubToFixed( base, fixWideAdd( base, WSHL( 1, 70 ) ) ) == FIX_MIN );
+		// and a separation of 2^127, which does not fit the 128-bit difference either: the
+		// sign of the exact difference, not of the wrapped one
+		CHECK( fixWideSubToFixed( WSHL( 1, 126 ), fixWideNeg( WSHL( 1, 126 ) ) ) == FIX_MAX );
+		CHECK( fixWideSubToFixed( fixWideNeg( WSHL( 1, 126 ) ), WSHL( 1, 126 ) ) == FIX_MIN );
 	}
 
 	// ---- wide: min/max ----
@@ -152,6 +163,14 @@ int main( void )
 	CHECK( FIX_TIME( -1.0 ) == -FIX_TIME_ONE );
 	CHECK( fixTimeFromFixed( FIX_ONE ) == FIX_TIME_ONE );
 	CHECK( fixTimeFromFixed( -FIX_ONE ) == -FIX_TIME_ONE );
+	// the last second that fits Q32.32 and the first that does not, in both directions:
+	// the shift used to wrap 2^31 s to INT64_MIN
+	CHECK( fixTimeFromFixed( ( (fixed_t)1 << 47 ) - 1 ) == INT64_MAX - 0xFFFF );
+	CHECK( fixTimeFromFixed( (fixed_t)1 << 47 ) == FIX_TIME_MAX );
+	CHECK( fixTimeFromFixed( -( ( (fixed_t)1 << 47 ) - 1 ) ) == -( INT64_MAX - 0xFFFF ) );
+	CHECK( fixTimeFromFixed( -( (fixed_t)1 << 47 ) ) == FIX_TIME_MIN );
+	CHECK( fixTimeFromFixed( FIX_MAX ) == FIX_TIME_MAX );
+	CHECK( fixTimeFromFixed( FIX_MIN ) == FIX_TIME_MIN );
 	CHECK( fixTimeToFixed( FIX_TIME_ONE ) == FIX_ONE );
 	CHECK( fixTimeFromSeconds( 2.5 ) == ( (fixTime)5 << 31 ) );
 	CHECK( fixTimeToSeconds( FIX_TIME_ONE ) == 1.0 );

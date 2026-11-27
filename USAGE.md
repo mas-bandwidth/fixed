@@ -174,6 +174,21 @@ fixVec3 separation = fixPosWideSub( shipB, shipA );   // exact if it fits Q48.16
 Because `fixedWide_t` may be a struct, **comparisons and arithmetic go through functions**
 — `fixWideAdd`, `fixWideLt` and the rest — not `+` and `<`.
 
+Wide and time arithmetic: `fixWideAdd`, `fixWideSub`, `fixWideNeg`, `fixWideOffset`,
+`fixWideMul` and `fixWideMulFixed` (round to nearest on a 256-bit product), `fixWideDiv` and
+`fixWideDivFixed` (truncate toward zero), and for time `fixTimeAdd`, `fixTimeSub`,
+`fixTimeNeg`, `fixTimeMulFixed`, `fixTimeDivFixed` and the ratio `fixTimeDiv` (a `fixed_t`).
+
+**The overflow rule is `fixed_t`'s, operation by operation.** Add, subtract, negate, offset
+and multiply wrap in the default build (two's complement through the unsigned type, so the
+wrap is defined, which `fixed_t`'s own `+` is not) and saturate under `FIX_SATURATE`, as
+`fixVecAdd` and `fixMul` do. Division and every narrowing (`fixWideToFixed`,
+`fixWideSubToFixed`, `fixTimeFromFixed`) saturate in every build, as `fixDiv` does; division
+by zero saturates with the sign of the numerator and `0 / 0 == 0`. Wide saturation lands on
+`FIX_WIDE_MIN`/`FIX_WIDE_MAX` (±(2^127 - 1)), time on `FIX_TIME_MIN`/`FIX_TIME_MAX`
+(±`INT64_MAX`), narrowing on `FIX_MIN`/`FIX_MAX`: never on a reserved minimum.
+`test/wide_arith_test.c` holds every one of them against an exact 256-bit reference.
+
 **Reach for it for**: world positions in a game whose world exceeds ±1.4e14 units. If your
 world fits in `fixed_t`, use `fixVec3` and ignore this family entirely.
 
@@ -225,12 +240,12 @@ an implementation detail** — two machines that round differently diverge.
 | `fixed30_t` | `fixed_t` | `fixFromFix30( a )` | to nearest, ties toward positive infinity |
 | `fixed30_t` | `double` | `fix30ToDouble( a )` | exact |
 | `double` | `fixed30_t` | `fix30FromDouble( x )` | to nearest, ties away from zero, saturating |
-| `fixed_t` | `fixTime` | `fixTimeFromFixed( s )` | exact (left shift) |
+| `fixed_t` | `fixTime` | `fixTimeFromFixed( s )` | exact below 2^31 s; saturates outside |
 | `fixTime` | `fixed_t` | `fixTimeToFixed( t )` | to nearest, ties toward positive infinity |
 | `double` | `fixTime` | `fixTimeFromSeconds( s )` | to nearest, ties away from zero |
 | `fixTime` | `double` | `fixTimeToSeconds( t )` | IEEE round-to-nearest |
 | `fixed_t` | `fixedWide_t` | `fixWideFromFixed( a )` | exact |
-| `fixedWide_t` | `fixed_t` | `fixWideToFixed( a )` | exact in range; saturates outside |
+| `fixedWide_t` | `fixed_t` | `fixWideToFixed( a )` | exact in range; saturates to `FIX_MIN`/`FIX_MAX` outside |
 | `fixVec3` | `fixPosWide` | `fixPosWideFromVec3( v )` | exact |
 | `fixPosWide` | `fixVec3` | `fixPosWideToVec3( p )` | exact in range; saturates per component |
 | `fixVec3` | `fixPos` | `fixToPos( v )` | exact (same representation) |
@@ -295,6 +310,8 @@ delayed, and invisible until scale.
 | `FIX_MIN_SCALE` | 0.01, the floor `fixSafeScale` keeps scales away from zero |
 | `FIX30_FRACTION_BITS` / `FIX30_ONE` / `FIX30_SHIFT` | 30 / 1.0 in Q2.30 / 14 |
 | `FIX_TIME( x )` / `FIX_TIME_FRACTION_BITS` / `FIX_TIME_ONE` / `FIX_TIME_HALF` | the Q32.32 set |
+| `FIX_TIME_MAX` / `FIX_TIME_MIN` | `INT64_MAX` / `-INT64_MAX`, the time saturation values |
+| `FIX_WIDE_MAX` / `FIX_WIDE_MIN` | ±(2^127 - 1), the wide saturation values |
 
 Fixed point has **no NaN and no infinity**. `FIX_MAX` plays the role `FLT_MAX` did, and
 division by zero saturates with the sign of the numerator (`0 / 0 == 0`) rather than

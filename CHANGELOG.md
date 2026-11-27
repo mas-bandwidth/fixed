@@ -1,5 +1,20 @@
 # nova-tools changelog
 
+## v1.6.0 — 2026-11-27
+
+Cut from d537f4e9c9ef2061734a28cd1c0aaf66900c1646. 5 pull requests since v1.5.0.
+
+Dogfood gate waived: fixed is a C math library, not a nova tool: it has no nova CLI reference or dogfood receipts, and no sprint spend store or provider spend
+
+Spend gate waived: fixed is a C math library, not a nova tool: it has no nova CLI reference or dogfood receipts, and no sprint spend store or provider spend (window 2026-10-27T00:00:00Z..2026-11-27T17:17:00Z)
+- unread: --spend-store <addr> names no sprint store, so the recorded spend cannot be read
+
+- #67 changelog: the v1.5.0 cut record
+- #65 ci: Dependabot pull requests skip the PR-author check
+- #68 Wide and time follow fixed_t's overflow rule; fixWideMul and fixWideDiv
+- #69 ci: a wasm32 leg (Emscripten 6.0.13, run under node)
+- #63 Strict warnings as errors by default; clear the 35 in the tests
+
 ## v1.5.0 — 2026-10-27
 
 Cut from 8dda4fcdae38a7fde0a63bd9ba8edc3f2f75ad1c. 14 pull requests since v1.4.0.

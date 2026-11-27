@@ -10,7 +10,9 @@
 #                  include/fixed/fixed_int128.h. This arm asserts THE SAME
 #                  FROZEN HASHES, which is what makes "the emulation is
 #                  bit-identical to native" a checked guarantee rather than a
-#                  claim. Visual C++ support is a hard requirement here.
+#                  claim. Visual C++ support is a hard requirement here. It
+#                  also builds at /W4 /WX, so a warning in the headers fails
+#                  here before it reaches a consumer.
 #
 # Every arm also runs the whole suite a second time against fixed_emulated (the
 # library compiled with FIX_FORCE_EMULATED_INT128), so the emulated path is
@@ -35,7 +37,7 @@ jobs:
             configure: cmake -S . -B build -T ClangCL -DFIX_BUILD_BENCHMARKS=ON -DFIX_WARNINGS_AS_ERRORS=OFF
           - name: windows-msvc
             os: windows-latest
-            configure: cmake -S . -B build -DFIX_BUILD_BENCHMARKS=ON -DFIX_WARNINGS_AS_ERRORS=OFF
+            configure: cmake -S . -B build -DFIX_BUILD_BENCHMARKS=ON
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -62,18 +64,45 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build and run under UBSan
         run: |
-          for t in determinism_test transcendental_test exhaustive_test wide_time_test port_equality_test int128_test quantize_test geometry_test aabb_test usage_test inverse_envelope_test int256_division_test numerical_regression_test; do
-            for arm in "" "-DFIX_FORCE_EMULATED_INT128"; do
+          for t in determinism_test transcendental_test exhaustive_test wide_time_test wide_arith_test port_equality_test int128_test quantize_test geometry_test aabb_test usage_test inverse_envelope_test int256_division_test numerical_regression_test unsigned_negation_test; do
+            for arm in "" "-DFIX_FORCE_EMULATED_INT128" "-D_WIN32"; do
               clang -O2 -fsanitize=undefined -fno-sanitize-recover=all $arm \
                 -I include "test/$t.c" src/fixed_math.c src/fixed_vec.c -lm -o "/tmp/$t"
               "/tmp/$t"
             done
           done
-          for arm in "" "-DFIX_FORCE_EMULATED_INT128"; do
+          for arm in "" "-DFIX_FORCE_EMULATED_INT128" "-D_WIN32"; do
             clang -O2 -DFIX_SATURATE -fsanitize=undefined -fno-sanitize-recover=all $arm \
               -I include test/numerical_regression_test.c src/fixed_math.c src/fixed_vec.c -lm -o /tmp/numerical_saturated_test
             /tmp/numerical_saturated_test
             clang -O2 -DFIX_SATURATE -fsanitize=undefined -fno-sanitize-recover=all $arm \
               -I include test/saturate_test.c src/fixed_math.c src/fixed_vec.c -lm -o /tmp/saturate_test
             /tmp/saturate_test
+            clang -O2 -DFIX_SATURATE -fsanitize=undefined -fno-sanitize-recover=all $arm \
+              -I include test/wide_arith_test.c src/fixed_math.c src/fixed_vec.c -lm -o /tmp/wide_arith_saturated_test
+            /tmp/wide_arith_saturated_test
           done
+
+  # wasm32 (Emscripten, run under node): the same frozen hashes as every 64-bit arm, on both 128-bit arms (wasm32
+  # has a native __int128; fixed_emulated runs the pair), and the negative controls go red there too. moo runs on
+  # wasm32 bit-identical to 64-bit (moo docs/DETERMINISM.md), and its numbers are this library's.
+  wasm32:
+    name: wasm32
+    runs-on: ubuntu-latest
+    env:
+      EMSDK_VERSION: "6.0.13"
+    steps:
+      - uses: actions/checkout@v4
+      - name: emsdk
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
+          "$RUNNER_TEMP/emsdk/emsdk" install "$EMSDK_VERSION"
+          "$RUNNER_TEMP/emsdk/emsdk" activate "$EMSDK_VERSION"
+      - name: Configure, build and test under node
+        run: |
+          source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
+          emcc --version | head -1
+          node --version
+          emcmake cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+          ctest --test-dir build --output-on-failure --parallel 4

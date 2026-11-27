@@ -356,7 +356,7 @@ static REF_NOINLINE int32_t refNormalizeComponent30( int64_t raw, uint64_t lengt
 	// box3d: -raw, undefined at INT64_MIN; the unsigned negation is the same magnitude.
 	// The divide goes through fixInt128Div for the same reason the library's does --
 	// ClangCL has no 128-bit division builtin -- and agrees with / on these operands.
-	uint64_t magnitude = raw < 0 ? -(uint64_t)raw : (uint64_t)raw;
+	uint64_t magnitude = raw < 0 ? (uint64_t)0 - (uint64_t)raw : (uint64_t)raw;
 	fixUInt128 numerator =
 		fixUInt128Add( fixUInt128Shl( fixUInt128FromU64( magnitude ), 30 ), fixUInt128FromU64( length >> 1 ) );
 	uint64_t q = (uint64_t)fixInt128ToI64( fixInt128Div( fixInt128FromUnsigned( numerator ), fixInt128FromU64( length ) ) );

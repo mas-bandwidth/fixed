@@ -157,6 +157,7 @@ int main( void )
 #if defined( HAVE_REF_MULDIV )
         printf( "fixMulDiv: %d results against native __int128, known answers\n", checked );
 #else
+        (void)checked;
         printf( "fixMulDiv: no native __int128 on this compiler; known answers and the hash only\n" );
 #endif
         printf( "fixMulDiv determinism hash = 0x%016llx (%d mismatches)\n", (unsigned long long)fnv3, bad );

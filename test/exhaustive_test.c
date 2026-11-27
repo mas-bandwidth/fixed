@@ -62,8 +62,8 @@ __extension__ typedef unsigned __int128 refUInt128;
 // (which needs compiler-rt on Windows ClangCL) and avoiding the library's fixInt128Div.
 static refInt128 ref_div_128( refInt128 a, refInt128 b )
 {
-	refUInt128 un = a < 0 ? -(refUInt128)a : (refUInt128)a;
-	refUInt128 ud = b < 0 ? -(refUInt128)b : (refUInt128)b;
+	refUInt128 un = a < 0 ? (refUInt128)0 - (refUInt128)a : (refUInt128)a;
+	refUInt128 ud = b < 0 ? (refUInt128)0 - (refUInt128)b : (refUInt128)b;
 	refUInt128 q = 0;
 	refUInt128 r = 0;
 	for ( int i = 127; i >= 0; i-- )
